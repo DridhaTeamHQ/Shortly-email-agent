@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shortly Article Emailer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <a class="brand" href="#" aria-label="Shortly Article Emailer home">
+          <span class="brand-mark">S</span>
+          <span>Shortly</span>
+        </a>
+        <nav class="nav-list">
+          <a class="nav-item active" href="#compose">
+            <span class="nav-icon">+</span>
+            Compose
+          </a>
+          <a class="nav-item" href="#subscribers">
+            <span class="nav-icon">#</span>
+            Subscribers
+          </a>
+          <a class="nav-item" href="#scraper">
+            <span class="nav-icon">/</span>
+            Scraper
+          </a>
+          <a class="nav-item" href="#history">
+            <span class="nav-icon">=</span>
+            History
+          </a>
+        </nav>
+        <div class="sidebar-card">
+          <span class="status-dot"></span>
+          <strong>Agent ready</strong>
+          <p>One article enters the queue, subscribers receive one clean email.</p>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Article email agent</p>
+            <h1>Send scraped articles to every subscribed reader.</h1>
+          </div>
+          <button class="primary-button" id="sendButton" type="button">Send article</button>
+        </header>
+
+        <section class="metrics-grid" aria-label="Delivery metrics">
+          <article class="metric">
+            <span>Subscribed users</span>
+            <strong id="subscriberCount">0</strong>
+            <small>Loaded from Supabase</small>
+          </article>
+          <article class="metric">
+            <span>Current article</span>
+            <strong>1</strong>
+            <small>Single-send workflow</small>
+          </article>
+          <article class="metric">
+            <span>Delivery mode</span>
+            <strong>Batch</strong>
+            <small>All active subscribers</small>
+          </article>
+          <article class="metric accent">
+            <span>Status</span>
+            <strong id="agentStatus">Draft</strong>
+            <small>Waiting for article payload</small>
+          </article>
+        </section>
+
+        <section class="content-grid" id="compose">
+          <form class="panel composer" id="articleForm">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">One article</p>
+                <h2>Article payload</h2>
+              </div>
+              <span class="pill">Manual or scraper</span>
+            </div>
+
+            <label>
+              Title
+              <input id="title" name="title" type="text" placeholder="Paste or receive a scraped article title" required />
+            </label>
+
+            <label>
+              Source URL
+              <input id="url" name="url" type="url" placeholder="https://example.com/article" required />
+            </label>
+
+            <label>
+              Summary
+              <textarea id="summary" name="summary" rows="5" placeholder="A short useful summary for subscribers" required></textarea>
+            </label>
+
+            <div class="two-col">
+              <label>
+                Source
+                <input id="source" name="source" type="text" placeholder="TechCrunch" />
+              </label>
+              <label>
+                Topic
+                <input id="topic" name="topic" type="text" placeholder="AI, SaaS, Funding" />
+              </label>
+            </div>
+
+            <label>
+              Email note
+              <textarea id="note" name="note" rows="3" placeholder="Optional intro line above the article"></textarea>
+            </label>
+          </form>
+
+          <aside class="panel preview" aria-label="Email preview">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Preview</p>
+                <h2>Email card</h2>
+              </div>
+              <span class="pill live">Live</span>
+            </div>
+            <div class="email-preview">
+              <p class="preview-label" id="previewSource">Shortly Digest</p>
+              <h3 id="previewTitle">Your article title appears here</h3>
+              <p id="previewSummary">Add a summary and the preview will update before sending.</p>
+              <a id="previewLink" href="#" target="_blank" rel="noreferrer">Read article</a>
+            </div>
+          </aside>
+        </section>
+
+        <section class="content-grid lower">
+          <article class="panel" id="scraper">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Incoming scraper handoff</p>
+                <h2>Adapter contract</h2>
+              </div>
+              <span class="pill">Ready</span>
+            </div>
+            <div class="code-card">
+<pre><code>{
+  "title": "Article title",
+  "url": "https://source/article",
+  "summary": "Short subscriber-ready summary",
+  "source": "Publication",
+  "topic": "AI"
+}</code></pre>
+            </div>
+            <p class="muted">When you add the scraper, send this one-object payload to the Supabase Edge Function. The UI is already shaped around one article at a time.</p>
+          </article>
+
+          <article class="panel" id="subscribers">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Supabase list</p>
+                <h2>Subscriber flow</h2>
+              </div>
+              <span class="pill">Active only</span>
+            </div>
+            <ol class="steps">
+              <li>Read subscribers where <code>status = 'subscribed'</code>.</li>
+              <li>Store the article and create a delivery log.</li>
+              <li>Send one email per subscribed member.</li>
+              <li>Record sent or failed status for each recipient.</li>
+            </ol>
+          </article>
+        </section>
+
+        <section class="panel history-panel" id="history">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Recent activity</p>
+              <h2>Delivery log</h2>
+            </div>
+            <span class="pill">Sample</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Article</th>
+                  <th>Recipients</th>
+                  <th>Sent</th>
+                  <th>Failed</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Awaiting first scrape</td>
+                  <td>0</td>
+                  <td>0</td>
+                  <td>0</td>
+                  <td><span class="status-chip draft">Draft</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
