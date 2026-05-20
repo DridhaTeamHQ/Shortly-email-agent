@@ -1,0 +1,10 @@
+{
+  "name": "shortly-ai-emailer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/static-server.mjs",
+    "check": "node scripts/check-files.mjs"
+  },
+  "devDependencies": {}
+}
