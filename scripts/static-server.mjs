@@ -37,6 +37,34 @@ function loadEnv() {
 loadEnv();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const FROM_EMAIL = process.env.FROM_EMAIL || "Shortly Digest <onboarding@resend.dev>";
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+
+// Lazy nodemailer transporter — only created if SMTP_HOST is set.
+let _smtp = null;
+async function smtpTransporter() {
+  if (_smtp) return _smtp;
+  if (!SMTP_HOST) return null;
+  try {
+    const { default: nodemailer } = await import("nodemailer");
+    _smtp = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined
+    });
+    return _smtp;
+  } catch (e) {
+    console.error("[smtp] nodemailer not installed. Run: npm install");
+    throw e;
+  }
+}
+
+const emailMode = SMTP_HOST ? "smtp" : RESEND_API_KEY ? "resend" : "mock";
 
 // ---------- JSON store ----------
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
@@ -279,7 +307,7 @@ async function handleApi(req, res, pathname, url) {
     return json(res, { error: "bad action" }, 400);
   }
 
-  // POST /api/send-daily-digest — MOCK: writes preview HTML, marks articles sent
+  // POST /api/send-daily-digest — sends via Resend if RESEND_API_KEY set, else mock
   if (pathname === "/api/send-daily-digest" && req.method === "POST") {
     const db = readDb();
     const top = db.articles.filter(isApprovedToday).slice(0, DAILY_CAP);
@@ -293,17 +321,69 @@ async function handleApi(req, res, pathname, url) {
     const file = join(DATA_DIR, `digest-${Date.now()}.html`);
     writeFileSync(file, html);
 
+    const subject = `${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} — Shortly Digest`;
+
+    let sent = 0, failed = 0;
+    const failures = [];
+
+    if (emailMode === "smtp") {
+      const transporter = await smtpTransporter();
+      for (const sub of subs) {
+        try {
+          const info = await transporter.sendMail({
+            from: FROM_EMAIL,
+            to: sub.email,
+            subject,
+            html
+          });
+          sent++;
+          console.log(`[digest] SMTP sent to ${sub.email} (${info.messageId})`);
+        } catch (e) {
+          failed++;
+          failures.push({ email: sub.email, error: String(e?.message || e) });
+          console.log(`[digest] SMTP FAILED ${sub.email}: ${e?.message || e}`);
+        }
+      }
+    } else if (emailMode === "resend") {
+      for (const sub of subs) {
+        try {
+          const r = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ from: FROM_EMAIL, to: sub.email, subject, html })
+          });
+          const body = await r.json().catch(() => ({}));
+          if (r.ok) {
+            sent++;
+            console.log(`[digest] Resend sent to ${sub.email} (${body.id})`);
+          } else {
+            failed++;
+            failures.push({ email: sub.email, error: body.message || `Resend ${r.status}` });
+            console.log(`[digest] Resend FAILED ${sub.email}: ${JSON.stringify(body)}`);
+          }
+        } catch (e) {
+          failed++;
+          failures.push({ email: sub.email, error: String(e) });
+        }
+      }
+    } else {
+      sent = subs.length;
+      console.log(`[digest] MOCK — preview: ${file}`);
+    }
+
     top.forEach((a) => {
       a.status = "sent";
       a.sent_at = new Date().toISOString();
     });
     writeDb(db);
-    console.log(`[digest] mock-sent to ${subs.length} subscribers — preview: ${file}`);
+
     return json(res, {
-      mock: true,
+      mode: emailMode,
       articles: top.length,
       recipients: subs.length,
-      sent: subs.length,
+      sent,
+      failed,
+      failures,
       preview_file: file
     });
   }
@@ -375,5 +455,11 @@ createServer(async (req, res) => {
   createReadStream(filePath).pipe(res);
 }).listen(PORT, () => {
   console.log(`Shortly dev: http://localhost:${PORT}`);
-  console.log(`Model: ${MODEL}  |  daily cap: ${DAILY_CAP}  |  OpenAI key: ${Boolean(OPENAI_API_KEY)}`);
+  console.log(`Model: ${MODEL}  |  daily cap: ${DAILY_CAP}  |  OpenAI: ${Boolean(OPENAI_API_KEY)}`);
+  const emailLabel = {
+    smtp: `SMTP ${SMTP_HOST}:${SMTP_PORT} as ${SMTP_USER}`,
+    resend: `Resend (from ${FROM_EMAIL})`,
+    mock: "MOCK (no SMTP_HOST or RESEND_API_KEY)"
+  }[emailMode];
+  console.log(`Email: ${emailLabel}  |  From: ${FROM_EMAIL}`);
 });

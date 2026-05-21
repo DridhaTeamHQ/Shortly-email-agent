@@ -8,5 +8,8 @@
     "seed": "node scripts/seed.mjs",
     "reset": "node -e \"require('node:fs').rmSync('.devdata',{recursive:true,force:true});console.log('cleared .devdata');\""
   },
+  "dependencies": {
+    "nodemailer": "^8.0.7"
+  },
   "devDependencies": {}
 }
