@@ -1,3 +1,6 @@
+-- Shortly AI Emailer schema
+-- Subscribers, articles (with QA workflow), per-recipient delivery log, and daily digest log.
+
 create table if not exists public.subscribers (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
@@ -7,20 +10,36 @@ create table if not exists public.subscribers (
   updated_at timestamptz not null default now()
 );
 
+-- Articles flow: pending -> summarized -> approved | rejected -> sent
 create table if not exists public.articles (
   id uuid primary key default gen_random_uuid(),
   title text not null,
-  url text not null,
-  summary text not null,
+  url text not null unique,
+  raw_content text,
+  summary text,
+  edited_summary text,
   source text,
   topic text,
   note text,
+  status text not null default 'pending'
+    check (status in ('pending', 'summarized', 'approved', 'rejected', 'sent')),
+  rank_score numeric default 0,
+  scraped_at timestamptz not null default now(),
+  summarized_at timestamptz,
+  reviewed_at timestamptz,
+  reviewed_by text,
+  sent_at timestamptz,
   created_at timestamptz not null default now()
 );
 
+create index if not exists articles_status_idx on public.articles (status, scraped_at desc);
+create index if not exists articles_rank_idx on public.articles (rank_score desc);
+
+-- Per-subscriber delivery log
 create table if not exists public.article_deliveries (
   id uuid primary key default gen_random_uuid(),
-  article_id uuid not null references public.articles(id) on delete cascade,
+  article_id uuid references public.articles(id) on delete cascade,
+  digest_id uuid,
   subscriber_id uuid references public.subscribers(id) on delete set null,
   email text not null,
   status text not null check (status in ('sent', 'failed')),
@@ -29,9 +48,20 @@ create table if not exists public.article_deliveries (
   created_at timestamptz not null default now()
 );
 
+-- Daily digest log (one row per digest send)
+create table if not exists public.digests (
+  id uuid primary key default gen_random_uuid(),
+  sent_at timestamptz not null default now(),
+  article_ids uuid[] not null,
+  recipients int not null default 0,
+  sent int not null default 0,
+  failed int not null default 0
+);
+
 alter table public.subscribers enable row level security;
 alter table public.articles enable row level security;
 alter table public.article_deliveries enable row level security;
+alter table public.digests enable row level security;
 
 create policy "Service role can manage subscribers"
   on public.subscribers for all
@@ -45,5 +75,10 @@ create policy "Service role can manage articles"
 
 create policy "Service role can manage article deliveries"
   on public.article_deliveries for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+create policy "Service role can manage digests"
+  on public.digests for all
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');

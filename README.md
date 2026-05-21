@@ -1,58 +1,77 @@
 # Shortly AI Emailer
 
-A clean Shortly-style dashboard and Supabase email agent for sending one scraped article at a time to every active subscriber.
+Automated daily news digest with a QA-in-the-loop.
 
-## What is included
+**Pipeline:** RSS scrape → GPT-4o summarize → human QA (edit/approve/reject) → daily email with the top 10 approved stories to every active subscriber.
 
-- `index.html`, `styles.css`, `app.js`: static dashboard with article compose, scraper handoff, subscriber flow, and email preview.
-- `supabase/schema.sql`: subscribers, articles, and per-recipient delivery logs with service-role policies.
-- `supabase/functions/send-article/index.ts`: Supabase Edge Function that stores one article, fetches subscribed users, sends email through Resend, and logs delivery results.
-- `src/scraper-adapter.ts`: small adapter your scraper can call once it has one article payload.
+## What's in here
 
-## Article payload
+- `index.html`, `styles.css`, `app.js` — dashboard with **Compose**, **Review queue**, **Scraper**, **History** views.
+- `supabase/schema.sql` — subscribers, articles (with status workflow), per-recipient delivery log, digest log.
+- `supabase/cron.sql` — pg_cron schedule for scrape / summarize / send.
+- `supabase/functions/`
+  - `scrape-news` — pulls BBC, Reuters, AP, NYT RSS, dedupes by URL, inserts `pending` rows.
+  - `summarize-articles` — calls GPT-4o on pending rows, ranks top 50, promotes to `summarized`.
+  - `list-articles` — feeds the QA dashboard (`?status=summarized|approved|rejected|sent`).
+  - `review-article` — accepts `approve | reject | edit` actions from the dashboard.
+  - `send-daily-digest` — picks top 10 `approved` articles, renders one polished HTML email, fans out via Resend, logs deliveries, marks `sent`.
+  - `send-article` — legacy single-article send (still works for manual one-offs).
+- `src/scraper-adapter.ts` — adapter for external scrapers that already produce a finished payload.
 
-```json
-{
-  "title": "Article title",
-  "url": "https://source/article",
-  "summary": "Short subscriber-ready summary",
-  "source": "Publication",
-  "topic": "AI",
-  "note": "Optional intro note"
-}
+## Article status flow
+
+```
+pending  →  summarized  →  approved  →  sent
+                       ↘   rejected
 ```
 
-## Supabase setup
+## Setup
 
-1. Run `supabase/schema.sql` in your Supabase SQL editor.
-2. Deploy the function in `supabase/functions/send-article`.
-3. Set function secrets:
+1. `cp .env.example .env` and fill in real values.
+2. Run `supabase/schema.sql` in the Supabase SQL editor.
+3. Set function secrets (mirror your `.env`):
+   ```bash
+   supabase secrets set SUPABASE_URL="..." SUPABASE_SERVICE_ROLE_KEY="..." \
+     RESEND_API_KEY="..." FROM_EMAIL="Shortly Digest <digest@yourdomain.com>" \
+     OPENAI_API_KEY="..." OPENAI_MODEL="gpt-4o"
+   ```
+4. Deploy functions:
+   ```bash
+   supabase functions deploy scrape-news summarize-articles list-articles review-article send-daily-digest send-article
+   ```
+5. Edit `supabase/cron.sql` — replace `<PROJECT_REF>` and `<SERVICE_ROLE_KEY>` — then run it in the SQL editor.
+6. In `index.html` (or your hosting layer), inject the endpoints before `app.js`:
+   ```html
+   <script>
+     window.SHORTLY_LIST_ENDPOINT      = "https://YOUR_PROJECT.functions.supabase.co/list-articles";
+     window.SHORTLY_REVIEW_ENDPOINT    = "https://YOUR_PROJECT.functions.supabase.co/review-article";
+     window.SHORTLY_DIGEST_ENDPOINT    = "https://YOUR_PROJECT.functions.supabase.co/send-daily-digest";
+     window.SHORTLY_SCRAPE_ENDPOINT    = "https://YOUR_PROJECT.functions.supabase.co/scrape-news";
+     window.SHORTLY_SUMMARIZE_ENDPOINT = "https://YOUR_PROJECT.functions.supabase.co/summarize-articles";
+     window.SHORTLY_EMAIL_ENDPOINT     = "https://YOUR_PROJECT.functions.supabase.co/send-article";
+     window.SHORTLY_REVIEWER           = "qa-username";
+   </script>
+   ```
 
-```bash
-supabase secrets set SUPABASE_URL="https://YOUR_PROJECT.supabase.co"
-supabase secrets set SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY"
-supabase secrets set RESEND_API_KEY="YOUR_RESEND_KEY"
-supabase secrets set FROM_EMAIL="Shortly Digest <digest@yourdomain.com>"
-```
+## Default cron (UTC)
 
-## Connect the UI
+| Time  | Job                  | Function              |
+| ----- | -------------------- | --------------------- |
+| 07:00 | Scrape sources       | `scrape-news`         |
+| 07:30 | Summarize w/ GPT-4o  | `summarize-articles`  |
+| 15:00 | Send approved digest | `send-daily-digest`   |
 
-Add this before `app.js` in `index.html`, or inject it from your hosting layer:
+QA window: 07:30 – 15:00 UTC. Adjust to your team's timezone in `cron.sql`.
 
-```html
-<script>
-  window.SHORTLY_EMAIL_ENDPOINT = "https://YOUR_PROJECT.functions.supabase.co/send-article";
-</script>
-```
+## QA dashboard
 
-## Connect the scraper
+Open the dashboard → **Review queue** tab. For each `summarized` article you can:
+- Edit the summary inline → **Save edit**
+- **✓ Approve** (only approved articles get sent)
+- **✗ Reject** (article is dropped)
 
-After your scraping code creates one article object, call:
+Top of the panel has **Run scrape**, **Summarize**, and **Send today's digest** buttons for manual runs.
 
-```ts
-import { sendScrapedArticle } from "./src/scraper-adapter";
+## Sources
 
-await sendScrapedArticle(article, "https://YOUR_PROJECT.functions.supabase.co/send-article");
-```
-
-The function intentionally sends one article per request.
+Configured in `supabase/functions/_shared/sources.ts` — BBC, Reuters, AP, NYT (World, Business, Tech). Add more RSS URLs there.

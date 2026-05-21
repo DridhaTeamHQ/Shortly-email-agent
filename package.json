@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/static-server.mjs",
-    "check": "node scripts/check-files.mjs"
+    "check": "node scripts/check-files.mjs",
+    "seed": "node scripts/seed.mjs",
+    "reset": "node -e \"require('node:fs').rmSync('.devdata',{recursive:true,force:true});console.log('cleared .devdata');\""
   },
   "devDependencies": {}
 }
