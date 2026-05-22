@@ -24,9 +24,14 @@ function toast(msg) {
 }
 
 async function api(method, path, body) {
+  const headers = { "Content-Type": "application/json" };
+  if (cfg.anonKey) {
+    headers["apikey"] = cfg.anonKey;
+    headers["Authorization"] = `Bearer ${cfg.anonKey}`;
+  }
   const r = await fetch(path, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers,
     body: body ? JSON.stringify(body) : null
   });
   const data = await r.json().catch(() => ({}));

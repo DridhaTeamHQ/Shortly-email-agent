@@ -9,14 +9,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
     <script>
-      // Local dev endpoints (mocked by scripts/static-server.mjs).
-      // Replace with deployed Supabase function URLs in production.
       window.SHORTLY = {
-        list:        "/api/list-articles",
-        review:      "/api/review-article",
-        digest:      "/api/send-daily-digest",
-        submit:      "/api/submit-article",
-        subscribers: "/api/subscribers",
+        list:        "https://ygxdrphajvrbjcaxhvcn.functions.supabase.co/list-articles",
+        review:      "https://ygxdrphajvrbjcaxhvcn.functions.supabase.co/review-article",
+        digest:      "https://ygxdrphajvrbjcaxhvcn.functions.supabase.co/send-daily-digest",
+        submit:      "https://ygxdrphajvrbjcaxhvcn.functions.supabase.co/send-article",
+        subscribers: "https://ygxdrphajvrbjcaxhvcn.functions.supabase.co/subscribers",
+        anonKey:     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlneGRycGhhanZyYmpjYXhodmNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzNDU0MjEsImV4cCI6MjA5NDkyMTQyMX0.odfY4E1DCxjb8kaXOkax4c_VI96QrzhoIW7cF6WMbes",
         dailyCap:    10,
         reviewer:    "qa"
       };

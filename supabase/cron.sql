@@ -1,5 +1,5 @@
 -- pg_cron schedule for the Shortly daily pipeline.
--- Run AFTER schema.sql. Replace <PROJECT_REF> and <SERVICE_ROLE_KEY> below.
+-- Run AFTER schema.sql. Replace ygxdrphajvrbjcaxhvcn and <SERVICE_ROLE_KEY> below.
 -- The service role key is read by pg_net via a vault secret.
 
 create extension if not exists pg_cron;
@@ -23,7 +23,7 @@ begin
   where name = 'shortly_service_role_key';
 
   select net.http_post(
-    url := format('https://<PROJECT_REF>.functions.supabase.co/%s', fn),
+    url := format('https://ygxdrphajvrbjcaxhvcn.functions.supabase.co/%s', fn),
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', format('Bearer %s', key)

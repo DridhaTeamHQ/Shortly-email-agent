@@ -4,6 +4,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
+import { sendEmail } from "../_shared/mailer.ts";
 
 type Article = {
   id: string;
@@ -21,8 +22,6 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
-  const resendApiKey = requiredEnv("RESEND_API_KEY");
-  const fromEmail = Deno.env.get("FROM_EMAIL") ?? "Shortly Digest <digest@example.com>";
 
   // Pick top 10 approved by rank
   const { data: approved, error: approvedError } = await supabase
@@ -61,11 +60,9 @@ Deno.serve(async (request) => {
 
   for (const sub of subscribers) {
     const result = await sendEmail({
-      apiKey: resendApiKey,
-      from: fromEmail,
       to: sub.email,
       subject,
-      html: renderDigest(articles, sub)
+      html: renderDigest(articles, sub),
     });
     if (result.ok) sent++;
     else failed++;
@@ -90,20 +87,6 @@ Deno.serve(async (request) => {
   return json({ digestId, articles: articles.length, recipients: subscribers.length, sent, failed });
 });
 
-async function sendEmail(opts: { apiKey: string; from: string; to: string; subject: string; html: string }) {
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${opts.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: opts.from, to: opts.to, subject: opts.subject, html: opts.html })
-  });
-  const body = await response.json().catch(() => ({}));
-  return {
-    ok: response.ok,
-    messageId: body.id as string | undefined,
-    error: response.ok ? null : (body.message ?? `Resend ${response.status}`)
-  };
-}
-
 function escapeHtml(v = "") {
   return v
     .replaceAll("&", "&amp;")
@@ -125,39 +108,64 @@ function renderDigest(articles: Article[], sub: Subscriber): string {
   const items = articles
     .map((a, i) => {
       const text = (a.edited_summary || a.summary || "").trim();
-      const meta = [a.source, a.topic].filter(Boolean).map((s) => escapeHtml(s!)).join(" · ");
+      const meta = escapeHtml(a.topic ?? "Top story");
       return `
-        <tr><td style="padding:24px 0;border-bottom:1px solid #e6ecf2">
-          <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#2acfcf;font-weight:700;margin-bottom:6px">
-            ${String(i + 1).padStart(2, "0")} · ${meta || "Top story"}
-          </div>
-          <h2 style="font-size:20px;line-height:1.3;margin:0 0 10px;color:#242a45">
-            <a href="${escapeHtml(a.url)}" style="color:#242a45;text-decoration:none">${escapeHtml(a.title)}</a>
-          </h2>
-          <p style="font-size:15px;line-height:1.65;color:#4b5066;margin:0 0 12px">${escapeHtml(text)}</p>
-          <a href="${escapeHtml(a.url)}" style="font-size:14px;color:#1fa4ad;font-weight:600;text-decoration:none">Read full story →</a>
+        <tr><td style="padding:28px 0;border-bottom:1px solid #ede7f6">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
+            <td style="width:40px;vertical-align:top;padding-top:2px">
+              <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">
+                ${i + 1}
+              </div>
+            </td>
+            <td style="padding-left:14px">
+              <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px">
+                ${meta}
+              </div>
+              <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">
+                ${escapeHtml(a.title)}
+              </h2>
+              <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0">${escapeHtml(text)}</p>
+            </td>
+          </tr></table>
         </td></tr>
       `;
     })
     .join("");
 
   return `
-  <div style="margin:0;background:#f3f7fb;padding:32px 16px;font-family:Inter,Arial,sans-serif;color:#242a45">
-    <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;border:1px solid #dce7ef">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
-        <strong style="font-size:18px;color:#242a45">Shortly Digest</strong>
-        <span style="font-size:13px;color:#6a7188">${escapeHtml(today)}</span>
-      </div>
-      <p style="margin:0 0 8px;color:#4b5066">${greeting}</p>
-      <p style="margin:0 0 4px;color:#6a7188;font-size:14px;line-height:1.6">
-        Your ${articles.length}-story briefing of today's most important news, curated and summarized.
-      </p>
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px">
-        ${items}
+  <div style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
+    <div style="max-width:640px;margin:0 auto">
+
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#7c3aed;border-radius:0 0 16px 16px">
+        <tr><td style="padding:36px 32px 28px;text-align:center">
+          <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px">shortly</div>
+          <p style="margin:8px 0 0;color:#e0d4fc;font-size:13px;font-weight:500">${escapeHtml(today)}</p>
+        </td></tr>
       </table>
-      <p style="margin:28px 0 0;color:#9aa1b4;font-size:12px;text-align:center">
-        You're receiving this because you subscribed to Shortly Digest.
-      </p>
+
+      <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0;border:1px solid #e8e0f5">
+        <p style="margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">${greeting}</p>
+        <p style="margin:0 0 0;color:#6b6b8a;font-size:14px;line-height:1.6">
+          Here's your ${articles.length}-story briefing for today.
+        </p>
+      </div>
+
+      <div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+          ${items}
+        </table>
+      </div>
+
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:24px;margin-bottom:32px">
+        <tr><td style="text-align:center;padding:20px">
+          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px">shortly</div>
+          <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5">
+            Curated news, summarized daily.<br>
+            You're receiving this because you subscribed to Shortly.
+          </p>
+        </td></tr>
+      </table>
+
     </div>
   </div>`;
 }

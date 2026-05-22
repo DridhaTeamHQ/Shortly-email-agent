@@ -6,3 +6,5 @@ node_modules/
 !.env.example
 .devdata/
 .DS_Store
+supabase/.temp/
+.claude/

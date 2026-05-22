@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { sendEmail } from "../_shared/mailer.ts";
 
 type ArticlePayload = {
   title: string;
@@ -38,8 +39,6 @@ Deno.serve(async (request) => {
 
   const supabaseUrl = requiredEnv("SUPABASE_URL");
   const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const resendApiKey = requiredEnv("RESEND_API_KEY");
-  const fromEmail = Deno.env.get("FROM_EMAIL") ?? "Shortly Digest <digest@example.com>";
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
   const { data: subscribers, error: subscriberError } = await supabase
@@ -66,10 +65,9 @@ Deno.serve(async (request) => {
 
   for (const subscriber of subscribers as Subscriber[]) {
     const result = await sendEmail({
-      apiKey: resendApiKey,
-      from: fromEmail,
-      subscriber,
-      article
+      to: subscriber.email,
+      subject: article.title,
+      html: renderEmail(article, subscriber),
     });
 
     if (result.ok) {
@@ -109,34 +107,6 @@ function requiredEnv(name: string) {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`${name} is required`);
   return value;
-}
-
-async function sendEmail(options: {
-  apiKey: string;
-  from: string;
-  subscriber: Subscriber;
-  article: ArticlePayload;
-}) {
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${options.apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: options.from,
-      to: options.subscriber.email,
-      subject: options.article.title,
-      html: renderEmail(options.article, options.subscriber)
-    })
-  });
-
-  const body = await response.json().catch(() => ({}));
-  return {
-    ok: response.ok,
-    messageId: body.id,
-    error: response.ok ? null : body.message ?? `Resend returned ${response.status}`
-  };
 }
 
 function renderEmail(article: ArticlePayload, subscriber: Subscriber) {
