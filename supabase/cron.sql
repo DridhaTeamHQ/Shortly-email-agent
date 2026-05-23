@@ -35,12 +35,12 @@ begin
 end;
 $$;
 
--- 07:00 UTC: scrape sources
-select cron.schedule('shortly-scrape', '0 7 * * *', $$select public.invoke_edge('scrape-news');$$);
+-- 01:00 UTC (06:30 IST): scrape sources
+select cron.schedule('shortly-scrape', '0 1 * * *', $$select public.invoke_edge('scrape-news');$$);
 
--- 07:30 UTC: summarize pending articles with GPT-4o
-select cron.schedule('shortly-summarize', '30 7 * * *', $$select public.invoke_edge('summarize-articles');$$);
+-- 01:30 UTC (07:00 IST): summarize pending articles with GPT-4o
+select cron.schedule('shortly-summarize', '30 1 * * *', $$select public.invoke_edge('summarize-articles');$$);
 
--- 15:00 UTC: send the day's approved digest (10 articles).
--- The QA team has 07:30 -> 15:00 UTC to review.
-select cron.schedule('shortly-send', '0 15 * * *', $$select public.invoke_edge('send-daily-digest');$$);
+-- 03:30 UTC (09:00 IST): send the day's digest.
+-- QA window: 07:00 - 08:45 IST. Fallback auto-selects if QA didn't approve enough.
+select cron.schedule('shortly-send', '30 3 * * *', $$select public.invoke_edge('send-daily-digest');$$);

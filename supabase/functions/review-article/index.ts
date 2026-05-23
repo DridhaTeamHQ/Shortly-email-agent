@@ -10,14 +10,14 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  let body: { id?: string; action?: Action; edited_summary?: string; reviewer?: string };
+  let body: { id?: string; action?: Action; edited_summary?: string; reviewer?: string; section?: string };
   try {
     body = await request.json();
   } catch {
     return json({ error: "invalid JSON" }, 400);
   }
 
-  const { id, action, edited_summary, reviewer } = body;
+  const { id, action, edited_summary, reviewer, section } = body;
   if (!id) return json({ error: "id is required" }, 400);
   if (!action || !["approve", "reject", "edit"].includes(action))
     return json({ error: "action must be approve|reject|edit" }, 400);
@@ -28,6 +28,11 @@ Deno.serve(async (request) => {
     reviewed_at: new Date().toISOString(),
     reviewed_by: reviewer ?? null
   };
+
+  // Allow QA to set section (wrapped/ahead) on any action
+  if (section && ["wrapped", "ahead"].includes(section)) {
+    patch.section = section;
+  }
 
   if (action === "edit") {
     if (!edited_summary?.trim()) return json({ error: "edited_summary required for edit" }, 400);

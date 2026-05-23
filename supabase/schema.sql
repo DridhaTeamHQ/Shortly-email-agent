@@ -20,6 +20,7 @@ create table if not exists public.articles (
   edited_summary text,
   source text,
   topic text,
+  section text check (section in ('wrapped', 'ahead')),
   note text,
   status text not null default 'pending'
     check (status in ('pending', 'summarized', 'approved', 'rejected', 'sent')),

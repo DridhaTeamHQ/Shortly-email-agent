@@ -52,6 +52,7 @@ function approvedTodayCount() {
 
 function refreshChrome() {
   const approved = approvedTodayCount();
+  const counts = sectionCounts();
   const pending = state.articles.filter((a) => a.status === "summarized").length;
   const rejected = state.articles.filter((a) => a.status === "rejected").length;
   const subs = state.subscribers.filter((s) => s.status === "subscribed").length;
@@ -62,12 +63,13 @@ function refreshChrome() {
   $("#badgeSubs").textContent = subs;
 
   const send = $("#sendDigest");
-  send.textContent = `Send digest (${approved}/${DAILY_CAP})`;
-  send.disabled = approved < DAILY_CAP || subs === 0;
+  send.textContent = `Send digest (${counts.wrapped}W + ${counts.ahead}A)`;
+  // Allow sending even without full cap — fallback will auto-select remaining
+  send.disabled = approved === 0 || subs === 0;
 
   const titles = {
-    review: ["Review queue", `Approve up to ${DAILY_CAP} articles for today's digest.`],
-    approved: ["Approved", `Today's selection. ${approved}/${DAILY_CAP} ready.`],
+    review: ["Review queue", `Approve articles for today's digest. Wrapped: ${counts.wrapped}/5, Ahead: ${counts.ahead}/5`],
+    approved: ["Approved", `Today's selection. ${counts.wrapped} Wrapped + ${counts.ahead} Ahead = ${approved} total.`],
     rejected: ["Rejected", "Articles you removed from the queue."],
     subscribers: ["Subscribers", `${subs} active subscriber${subs === 1 ? "" : "s"}.`],
     scraper: ["Scraper handoff", "Submit one article — we summarize and queue it."]
@@ -77,6 +79,14 @@ function refreshChrome() {
   $("#sectionSub").textContent = sub;
 }
 
+function sectionCounts() {
+  const approved = state.articles.filter(isApprovedToday);
+  return {
+    wrapped: approved.filter((a) => a.section !== "ahead").length,
+    ahead: approved.filter((a) => a.section === "ahead").length
+  };
+}
+
 function cardHtml(a, mode) {
   const text = a.edited_summary || a.summary || "";
   const date = new Date(a.scraped_at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -84,33 +94,47 @@ function cardHtml(a, mode) {
   const source = a.source ? `<span class="source-pill">${esc(a.source)}</span>` : "";
   const topic = a.topic ? `<span class="topic-chip">${esc(a.topic)}</span>` : "";
   const atCap = approvedTodayCount() >= DAILY_CAP;
+  const sec = a.section || "wrapped";
+
+  // Section picker (wrapped / ahead)
+  const sectionPicker = mode !== "rejected" ? `
+    <div class="section-picker">
+      <label class="section-label">Section:</label>
+      <select data-role="section">
+        <option value="wrapped" ${sec === "wrapped" ? "selected" : ""}>Wrapped</option>
+        <option value="ahead" ${sec === "ahead" ? "selected" : ""}>Ahead</option>
+      </select>
+    </div>` : "";
 
   let actions = "";
   if (mode === "review") {
     actions = `
       <div class="actions">
+        ${sectionPicker}
         <button class="btn-save"    data-action="edit">Save edit</button>
-        <button class="btn-reject"  data-action="reject">✗ Reject</button>
+        <button class="btn-reject"  data-action="reject">Reject</button>
         <button class="btn-approve" data-action="approve" ${atCap ? "disabled" : ""}>
-          ${atCap ? "Limit reached" : "✓ Approve"}
+          ${atCap ? "Limit reached" : "Approve"}
         </button>
       </div>`;
   } else if (mode === "approved") {
     actions = `
       <div class="actions">
+        ${sectionPicker}
         <button class="btn-save"   data-action="edit">Save edit</button>
         <button class="btn-reject" data-action="reject">Remove</button>
       </div>`;
   }
 
+  const sectionTag = `<span class="tag section-${sec}">${sec}</span>`;
   const readonly = mode === "rejected" ? "readonly" : "";
   return `
     <article class="card" data-id="${a.id}">
       <header>
         <div class="card-head">
-          <div class="chips">${source}${topic}<span class="tag ${a.status}">${a.status}</span></div>
+          <div class="chips">${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
           <h3>${esc(a.title)}</h3>
-          <div class="meta">${date} · ${time} · <a href="${esc(a.url)}" target="_blank" rel="noreferrer">Open source ↗</a></div>
+          <div class="meta">${date} · ${time} · <a href="${esc(a.url)}" target="_blank" rel="noreferrer">Open source</a></div>
         </div>
       </header>
       <textarea data-role="summary" ${readonly}>${esc(text)}</textarea>
@@ -193,7 +217,8 @@ async function reload() {
 async function handleArticleAction(card, action) {
   const id = card.dataset.id;
   const summary = card.querySelector("textarea")?.value.trim();
-  const body = { id, action, reviewer: cfg.reviewer };
+  const section = card.querySelector("select[data-role=section]")?.value || "wrapped";
+  const body = { id, action, reviewer: cfg.reviewer, section };
   if (action === "edit" || action === "approve") body.edited_summary = summary;
   try {
     await api("POST", cfg.review, body);
@@ -307,14 +332,15 @@ $("#scrapeForm").addEventListener("submit", async (e) => {
 
 $("#sendDigest").addEventListener("click", async () => {
   const approved = approvedTodayCount();
-  if (approved < DAILY_CAP) {
-    toast(`Need ${DAILY_CAP} approved articles. Currently ${approved}.`);
-    return;
-  }
-  if (!confirm(`Send digest to ${state.subscribers.filter((s) => s.status === "subscribed").length} subscribers?`)) return;
+  const subCount = state.subscribers.filter((s) => s.status === "subscribed").length;
+  const fallbackMsg = approved < DAILY_CAP
+    ? `\n\nOnly ${approved}/${DAILY_CAP} approved — the rest will be auto-selected by rank.`
+    : "";
+  if (!confirm(`Send digest to ${subCount} subscribers?${fallbackMsg}`)) return;
   try {
     const res = await api("POST", cfg.digest);
-    toast(`Sent ${res.sent ?? res.articles ?? 0}.`);
+    const autoMsg = res.autoSelected ? " (with auto-selected articles)" : "";
+    toast(`Sent to ${res.sent ?? 0} subscribers${autoMsg}.`);
     await reload();
     showSection("review");
   } catch (e) {

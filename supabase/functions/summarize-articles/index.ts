@@ -18,7 +18,14 @@ STRICT RULES:
 - No editorializing, no opinions, no marketing language, no emoji, no quotes.
 - Preserve specific numbers, percentages, dates, currencies, and proper names.
 
-Return ONLY the summary text. Plain prose. No markdown, no preface, no labels.`;
+Also classify the article into one of two newsletter sections:
+- "wrapped" = something that already happened (event, announcement, result, decision, incident)
+- "ahead" = something upcoming, expected, or to watch out for (forecast, preview, scheduled event, trend)
+
+Return a valid JSON object with exactly two keys:
+{"summary": "Your 2-sentence summary here.", "section": "wrapped"}
+
+No markdown fences, no extra text. Just the JSON object.`;
 
 type Article = {
   id: string;
@@ -58,17 +65,17 @@ Deno.serve(async (request) => {
 
   // Summarize in parallel (capped) to keep within edge time budget
   const CONCURRENCY = 6;
-  const results: Array<{ id: string; summary: string | null; error?: string }> = [];
+  const results: Array<{ id: string; summary: string | null; section: string; error?: string }> = [];
 
   for (let i = 0; i < articles.length; i += CONCURRENCY) {
     const batch = articles.slice(i, i + CONCURRENCY);
     const settled = await Promise.all(
       batch.map(async (a) => {
         try {
-          const summary = await summarize(openAiKey, model, a);
-          return { id: a.id, summary };
+          const result = await summarize(openAiKey, model, a);
+          return { id: a.id, summary: result.summary, section: result.section };
         } catch (e) {
-          return { id: a.id, summary: null, error: String(e) };
+          return { id: a.id, summary: null, section: "wrapped", error: String(e) };
         }
       })
     );
@@ -87,6 +94,7 @@ Deno.serve(async (request) => {
       return {
         id: a.id,
         summary: r.summary!,
+        section: r.section,
         rank_score: score,
         status: "summarized",
         summarized_at: new Date().toISOString()
@@ -97,6 +105,7 @@ Deno.serve(async (request) => {
   for (const row of updates) {
     await supabase.from("articles").update({
       summary: row.summary,
+      section: row.section,
       rank_score: row.rank_score,
       status: row.status,
       summarized_at: row.summarized_at
@@ -135,7 +144,7 @@ Deno.serve(async (request) => {
   });
 });
 
-async function summarize(apiKey: string, model: string, article: Article): Promise<string> {
+async function summarize(apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string }> {
   const userPrompt = [
     `TITLE: ${article.title}`,
     article.source ? `SOURCE: ${article.source}` : null,
@@ -154,7 +163,7 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
     body: JSON.stringify({
       model,
       temperature: 0.3,
-      max_tokens: 180,
+      max_tokens: 250,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt }
@@ -168,7 +177,16 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
   }
 
   const body = await response.json();
-  const text = body?.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error("empty completion");
-  return text;
+  const raw = body?.choices?.[0]?.message?.content?.trim();
+  if (!raw) throw new Error("empty completion");
+
+  // Parse JSON response from GPT
+  try {
+    const parsed = JSON.parse(raw);
+    const section = parsed.section === "ahead" ? "ahead" : "wrapped";
+    return { summary: parsed.summary ?? raw, section };
+  } catch {
+    // Fallback: treat entire response as summary, default to wrapped
+    return { summary: raw, section: "wrapped" };
+  }
 }

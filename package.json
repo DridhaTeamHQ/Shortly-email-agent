@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "build": "node scripts/generate-config.js",
     "dev": "node scripts/static-server.mjs",
     "check": "node scripts/check-files.mjs",
     "seed": "node scripts/seed.mjs",

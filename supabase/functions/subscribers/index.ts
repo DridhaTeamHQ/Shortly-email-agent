@@ -80,7 +80,7 @@ async function sendWelcomeDigest(
 ) {
   const { data: articles } = await supabase
     .from("articles")
-    .select("title,url,summary,edited_summary,source,topic")
+    .select("title,url,summary,edited_summary,source,topic,section")
     .eq("status", "sent")
     .order("sent_at", { ascending: false })
     .limit(10);
@@ -92,11 +92,13 @@ async function sendWelcomeDigest(
     weekday: "long", month: "long", day: "numeric", year: "numeric",
   });
 
-  const items = articles
-    .map((a: Record<string, string | null>, i: number) => {
+  type WelcomeArticle = Record<string, string | null>;
+
+  function renderItems(list: WelcomeArticle[]): string {
+    return list.map((a, i) => {
       const text = (a.edited_summary || a.summary || "").trim();
       const meta = escapeHtml((a.topic as string) ?? "Top story");
-      return `<tr><td style="padding:28px 0;border-bottom:1px solid #ede7f6">
+      return `<tr><td style="padding:24px 0;${i < list.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
           <td style="width:40px;vertical-align:top;padding-top:2px">
             <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">
@@ -114,8 +116,36 @@ async function sendWelcomeDigest(
           </td>
         </tr></table>
       </td></tr>`;
-    })
-    .join("");
+    }).join("");
+  }
+
+  function renderSection(title: string, subtitle: string, list: WelcomeArticle[]): string {
+    if (list.length === 0) return "";
+    return `
+      <div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5;margin-bottom:16px">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+          <tr><td style="padding:24px 0 4px">
+            <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px">${escapeHtml(title)}</h2>
+            <p style="margin:0;font-size:13px;color:#9a9ab0;font-weight:500">${escapeHtml(subtitle)}</p>
+          </td></tr>
+          <tr><td><div style="border-top:2px solid #7c3aed;margin:12px 0 0"></div></td></tr>
+          ${renderItems(list)}
+        </table>
+      </div>`;
+  }
+
+  // Split into sections
+  const wrapped = articles.filter((a: WelcomeArticle) => a.section !== "ahead").slice(0, 5);
+  const ahead = articles.filter((a: WelcomeArticle) => a.section === "ahead").slice(0, 5);
+  // If not enough in one section, fill from the other
+  if (wrapped.length < 5) {
+    const extra = articles.filter((a: WelcomeArticle) => !wrapped.includes(a) && !ahead.includes(a));
+    wrapped.push(...extra.slice(0, 5 - wrapped.length));
+  }
+  if (ahead.length < 5) {
+    const extra = articles.filter((a: WelcomeArticle) => !wrapped.includes(a) && !ahead.includes(a));
+    ahead.push(...extra.slice(0, 5 - ahead.length));
+  }
 
   const html = `
   <div style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
@@ -128,20 +158,18 @@ async function sendWelcomeDigest(
         </td></tr>
       </table>
 
-      <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0;border:1px solid #e8e0f5">
+      <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0 16px;border:1px solid #e8e0f5">
         <p style="margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">${greeting}</p>
         <p style="margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
-          Welcome to Shortly! Here's your first digest — today's most important news, curated and summarized.
+          Welcome to Shortly! We read everything &mdash; so you get only what matters.<br>
+          Here's your quick news update for the day.
         </p>
       </div>
 
-      <div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-          ${items}
-        </table>
-      </div>
+      ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
+      ${renderSection("Shortly Ahead", `${ahead.length} stories to look out for`, ahead)}
 
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:24px;margin-bottom:32px">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
         <tr><td style="text-align:center;padding:20px">
           <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px">shortly</div>
           <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5">
