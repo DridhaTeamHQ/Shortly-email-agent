@@ -1,7 +1,6 @@
-// send-daily-digest: Two-section newsletter with fallback auto-select.
-// Section 1: "Shortly Wrapped" — 5 stories to catch up on
-// Section 2: "Shortly Ahead"   — 5 stories to look out for
-// Guarantees at least 1 finance/business article per section.
+// send-daily-digest: Single-section newsletter with fallback auto-select.
+// Sends 10 stories in one "Shortly Wrapped" section.
+// Guarantees at least 1 finance/business article when possible.
 // Fallback: if QA hasn't approved enough, auto-selects from summarized pool.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -23,55 +22,22 @@ type Article = {
 
 type Subscriber = { id: string; email: string; full_name: string | null };
 
-const SECTION_SIZE = 5;
-const TOTAL_ARTICLES = SECTION_SIZE * 2;
+const TOTAL_ARTICLES = 10;
 const FINANCE_TOPICS = ["business", "india business", "finance", "economy", "markets"];
 
 function isFinance(a: Article): boolean {
   return FINANCE_TOPICS.includes((a.topic ?? "").toLowerCase());
 }
 
-/** Split articles into wrapped (5) and ahead (5), guaranteeing 1 finance each. */
-function splitSections(articles: Article[]): { wrapped: Article[]; ahead: Article[] } {
-  const wrapped: Article[] = [];
-  const ahead: Article[] = [];
+function normalizeWrapped(articles: Article[]): Article[] {
+  const wrapped = articles.slice(0, TOTAL_ARTICLES);
+  if (wrapped.some(isFinance)) return wrapped;
 
-  // First pass: place articles by their GPT-assigned section
-  for (const a of articles) {
-    if (a.section === "ahead" && ahead.length < SECTION_SIZE) ahead.push(a);
-    else if (wrapped.length < SECTION_SIZE) wrapped.push(a);
-    else if (ahead.length < SECTION_SIZE) ahead.push(a);
+  const spare = articles.find((a) => isFinance(a) && !wrapped.some((used) => used.id === a.id));
+  if (spare && wrapped.length > 0) {
+    wrapped[wrapped.length - 1] = spare;
   }
-
-  // Guarantee 1 finance per section
-  ensureFinance(wrapped, ahead, articles);
-  ensureFinance(ahead, wrapped, articles);
-
-  return { wrapped, ahead };
-}
-
-/** If `target` has no finance article, swap one in from `other` or pool. */
-function ensureFinance(target: Article[], other: Article[], pool: Article[]) {
-  if (target.some(isFinance)) return;
-
-  // Try to find a finance article in the other section that we can swap
-  const finIdx = other.findIndex(isFinance);
-  if (finIdx !== -1) {
-    const finArticle = other.splice(finIdx, 1)[0];
-    const nonFin = target.pop();
-    target.unshift(finArticle);
-    if (nonFin) other.push(nonFin);
-    return;
-  }
-
-  // Fallback: find any finance article from pool not already used
-  const usedIds = new Set([...target, ...other].map((a) => a.id));
-  const spare = pool.find((a) => isFinance(a) && !usedIds.has(a.id));
-  if (spare) {
-    const nonFin = target.pop();
-    target.unshift(spare);
-    if (nonFin && other.length < SECTION_SIZE) other.push(nonFin);
-  }
+  return wrapped;
 }
 
 Deno.serve(async (request) => {
@@ -106,7 +72,7 @@ Deno.serve(async (request) => {
       .limit(need + 10); // grab extra for finance guarantee
 
     const extras = ((fallback ?? []) as Article[]).filter((a) => !usedIds.includes(a.id));
-    articles = [...articles, ...extras].slice(0, 20);
+    articles = [...articles, ...extras].slice(0, TOTAL_ARTICLES);
     autoSelected = extras.length > 0;
 
     // Auto-approve the fallback articles
@@ -121,10 +87,9 @@ Deno.serve(async (request) => {
 
   if (articles.length === 0) return json({ error: "No articles available to send" }, 400);
 
-  // Cap at 10 and split into sections
-  articles = articles.slice(0, TOTAL_ARTICLES);
-  const { wrapped, ahead } = splitSections(articles);
-  const allArticles = [...wrapped, ...ahead];
+  // Cap at 10 and keep a single wrapped section
+  const wrapped = normalizeWrapped(articles);
+  const allArticles = wrapped;
 
   // 3. Subscribers
   const { data: subs, error: subError } = await supabase
@@ -151,7 +116,7 @@ Deno.serve(async (request) => {
   let failed = 0;
 
   for (const sub of subscribers) {
-    const html = await renderDigest(wrapped, ahead, sub);
+    const html = await renderDigest(wrapped, sub);
     const result = await sendEmail({
       to: sub.email,
       subject,
@@ -180,7 +145,6 @@ Deno.serve(async (request) => {
   return json({
     digestId,
     wrapped: wrapped.length,
-    ahead: ahead.length,
     recipients: subscribers.length,
     sent,
     failed,
@@ -213,13 +177,13 @@ function renderItems(articles: Article[]): string {
               </div>
             </td>
             <td style="padding-left:14px">
-              <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px">
+              <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px;font-family:Roboto,Arial,sans-serif">
                 ${meta}
               </div>
-              <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">
+              <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
                 ${escapeHtml(a.title)}
               </h2>
-              <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0">${escapeHtml(text)}</p>
+              <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</p>
             </td>
           </tr></table>
         </td></tr>`;
@@ -233,8 +197,8 @@ function renderSectionBlock(title: string, subtitle: string, articles: Article[]
       <div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5;margin-bottom:16px">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
           <tr><td style="padding:24px 0 4px">
-            <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px">${escapeHtml(title)}</h2>
-            <p style="margin:0;font-size:13px;color:#9a9ab0;font-weight:500">${escapeHtml(subtitle)}</p>
+            <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px;font-family:Roboto,Arial,sans-serif">${escapeHtml(title)}</h2>
+            <p style="margin:0;font-size:13px;color:#9a9ab0;font-weight:500;font-family:Roboto,Arial,sans-serif">${escapeHtml(subtitle)}</p>
           </td></tr>
           <tr><td><div style="border-top:2px solid #7c3aed;margin:12px 0 0"></div></td></tr>
           ${renderItems(articles)}
@@ -242,8 +206,8 @@ function renderSectionBlock(title: string, subtitle: string, articles: Article[]
       </div>`;
 }
 
-async function renderDigest(wrapped: Article[], ahead: Article[], sub: Subscriber): Promise<string> {
-  const greeting = sub.full_name ? `Hi ${escapeHtml(sub.full_name)},` : "Hi there,";
+async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string> {
+  const greeting = sub.full_name ? `Hey ${escapeHtml(sub.full_name)},` : "Hey there,";
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -252,8 +216,7 @@ async function renderDigest(wrapped: Article[], ahead: Article[], sub: Subscribe
   });
 
   // Read time estimate
-  const allArticles = [...wrapped, ...ahead];
-  const totalWords = allArticles.reduce((sum, a) => {
+  const totalWords = wrapped.reduce((sum, a) => {
     const text = (a.edited_summary || a.summary || "").trim();
     return sum + text.split(/\s+/).filter(Boolean).length;
   }, 0);
@@ -271,44 +234,46 @@ async function renderDigest(wrapped: Article[], ahead: Article[], sub: Subscribe
   const whatsappUrl = `https://wa.me/?text=${shareText}`;
 
   return `
-  <div style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
+  <div style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#7c3aed;border-radius:0 0 16px 16px">
         <tr><td style="padding:36px 32px 28px;text-align:center">
-          <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px">shortly</div>
-          <p style="margin:8px 0 0;color:#e0d4fc;font-size:13px;font-weight:500">${escapeHtml(today)}</p>
+          <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;font-family:Roboto,Arial,sans-serif">shortly</div>
+          <p style="margin:8px 0 0;color:#e0d4fc;font-size:13px;font-weight:500;font-family:Roboto,Arial,sans-serif">${escapeHtml(today)}</p>
         </td></tr>
       </table>
 
       <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0 16px;border:1px solid #e8e0f5">
-        <p style="margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">${greeting}</p>
-        <p style="margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
-          We read everything &mdash; so you get only what matters.<br>
-          Here's your quick news update for the day.
-          <span style="display:inline-block;margin-left:8px;padding:2px 10px;background:#f0ecfa;border-radius:12px;font-size:12px;color:#7c3aed;font-weight:600">${readTime} min read</span>
+        <p style="margin:0 0 12px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
+          ${greeting}
         </p>
+        <p style="margin:0;color:#6b6b8a;font-size:18px;line-height:1.6;font-weight:400;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
+          Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!
+        </p>
+        <div style="margin-top:18px;display:inline-block;padding:6px 16px;background:#f0ecfa;border:1px solid #e8e0f5;border-radius:999px;font-size:12px;color:#7c3aed;font-weight:600;font-family:Roboto,Arial,sans-serif">
+          ${readTime} min read
+        </div>
       </div>
 
       ${renderSectionBlock("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
-      ${renderSectionBlock("Shortly Ahead", `${ahead.length} stories to look out for`, ahead)}
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
         <tr><td style="text-align:center;padding:20px">
-          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px">shortly</div>
-          <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5">
+          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px;font-family:Roboto,Arial,sans-serif">shortly</div>
+          <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
           </p>
-          <p style="margin:16px 0 0;font-size:13px;line-height:1.5">
-            <a href="${twitterUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600">Share on X</a>
+          <p style="margin:16px 0 0;font-size:13px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
+            <a href="${twitterUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">Share on X</a>
             &nbsp;&nbsp;|&nbsp;&nbsp;
-            <a href="${linkedinUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600">LinkedIn</a>
+            <a href="${linkedinUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">LinkedIn</a>
             &nbsp;&nbsp;|&nbsp;&nbsp;
-            <a href="${whatsappUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600">WhatsApp</a>
+            <a href="${whatsappUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">WhatsApp</a>
           </p>
           <p style="margin:12px 0 0;">
-            <a href="${unsubUrl}" style="color:#9a9ab0;font-size:11px;text-decoration:underline">Unsubscribe</a>
+            <a href="${unsubUrl}" style="color:#9a9ab0;font-size:11px;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Unsubscribe</a>
           </p>
         </td></tr>
       </table>

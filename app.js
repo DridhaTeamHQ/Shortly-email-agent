@@ -64,8 +64,7 @@ function approvedTodayCount() {
 function sectionCounts() {
   const approved = state.articles.filter(isApprovedToday);
   return {
-    wrapped: approved.filter((a) => a.section !== "ahead").length,
-    ahead: approved.filter((a) => a.section === "ahead").length
+    wrapped: approved.length
   };
 }
 
@@ -111,15 +110,15 @@ function refreshChrome() {
   $("#badgeSubs").textContent = subs;
 
   const send = $("#sendDigest");
-  send.textContent = `Send (${counts.wrapped}W + ${counts.ahead}A)`;
+  send.textContent = `Send (${counts.wrapped})`;
   send.disabled = approved === 0 || subs === 0;
 
   const preview = $("#previewDigest");
   preview.style.display = approved > 0 ? "" : "none";
 
   const titles = {
-    review: ["Review queue", `Wrapped: ${counts.wrapped}/5 | Ahead: ${counts.ahead}/5 | ${pending} pending`],
-    approved: ["Approved", `${counts.wrapped} Wrapped + ${counts.ahead} Ahead = ${approved} total`],
+    review: ["Review queue", `Wrapped: ${counts.wrapped}/${DAILY_CAP} | ${pending} pending`],
+    approved: ["Approved", `${counts.wrapped} Wrapped article${counts.wrapped === 1 ? "" : "s"} ready`],
     rejected: ["Rejected", `${rejected} articles removed from queue`],
     history: ["Digest History", "All past digests and delivery stats"],
     analytics: ["Analytics", "Overview of your newsletter performance"],
@@ -145,7 +144,7 @@ function cardHtml(a, mode) {
   const time = new Date(a.scraped_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   const source = a.source ? `<span class="source-pill">${esc(a.source)}</span>` : "";
   const topic = a.topic ? `<span class="topic-chip">${esc(a.topic)}</span>` : "";
-  const sec = a.section || "wrapped";
+  const sec = "wrapped";
   const atCap = approvedTodayCount() >= DAILY_CAP;
   const checked = state.selected.has(a.id) ? "checked" : "";
   const draggable = mode === "approved" ? 'draggable="true"' : "";
@@ -154,9 +153,8 @@ function cardHtml(a, mode) {
   const sectionPicker = mode !== "rejected" ? `
     <div class="section-picker">
       <label class="section-label">Section:</label>
-      <select data-role="section">
-        <option value="wrapped" ${sec === "wrapped" ? "selected" : ""}>Wrapped</option>
-        <option value="ahead" ${sec === "ahead" ? "selected" : ""}>Ahead</option>
+      <select data-role="section" disabled>
+        <option value="wrapped" selected>Wrapped</option>
       </select>
     </div>` : "";
 
@@ -493,8 +491,7 @@ function generatePreviewHtml() {
   const approved = state.articles.filter(isApprovedToday);
   if (approved.length === 0) return "<p>No articles approved yet.</p>";
 
-  const wrapped = approved.filter((a) => (a.section || "wrapped") !== "ahead").slice(0, 5);
-  const ahead = approved.filter((a) => a.section === "ahead").slice(0, 5);
+  const wrapped = approved.slice(0, DAILY_CAP);
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric"
@@ -510,9 +507,9 @@ function generatePreviewHtml() {
             <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">${i + 1}</div>
           </td>
           <td style="padding-left:14px">
-            <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px">${meta}</div>
-            <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">${esc(a.title)}</h2>
-            <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0">${esc(text)}</p>
+            <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px;font-family:Roboto,Arial,sans-serif">${meta}</div>
+            <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${esc(a.title)}</h2>
+            <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0;font-family:Roboto,Arial,sans-serif">${esc(text)}</p>
           </td>
         </tr></table>
       </td></tr>`;
@@ -524,8 +521,8 @@ function generatePreviewHtml() {
     return `<div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5;margin-bottom:16px">
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
         <tr><td style="padding:24px 0 4px">
-          <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px">${esc(title)}</h2>
-          <p style="margin:0;font-size:13px;color:#9a9ab0;font-weight:500">${esc(subtitle)}</p>
+          <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px;font-family:Roboto,Arial,sans-serif">${esc(title)}</h2>
+          <p style="margin:0;font-size:13px;color:#9a9ab0;font-weight:500;font-family:Roboto,Arial,sans-serif">${esc(subtitle)}</p>
         </td></tr>
         <tr><td><div style="border-top:2px solid #7c3aed;margin:12px 0 0"></div></td></tr>
         ${renderItems(articles)}
@@ -534,45 +531,43 @@ function generatePreviewHtml() {
   }
 
   // Calculate read time
-  const allText = [...wrapped, ...ahead].map((a) => a.edited_summary || a.summary || "").join(" ");
+  const allText = wrapped.map((a) => a.edited_summary || a.summary || "").join(" ");
   const wordCount = allText.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.ceil(wordCount / 200));
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
-  <body style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
+  <body style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#7c3aed;border-radius:0 0 16px 16px">
         <tr><td style="padding:36px 32px 28px;text-align:center">
-          <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px">shortly</div>
-          <p style="margin:8px 0 0;color:#e0d4fc;font-size:13px;font-weight:500">${esc(today)}</p>
+          <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;font-family:Roboto,Arial,sans-serif">shortly</div>
+          <p style="margin:8px 0 0;color:#e0d4fc;font-size:13px;font-weight:500;font-family:Roboto,Arial,sans-serif">${esc(today)}</p>
         </td></tr>
       </table>
       <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0 16px;border:1px solid #e8e0f5">
-        <p style="margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">Hi there,</p>
-        <p style="margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
-          We read everything &mdash; so you get only what matters.<br>
-          Here's your quick news update for the day.
+        <p style="margin:0 0 12px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">Hey there,</p>
+        <p style="margin:0;color:#6b6b8a;font-size:18px;line-height:1.6;font-weight:400;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
+          Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!
         </p>
-        <div style="margin-top:12px;display:inline-block;background:#f5f3ff;border:1px solid #e8e0f5;border-radius:20px;padding:4px 14px;font-size:12px;color:#7c3aed;font-weight:600">
+        <div style="margin-top:18px;display:inline-block;background:#f5f3ff;border:1px solid #e8e0f5;border-radius:20px;padding:6px 16px;font-size:12px;color:#7c3aed;font-weight:600;font-family:Roboto,Arial,sans-serif">
           ${readTime} min read
         </div>
       </div>
       ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
-      ${renderSection("Shortly Ahead", `${ahead.length} stories to look out for`, ahead)}
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
         <tr><td style="text-align:center;padding:20px">
-          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px">shortly</div>
-          <p style="margin:0 0 12px;color:#9a9ab0;font-size:12px;line-height:1.5">
+          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px;font-family:Roboto,Arial,sans-serif">shortly</div>
+          <p style="margin:0 0 12px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
           </p>
-          <p style="margin:0;font-size:12px;color:#9a9ab0">
-            <a href="#" style="color:#7c3aed;text-decoration:underline">Share on X</a> &nbsp;|&nbsp;
-            <a href="#" style="color:#7c3aed;text-decoration:underline">LinkedIn</a> &nbsp;|&nbsp;
-            <a href="#" style="color:#7c3aed;text-decoration:underline">WhatsApp</a>
+          <p style="margin:0;font-size:12px;color:#9a9ab0;font-family:Roboto,Arial,sans-serif">
+            <a href="#" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Share on X</a> &nbsp;|&nbsp;
+            <a href="#" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">LinkedIn</a> &nbsp;|&nbsp;
+            <a href="#" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">WhatsApp</a>
           </p>
           <p style="margin:12px 0 0;font-size:11px;color:#b0b0c0">
-            <a href="#" style="color:#b0b0c0;text-decoration:underline">Unsubscribe</a>
+            <a href="#" style="color:#b0b0c0;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Unsubscribe</a>
           </p>
         </td></tr>
       </table>
