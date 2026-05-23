@@ -325,8 +325,20 @@ function renderAll() {
 
 // ---------- data loaders ----------
 async function loadArticles() {
-  const data = await api("GET", `${cfg.list}?status=all&limit=200`);
-  state.articles = data.articles || [];
+  // Load each relevant status separately to avoid high-rank pending articles
+  // pushing summarized articles past the limit
+  const [review, approved, rejected, sent] = await Promise.all([
+    api("GET", `${cfg.list}?status=summarized&limit=100`),
+    api("GET", `${cfg.list}?status=approved&limit=50`),
+    api("GET", `${cfg.list}?status=rejected&limit=50`),
+    api("GET", `${cfg.list}?status=sent&limit=100`)
+  ]);
+  // Merge and dedupe by id
+  const map = new Map();
+  [review, approved, rejected, sent].forEach((res) => {
+    (res.articles || []).forEach((a) => map.set(a.id, a));
+  });
+  state.articles = [...map.values()];
 }
 
 async function loadSubscribers() {
