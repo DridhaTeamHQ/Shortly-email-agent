@@ -708,6 +708,49 @@ $("#subForm").addEventListener("submit", async (e) => {
   }
 });
 
+// Fetch Today button — scrape + summarize in one click
+$("#fetchToday").addEventListener("click", async () => {
+  const btn = $("#fetchToday");
+  const btnText = $("#fetchBtnText");
+  const resultBox = $("#fetchResult");
+  btn.disabled = true;
+  resultBox.classList.add("hidden");
+
+  try {
+    // Step 1: Scrape RSS feeds
+    btnText.innerHTML = `<span class="spinner"></span> Scraping feeds...`;
+    const scrapeRes = await api("POST", cfg.scrape, {});
+    const scrapeInfo = `Scraped ${scrapeRes.scraped ?? 0} articles, ${scrapeRes.inserted ?? 0} new.`;
+
+    // Step 2: Summarize with GPT-4o
+    btnText.innerHTML = `<span class="spinner"></span> Summarizing...`;
+    const sumRes = await api("POST", cfg.summarize, {});
+    const sumInfo = `Summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, Failed: ${sumRes.failed ?? 0}`;
+
+    // Step 3: Second summarize pass for rate-limited articles
+    if (sumRes.failed > 0) {
+      btnText.innerHTML = `<span class="spinner"></span> Retry (${sumRes.failed} remaining)...`;
+      const retryRes = await api("POST", cfg.summarize, {});
+      const retryInfo = `Retry: ${retryRes.summarized ?? 0} more summarized.`;
+      resultBox.textContent = `${scrapeInfo}\n${sumInfo}\n${retryInfo}`;
+    } else {
+      resultBox.textContent = `${scrapeInfo}\n${sumInfo}`;
+    }
+
+    resultBox.classList.remove("hidden");
+    await reload();
+    showSection("review");
+    toast(`Done! ${sumRes.summarized ?? 0} articles ready for review.`);
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+    resultBox.textContent = `Error: ${e.message}`;
+    resultBox.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btnText.textContent = "Fetch & Summarize";
+  }
+});
+
 // Scraper form
 $("#scrapeForm").addEventListener("submit", async (e) => {
   e.preventDefault();

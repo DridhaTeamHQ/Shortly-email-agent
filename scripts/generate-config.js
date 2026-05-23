@@ -22,6 +22,8 @@ window.SHORTLY = {
   digest:      "${functionsBase}/send-daily-digest",
   submit:      "${functionsBase}/send-article",
   subscribers: "${functionsBase}/subscribers",
+  scrape:      "${functionsBase}/scrape-news",
+  summarize:   "${functionsBase}/summarize-articles",
   anonKey:     "${anonKey}",
   dailyCap:    ${parseInt(dailyCap, 10)},
   reviewer:    "qa"

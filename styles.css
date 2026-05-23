@@ -282,6 +282,36 @@ a:hover { text-decoration: underline; }
 .dot.bounced      { background: var(--red); }
 
 /* ── Scraper Form ── */
+/* ── Fetch Today Card ── */
+.fetch-today-card {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--purple-soft); border: 1px solid var(--purple-line);
+  border-radius: var(--radius); padding: 20px 24px; gap: 16px;
+  margin-bottom: 16px;
+}
+.fetch-today-info h3 { font-size: 16px; font-weight: 700; color: var(--ink); }
+.btn-fetch {
+  white-space: nowrap; min-width: 180px; padding: 12px 24px;
+  font-size: 14px; font-weight: 700; letter-spacing: 0.02em;
+}
+.btn-fetch:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-fetch .spinner {
+  display: inline-block; width: 16px; height: 16px;
+  border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: middle; margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.fetch-progress {
+  margin-top: 12px; font-size: 13px; color: var(--muted);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px 16px;
+}
+.fetch-progress .step { margin: 4px 0; }
+.fetch-progress .step.done { color: var(--green); }
+.fetch-progress .step.active { color: var(--purple); font-weight: 600; }
+.fetch-progress .step.waiting { color: var(--muted); }
+
 .scrape-form {
   display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
   background: var(--surface); border: 1px solid var(--line);
@@ -370,6 +400,8 @@ a:hover { text-decoration: underline; }
   .card .actions button { flex: 1; padding: 10px 8px; font-size: 12px; }
   .sub-form { flex-direction: column; }
   .sub-form button { width: 100%; }
+  .fetch-today-card { flex-direction: column; text-align: center; padding: 16px; }
+  .btn-fetch { width: 100%; min-width: unset; }
   .scrape-form { grid-template-columns: 1fr; padding: 16px; }
   .scrape-form button { width: 100%; justify-self: stretch; }
   .table-wrap { overflow-x: auto; }

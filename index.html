@@ -160,8 +160,21 @@
 
         <!-- SCRAPER -->
         <section class="section" data-section="scraper">
+          <div class="fetch-today-card">
+            <div class="fetch-today-info">
+              <h3 style="margin:0 0 4px">Fetch today's articles</h3>
+              <p class="muted" style="margin:0;font-size:13px">Scrape RSS feeds, summarize with GPT-4o, and load articles into the review queue.</p>
+            </div>
+            <button class="btn-primary btn-fetch" id="fetchToday">
+              <span id="fetchBtnText">Fetch &amp; Summarize</span>
+            </button>
+          </div>
+          <pre id="fetchResult" class="code-card hidden"></pre>
+
+          <div class="nav-divider" style="margin:24px 0"></div>
+
           <p class="muted" style="margin:0 0 12px">
-            Submit one article at a time. The server will summarize it with GPT-4o and add it to the review queue.
+            Or submit one article manually. The server will summarize it with GPT-4o and add it to the review queue.
           </p>
           <form id="scrapeForm" class="scrape-form">
             <label>Title <input id="scTitle" type="text" required placeholder="Article title" /></label>
