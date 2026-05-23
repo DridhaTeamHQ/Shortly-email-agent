@@ -19,8 +19,17 @@ STRICT RULES:
 - Preserve specific numbers, percentages, dates, currencies, and proper names.
 
 Also classify the article into one of two newsletter sections:
-- "wrapped" = something that already happened (event, announcement, result, decision, incident)
-- "ahead" = something upcoming, expected, or to watch out for (forecast, preview, scheduled event, trend)
+
+"wrapped" — YESTERDAY'S COMPLETED NEWS: The story is done. Something already happened in the last 24 hours.
+  Examples: a verdict was delivered, an election result came in, a company reported earnings, a deal closed, a leader made a statement, an accident occurred, a match was played, a policy was announced.
+
+"ahead" — ONGOING & DEVELOPING: The story is still unfolding right now OR is about something coming up.
+  Examples: a conflict is ongoing, negotiations are in progress, a bill is being debated, markets are reacting, an investigation is underway, a trial is continuing, a summit is upcoming, a trend is emerging, a crisis is developing, weather is expected, an election is approaching.
+
+CLASSIFICATION GUIDE — aim for a roughly even split:
+- Default to "wrapped" if the headline verb is past tense and the event is complete (announced, signed, reported, won, lost, killed, arrested, launched, released).
+- Use "ahead" only when the story is genuinely unresolved: an ongoing conflict, a pending vote, an upcoming event, continuing negotiations, or an emerging trend with no conclusion yet.
+- A statement, decision, or policy announcement that already happened is "wrapped" — even if it has future implications.
 
 Return a valid JSON object with exactly two keys:
 {"summary": "Your 2-sentence summary here.", "section": "wrapped"}
