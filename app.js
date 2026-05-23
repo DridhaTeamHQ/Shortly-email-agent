@@ -43,13 +43,61 @@ const todayUtc = () => new Date().toISOString().slice(0, 10);
 const isApprovedToday = (a) =>
   a.status === "approved" && (a.reviewed_at ?? "").slice(0, 10) === todayUtc();
 
-// ---------- state + rendering ----------
-const state = { articles: [], subscribers: [], section: "review" };
+// ---------- state ----------
+const state = {
+  articles: [],
+  subscribers: [],
+  digests: [],
+  section: "review",
+  search: "",
+  filterTopic: "",
+  filterSection: "",
+  selected: new Set(),
+  dragId: null
+};
 
+// ---------- computed ----------
 function approvedTodayCount() {
   return state.articles.filter(isApprovedToday).length;
 }
 
+function sectionCounts() {
+  const approved = state.articles.filter(isApprovedToday);
+  return {
+    wrapped: approved.filter((a) => a.section !== "ahead").length,
+    ahead: approved.filter((a) => a.section === "ahead").length
+  };
+}
+
+function filteredArticles(statusFilter) {
+  let items = state.articles.filter((a) => a.status === statusFilter);
+  const q = state.search.toLowerCase().trim();
+  if (q) {
+    items = items.filter(
+      (a) =>
+        (a.title || "").toLowerCase().includes(q) ||
+        (a.summary || "").toLowerCase().includes(q) ||
+        (a.edited_summary || "").toLowerCase().includes(q) ||
+        (a.topic || "").toLowerCase().includes(q) ||
+        (a.source || "").toLowerCase().includes(q)
+    );
+  }
+  if (state.filterTopic) {
+    items = items.filter((a) => a.topic === state.filterTopic);
+  }
+  if (state.filterSection) {
+    items = items.filter((a) => (a.section || "wrapped") === state.filterSection);
+  }
+  return items;
+}
+
+function uniqueTopics() {
+  const topics = new Set();
+  state.articles.forEach((a) => { if (a.topic) topics.add(a.topic); });
+  return [...topics].sort();
+}
+
+// ---------- rendering ----------
 function refreshChrome() {
   const approved = approvedTodayCount();
   const counts = sectionCounts();
@@ -63,28 +111,32 @@ function refreshChrome() {
   $("#badgeSubs").textContent = subs;
 
   const send = $("#sendDigest");
-  send.textContent = `Send digest (${counts.wrapped}W + ${counts.ahead}A)`;
-  // Allow sending even without full cap — fallback will auto-select remaining
+  send.textContent = `Send (${counts.wrapped}W + ${counts.ahead}A)`;
   send.disabled = approved === 0 || subs === 0;
 
+  const preview = $("#previewDigest");
+  preview.style.display = approved > 0 ? "" : "none";
+
   const titles = {
-    review: ["Review queue", `Approve articles for today's digest. Wrapped: ${counts.wrapped}/5, Ahead: ${counts.ahead}/5`],
-    approved: ["Approved", `Today's selection. ${counts.wrapped} Wrapped + ${counts.ahead} Ahead = ${approved} total.`],
-    rejected: ["Rejected", "Articles you removed from the queue."],
-    subscribers: ["Subscribers", `${subs} active subscriber${subs === 1 ? "" : "s"}.`],
-    scraper: ["Scraper handoff", "Submit one article — we summarize and queue it."]
+    review: ["Review queue", `Wrapped: ${counts.wrapped}/5 | Ahead: ${counts.ahead}/5 | ${pending} pending`],
+    approved: ["Approved", `${counts.wrapped} Wrapped + ${counts.ahead} Ahead = ${approved} total`],
+    rejected: ["Rejected", `${rejected} articles removed from queue`],
+    history: ["Digest History", "All past digests and delivery stats"],
+    analytics: ["Analytics", "Overview of your newsletter performance"],
+    subscribers: ["Subscribers", `${subs} active subscriber${subs === 1 ? "" : "s"}`],
+    scraper: ["Scraper", "Submit articles for summarization"]
   };
-  const [t, sub] = titles[state.section];
+  const [t, sub] = titles[state.section] || ["", ""];
   $("#sectionTitle").textContent = t;
   $("#sectionSub").textContent = sub;
 }
 
-function sectionCounts() {
-  const approved = state.articles.filter(isApprovedToday);
-  return {
-    wrapped: approved.filter((a) => a.section !== "ahead").length,
-    ahead: approved.filter((a) => a.section === "ahead").length
-  };
+function populateTopicFilter() {
+  const sel = $("#filterTopic");
+  const current = sel.value;
+  const topics = uniqueTopics();
+  sel.innerHTML = `<option value="">All topics</option>` +
+    topics.map((t) => `<option value="${esc(t)}" ${t === current ? "selected" : ""}>${esc(t)}</option>`).join("");
 }
 
 function cardHtml(a, mode) {
@@ -93,10 +145,12 @@ function cardHtml(a, mode) {
   const time = new Date(a.scraped_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   const source = a.source ? `<span class="source-pill">${esc(a.source)}</span>` : "";
   const topic = a.topic ? `<span class="topic-chip">${esc(a.topic)}</span>` : "";
-  const atCap = approvedTodayCount() >= DAILY_CAP;
   const sec = a.section || "wrapped";
+  const atCap = approvedTodayCount() >= DAILY_CAP;
+  const checked = state.selected.has(a.id) ? "checked" : "";
+  const draggable = mode === "approved" ? 'draggable="true"' : "";
 
-  // Section picker (wrapped / ahead)
+  // Section picker
   const sectionPicker = mode !== "rejected" ? `
     <div class="section-picker">
       <label class="section-label">Section:</label>
@@ -106,35 +160,48 @@ function cardHtml(a, mode) {
       </select>
     </div>` : "";
 
+  // Bulk checkbox (only in review mode)
+  const checkbox = mode === "review" ? `<input type="checkbox" class="card-check" data-id="${a.id}" ${checked}>` : "";
+
   let actions = "";
   if (mode === "review") {
     actions = `
       <div class="actions">
         ${sectionPicker}
-        <button class="btn-save"    data-action="edit">Save edit</button>
-        <button class="btn-reject"  data-action="reject">Reject</button>
+        <button class="btn-save" data-action="edit">Save</button>
+        <button class="btn-reject" data-action="reject">Reject</button>
         <button class="btn-approve" data-action="approve" ${atCap ? "disabled" : ""}>
-          ${atCap ? "Limit reached" : "Approve"}
+          ${atCap ? "Limit" : "Approve"}
         </button>
       </div>`;
   } else if (mode === "approved") {
     actions = `
       <div class="actions">
         ${sectionPicker}
-        <button class="btn-save"   data-action="edit">Save edit</button>
+        <button class="btn-save" data-action="edit">Save</button>
         <button class="btn-reject" data-action="reject">Remove</button>
       </div>`;
   }
 
   const sectionTag = `<span class="tag section-${sec}">${sec}</span>`;
   const readonly = mode === "rejected" ? "readonly" : "";
+
+  // Read time estimate
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const readTime = Math.max(1, Math.ceil(words / 200));
+
   return `
-    <article class="card" data-id="${a.id}">
+    <article class="card ${checked ? "selected" : ""}" data-id="${a.id}" ${draggable}>
       <header>
+        ${checkbox}
         <div class="card-head">
           <div class="chips">${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
           <h3>${esc(a.title)}</h3>
-          <div class="meta">${date} · ${time} · <a href="${esc(a.url)}" target="_blank" rel="noreferrer">Open source</a></div>
+          <div class="meta">
+            ${date} &middot; ${time}
+            &middot; <a href="${esc(a.url)}" target="_blank" rel="noreferrer">Source</a>
+            &middot; ${readTime} min read
+          </div>
         </div>
       </header>
       <textarea data-role="summary" ${readonly}>${esc(text)}</textarea>
@@ -143,11 +210,11 @@ function cardHtml(a, mode) {
 }
 
 function renderReview() {
-  const items = state.articles.filter((a) => a.status === "summarized");
+  const items = filteredArticles("summarized");
   const node = $("#reviewList");
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "review")).join("")
-    : `<p class="muted">No articles to review. Submit one from the Scraper tab.</p>`;
+    : `<p class="muted">No articles to review${state.search ? " matching your search" : ""}.</p>`;
 }
 
 function renderApproved() {
@@ -156,6 +223,7 @@ function renderApproved() {
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "approved")).join("")
     : `<p class="muted">Nothing approved yet today.</p>`;
+  attachDragListeners();
 }
 
 function renderRejected() {
@@ -186,12 +254,73 @@ function renderSubscribers() {
   $("#subRows").innerHTML = rows || `<tr><td colspan="4" class="muted" style="padding:18px">No subscribers yet.</td></tr>`;
 }
 
+function renderHistory() {
+  if (state.digests.length === 0) {
+    $("#historyRows").innerHTML = `<tr><td colspan="6" class="muted" style="padding:20px;text-align:center">No digests sent yet.</td></tr>`;
+    return;
+  }
+  const rows = state.digests.map((d) => {
+    const date = new Date(d.sent_at).toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric", year: "numeric"
+    });
+    const time = new Date(d.sent_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const total = (d.sent || 0) + (d.failed || 0);
+    const rate = total > 0 ? Math.round((d.sent / total) * 100) : 0;
+    const statusBadge = d.failed > 0
+      ? `<span class="history-badge fail">${rate}% delivered</span>`
+      : `<span class="history-badge success">All delivered</span>`;
+    return `<tr>
+      <td>${date}<br><span class="muted" style="font-size:11px">${time}</span></td>
+      <td>${(d.article_ids || []).length}</td>
+      <td>${d.recipients || 0}</td>
+      <td>${d.sent || 0}</td>
+      <td>${d.failed || 0}</td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  }).join("");
+  $("#historyRows").innerHTML = rows;
+}
+
+function renderAnalytics() {
+  const subs = state.subscribers.filter((s) => s.status === "subscribed").length;
+  const totalArticles = state.articles.length;
+  const totalDigests = state.digests.length;
+  const totalSent = state.digests.reduce((s, d) => s + (d.sent || 0), 0);
+  const totalFailed = state.digests.reduce((s, d) => s + (d.failed || 0), 0);
+  const deliveryRate = (totalSent + totalFailed) > 0
+    ? Math.round((totalSent / (totalSent + totalFailed)) * 100)
+    : 0;
+
+  $("#statDigests").textContent = totalDigests;
+  $("#statArticles").textContent = totalArticles;
+  $("#statSubscribers").textContent = subs;
+  $("#statDeliveryRate").textContent = deliveryRate + "%";
+
+  // Recent digests chart (last 10)
+  const recent = state.digests.slice(0, 10);
+  if (recent.length === 0) {
+    $("#analyticsRows").innerHTML = `<tr><td colspan="4" class="muted" style="padding:20px;text-align:center">No data yet.</td></tr>`;
+    return;
+  }
+  const rows = recent.map((d) => {
+    const date = new Date(d.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const total = (d.sent || 0) + (d.failed || 0);
+    const rate = total > 0 ? Math.round((d.sent / total) * 100) + "%" : "-";
+    return `<tr><td>${date}</td><td>${d.sent || 0}</td><td>${d.failed || 0}</td><td>${rate}</td></tr>`;
+  }).join("");
+  $("#analyticsRows").innerHTML = rows;
+}
+
 function renderAll() {
   refreshChrome();
+  populateTopicFilter();
   renderReview();
   renderApproved();
   renderRejected();
   renderSubscribers();
+  renderHistory();
+  renderAnalytics();
+  updateBulkBar();
 }
 
 // ---------- data loaders ----------
@@ -199,14 +328,44 @@ async function loadArticles() {
   const data = await api("GET", `${cfg.list}?status=all&limit=200`);
   state.articles = data.articles || [];
 }
+
 async function loadSubscribers() {
   const data = await api("GET", cfg.subscribers);
   state.subscribers = data.subscribers || [];
 }
 
+async function loadDigests() {
+  try {
+    // Use Supabase REST API directly for digests
+    const base = cfg.list.replace("/list-articles", "");
+    const headers = { "Content-Type": "application/json" };
+    if (cfg.anonKey) {
+      headers["apikey"] = cfg.anonKey;
+      headers["Authorization"] = `Bearer ${cfg.anonKey}`;
+    }
+    const url = cfg.list.replace("list-articles", "").replace("functions/v1/", "rest/v1/");
+    const supabaseUrl = url.replace(/\/functions\/.*/, "").replace(/\/rest\/.*/, "");
+    // Build REST URL from the function URL
+    const projectUrl = cfg.list.match(/(https:\/\/[^/]+)/)?.[1]?.replace(".functions.", ".");
+    if (projectUrl) {
+      const r = await fetch(`${projectUrl}/rest/v1/digests?select=*&order=sent_at.desc&limit=50`, {
+        headers: {
+          "apikey": cfg.anonKey,
+          "Authorization": `Bearer ${cfg.anonKey}`
+        }
+      });
+      if (r.ok) {
+        state.digests = await r.json();
+      }
+    }
+  } catch (e) {
+    console.warn("Could not load digests:", e);
+  }
+}
+
 async function reload() {
   try {
-    await Promise.all([loadArticles(), loadSubscribers()]);
+    await Promise.all([loadArticles(), loadSubscribers(), loadDigests()]);
     renderAll();
   } catch (e) {
     toast(`Load failed: ${e.message}`);
@@ -222,6 +381,7 @@ async function handleArticleAction(card, action) {
   if (action === "edit" || action === "approve") body.edited_summary = summary;
   try {
     await api("POST", cfg.review, body);
+    state.selected.delete(id);
     await reload();
     toast(action === "edit" ? "Summary saved." : `Article ${action}d.`);
   } catch (e) {
@@ -244,6 +404,206 @@ async function handleSubscriberAction(row, action) {
   }
 }
 
+// ---------- bulk actions ----------
+function updateBulkBar() {
+  const bar = $("#bulkBar");
+  const count = state.selected.size;
+  if (count > 0) {
+    bar.classList.add("show");
+    $("#bulkCount").textContent = `${count} selected`;
+  } else {
+    bar.classList.remove("show");
+  }
+}
+
+async function bulkAction(action) {
+  if (state.selected.size === 0) return;
+  const ids = [...state.selected];
+  toast(`Processing ${ids.length} articles...`);
+  try {
+    for (const id of ids) {
+      await api("POST", cfg.review, { id, action, reviewer: cfg.reviewer });
+    }
+    state.selected.clear();
+    await reload();
+    toast(`${ids.length} articles ${action}d.`);
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  }
+}
+
+// ---------- drag & drop ----------
+function attachDragListeners() {
+  const cards = $$("#approvedList .card[draggable]");
+  cards.forEach((card) => {
+    card.addEventListener("dragstart", (e) => {
+      state.dragId = card.dataset.id;
+      card.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+    card.addEventListener("dragend", () => {
+      card.classList.remove("dragging");
+      $$(".card.drag-over").forEach((c) => c.classList.remove("drag-over"));
+      state.dragId = null;
+    });
+    card.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      card.classList.add("drag-over");
+    });
+    card.addEventListener("dragleave", () => {
+      card.classList.remove("drag-over");
+    });
+    card.addEventListener("drop", (e) => {
+      e.preventDefault();
+      card.classList.remove("drag-over");
+      if (!state.dragId || state.dragId === card.dataset.id) return;
+
+      // Reorder in state
+      const list = state.articles.filter(isApprovedToday);
+      const fromIdx = list.findIndex((a) => a.id === state.dragId);
+      const toIdx = list.findIndex((a) => a.id === card.dataset.id);
+      if (fromIdx === -1 || toIdx === -1) return;
+
+      // Swap rank_score values to persist order
+      const tempScore = list[fromIdx].rank_score;
+      list[fromIdx].rank_score = list[toIdx].rank_score;
+      list[toIdx].rank_score = tempScore;
+
+      renderApproved();
+      toast("Reordered.");
+    });
+  });
+}
+
+// ---------- email preview ----------
+function generatePreviewHtml() {
+  const approved = state.articles.filter(isApprovedToday);
+  if (approved.length === 0) return "<p>No articles approved yet.</p>";
+
+  const wrapped = approved.filter((a) => (a.section || "wrapped") !== "ahead").slice(0, 5);
+  const ahead = approved.filter((a) => a.section === "ahead").slice(0, 5);
+
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric"
+  });
+
+  function renderItems(articles) {
+    return articles.map((a, i) => {
+      const text = (a.edited_summary || a.summary || "").trim();
+      const meta = esc(a.topic || "Top story");
+      return `<tr><td style="padding:24px 0;${i < articles.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
+          <td style="width:40px;vertical-align:top;padding-top:2px">
+            <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">${i + 1}</div>
+          </td>
+          <td style="padding-left:14px">
+            <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px">${meta}</div>
+            <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">${esc(a.title)}</h2>
+            <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0">${esc(text)}</p>
+          </td>
+        </tr></table>
+      </td></tr>`;
+    }).join("");
+  }
+
+  function renderSection(title, subtitle, articles) {
+    if (articles.length === 0) return "";
+    return `<div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5;margin-bottom:16px">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+        <tr><td style="padding:24px 0 4px">
+          <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px">${esc(title)}</h2>
+          <p style="margin:0;font-size:13px;color:#9a9ab0;font-weight:500">${esc(subtitle)}</p>
+        </td></tr>
+        <tr><td><div style="border-top:2px solid #7c3aed;margin:12px 0 0"></div></td></tr>
+        ${renderItems(articles)}
+      </table>
+    </div>`;
+  }
+
+  // Calculate read time
+  const allText = [...wrapped, ...ahead].map((a) => a.edited_summary || a.summary || "").join(" ");
+  const wordCount = allText.split(/\s+/).filter(Boolean).length;
+  const readTime = Math.max(1, Math.ceil(wordCount / 200));
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+  <body style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
+    <div style="max-width:640px;margin:0 auto">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#7c3aed;border-radius:0 0 16px 16px">
+        <tr><td style="padding:36px 32px 28px;text-align:center">
+          <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px">shortly</div>
+          <p style="margin:8px 0 0;color:#e0d4fc;font-size:13px;font-weight:500">${esc(today)}</p>
+        </td></tr>
+      </table>
+      <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0 16px;border:1px solid #e8e0f5">
+        <p style="margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">Hi there,</p>
+        <p style="margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
+          We read everything &mdash; so you get only what matters.<br>
+          Here's your quick news update for the day.
+        </p>
+        <div style="margin-top:12px;display:inline-block;background:#f5f3ff;border:1px solid #e8e0f5;border-radius:20px;padding:4px 14px;font-size:12px;color:#7c3aed;font-weight:600">
+          ${readTime} min read
+        </div>
+      </div>
+      ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
+      ${renderSection("Shortly Ahead", `${ahead.length} stories to look out for`, ahead)}
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
+        <tr><td style="text-align:center;padding:20px">
+          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px">shortly</div>
+          <p style="margin:0 0 12px;color:#9a9ab0;font-size:12px;line-height:1.5">
+            Curated news, summarized daily.<br>
+            You're receiving this because you subscribed to Shortly.
+          </p>
+          <p style="margin:0;font-size:12px;color:#9a9ab0">
+            <a href="#" style="color:#7c3aed;text-decoration:underline">Share on X</a> &nbsp;|&nbsp;
+            <a href="#" style="color:#7c3aed;text-decoration:underline">LinkedIn</a> &nbsp;|&nbsp;
+            <a href="#" style="color:#7c3aed;text-decoration:underline">WhatsApp</a>
+          </p>
+          <p style="margin:12px 0 0;font-size:11px;color:#b0b0c0">
+            <a href="#" style="color:#b0b0c0;text-decoration:underline">Unsubscribe</a>
+          </p>
+        </td></tr>
+      </table>
+    </div>
+  </body></html>`;
+}
+
+function showPreview() {
+  const html = generatePreviewHtml();
+  const iframe = $("#previewFrame");
+  const doc = iframe.contentDocument || iframe.contentWindow.document;
+  doc.open();
+  doc.write(html);
+  doc.close();
+  $("#previewModal").classList.add("show");
+}
+
+// ---------- dark mode ----------
+function initTheme() {
+  const saved = localStorage.getItem("shortly-theme");
+  if (saved === "dark") {
+    document.documentElement.setAttribute("data-theme", "dark");
+    updateThemeButton(true);
+  }
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  if (isDark) {
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.setItem("shortly-theme", "light");
+  } else {
+    document.documentElement.setAttribute("data-theme", "dark");
+    localStorage.setItem("shortly-theme", "dark");
+  }
+  updateThemeButton(!isDark);
+}
+
+function updateThemeButton(isDark) {
+  $("#themeIcon").textContent = isDark ? "☀" : "☾";
+  $("#themeLabel").textContent = isDark ? "Light mode" : "Dark mode";
+}
+
 // ---------- section nav ----------
 function showSection(name) {
   state.section = name;
@@ -261,12 +621,15 @@ function openMenu() {
   $("#sidebar")?.classList.add("open");
   $("#backdrop")?.classList.add("show");
 }
+
+// ---------- wire up ----------
+initTheme();
+
 $("#menuToggle")?.addEventListener("click", () => {
   $("#sidebar").classList.contains("open") ? closeMenu() : openMenu();
 });
 $("#backdrop")?.addEventListener("click", closeMenu);
 
-// ---------- wire up ----------
 $$(".nav-item").forEach((btn) =>
   btn.addEventListener("click", () => {
     showSection(btn.dataset.section);
@@ -274,9 +637,46 @@ $$(".nav-item").forEach((btn) =>
   })
 );
 
-// Article action delegation
+// Theme toggle
+$("#themeToggle").addEventListener("click", toggleTheme);
+
+// Search & filter
+$("#searchArticles").addEventListener("input", (e) => {
+  state.search = e.target.value;
+  renderReview();
+});
+$("#filterTopic").addEventListener("change", (e) => {
+  state.filterTopic = e.target.value;
+  renderReview();
+});
+$("#filterSection").addEventListener("change", (e) => {
+  state.filterSection = e.target.value;
+  renderReview();
+});
+
+// Bulk actions
+$("#bulkApprove").addEventListener("click", () => bulkAction("approve"));
+$("#bulkReject").addEventListener("click", () => bulkAction("reject"));
+$("#bulkClear").addEventListener("click", () => {
+  state.selected.clear();
+  renderReview();
+  updateBulkBar();
+});
+
+// Article action delegation (+ checkbox handling)
 ["#reviewList", "#approvedList", "#rejectedList"].forEach((sel) => {
   $(sel).addEventListener("click", (e) => {
+    // Handle checkbox
+    const check = e.target.closest(".card-check");
+    if (check) {
+      const id = check.dataset.id;
+      if (check.checked) state.selected.add(id);
+      else state.selected.delete(id);
+      check.closest(".card")?.classList.toggle("selected", check.checked);
+      updateBulkBar();
+      return;
+    }
+    // Handle action button
     const btn = e.target.closest("button[data-action]");
     if (!btn) return;
     const card = btn.closest(".card");
@@ -291,6 +691,7 @@ $("#subRows").addEventListener("click", (e) => {
   handleSubscriberAction(btn.closest("tr"), btn.dataset.action);
 });
 
+// Add subscriber form
 $("#subForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const email = $("#subEmail").value.trim();
@@ -307,16 +708,17 @@ $("#subForm").addEventListener("submit", async (e) => {
   }
 });
 
+// Scraper form
 $("#scrapeForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const payload = {
     title: $("#scTitle").value.trim(),
     url: $("#scUrl").value.trim(),
-    source: $("#scSource").value.trim(),
+    source: $("#scSource").value.trim() || "Shortly",
     topic: $("#scTopic").value.trim(),
     raw_content: $("#scRaw").value.trim()
   };
-  toast("Summarizing…");
+  toast("Summarizing...");
   try {
     const res = await api("POST", cfg.submit, payload);
     const out = $("#scraperResult");
@@ -330,6 +732,16 @@ $("#scrapeForm").addEventListener("submit", async (e) => {
   }
 });
 
+// Preview button
+$("#previewDigest").addEventListener("click", showPreview);
+$("#closePreview").addEventListener("click", () => {
+  $("#previewModal").classList.remove("show");
+});
+$("#previewModal").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) $("#previewModal").classList.remove("show");
+});
+
+// Send digest
 $("#sendDigest").addEventListener("click", async () => {
   const approved = approvedTodayCount();
   const subCount = state.subscribers.filter((s) => s.status === "subscribed").length;
@@ -348,4 +760,12 @@ $("#sendDigest").addEventListener("click", async () => {
   }
 });
 
+// Keyboard shortcut: Escape closes modal
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    $("#previewModal").classList.remove("show");
+  }
+});
+
+// Initial load
 reload();

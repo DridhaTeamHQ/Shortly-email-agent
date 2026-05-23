@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
+import { generateUnsubToken } from "../_shared/unsub.ts";
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
@@ -147,6 +148,25 @@ async function sendWelcomeDigest(
     ahead.push(...extra.slice(0, 5 - ahead.length));
   }
 
+  // Read time estimate
+  const allItems = [...wrapped, ...ahead];
+  const totalWords = allItems.reduce((sum, a) => {
+    const text = ((a.edited_summary || a.summary || "") as string).trim();
+    return sum + text.split(/\s+/).filter(Boolean).length;
+  }, 0);
+  const readTime = Math.max(1, Math.ceil(totalWords / 200));
+
+  // Unsubscribe link
+  const secret = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const unsubToken = await generateUnsubToken(email, secret);
+  const unsubUrl = `https://ygxdrphajvrbjcaxhvcn.functions.supabase.co/unsubscribe?email=${encodeURIComponent(email)}&token=${encodeURIComponent(unsubToken)}`;
+
+  // Social sharing
+  const shareText = encodeURIComponent("Check out Shortly newsletter — curated news, summarized daily.");
+  const twitterUrl = `https://twitter.com/intent/tweet?text=${shareText}`;
+  const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent("https://shortly.news")}&summary=${shareText}`;
+  const whatsappUrl = `https://wa.me/?text=${shareText}`;
+
   const html = `
   <div style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
@@ -163,6 +183,7 @@ async function sendWelcomeDigest(
         <p style="margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
           Welcome to Shortly! We read everything &mdash; so you get only what matters.<br>
           Here's your quick news update for the day.
+          <span style="display:inline-block;margin-left:8px;padding:2px 10px;background:#f0ecfa;border-radius:12px;font-size:12px;color:#7c3aed;font-weight:600">${readTime} min read</span>
         </p>
       </div>
 
@@ -175,6 +196,16 @@ async function sendWelcomeDigest(
           <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
+          </p>
+          <p style="margin:16px 0 0;font-size:13px;line-height:1.5">
+            <a href="${twitterUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600">Share on X</a>
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            <a href="${linkedinUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600">LinkedIn</a>
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            <a href="${whatsappUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600">WhatsApp</a>
+          </p>
+          <p style="margin:12px 0 0;">
+            <a href="${unsubUrl}" style="color:#9a9ab0;font-size:11px;text-decoration:underline">Unsubscribe</a>
           </p>
         </td></tr>
       </table>

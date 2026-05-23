@@ -6,13 +6,13 @@
     <title>Shortly Digest</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
     <script src="./config.js"></script>
   </head>
   <body>
     <div class="app">
-      <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">☰</button>
+      <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">&#9776;</button>
       <aside class="sidebar" id="sidebar">
         <div class="brand"><span class="brand-mark">S</span> Shortly</div>
         <nav class="nav">
@@ -25,6 +25,14 @@
           <button class="nav-item" data-section="rejected">
             <span>Rejected</span><span class="badge" id="badgeRejected">0</span>
           </button>
+          <div class="nav-divider"></div>
+          <button class="nav-item" data-section="history">
+            <span>History</span>
+          </button>
+          <button class="nav-item" data-section="analytics">
+            <span>Analytics</span>
+          </button>
+          <div class="nav-divider"></div>
           <button class="nav-item" data-section="subscribers">
             <span>Subscribers</span><span class="badge" id="badgeSubs">0</span>
           </button>
@@ -32,44 +40,119 @@
             <span>Scraper</span>
           </button>
         </nav>
+        <div class="sidebar-footer">
+          <button class="theme-toggle" id="themeToggle">
+            <span id="themeIcon">&#9790;</span>
+            <span id="themeLabel">Dark mode</span>
+          </button>
+        </div>
       </aside>
 
       <main class="main">
         <header class="topbar">
           <div>
             <h1 id="sectionTitle">Review queue</h1>
-            <p class="muted" id="sectionSub">Approve up to 10 articles for today's digest.</p>
+            <p class="muted" id="sectionSub">Approve articles for today's digest.</p>
           </div>
-          <button id="sendDigest" class="btn-primary" disabled>Send digest (0/10)</button>
+          <div class="topbar-actions">
+            <button id="previewDigest" class="btn-ghost" style="display:none">Preview</button>
+            <button id="sendDigest" class="btn-primary" disabled>Send digest</button>
+          </div>
         </header>
 
         <!-- REVIEW -->
         <section class="section active" data-section="review">
-          <div class="list" id="reviewList"><p class="muted">Loading…</p></div>
+          <div class="toolbar">
+            <input type="search" id="searchArticles" placeholder="Search articles..." />
+            <select id="filterTopic">
+              <option value="">All topics</option>
+            </select>
+            <select id="filterSection">
+              <option value="">All sections</option>
+              <option value="wrapped">Wrapped</option>
+              <option value="ahead">Ahead</option>
+            </select>
+          </div>
+          <div class="bulk-bar" id="bulkBar">
+            <span id="bulkCount">0 selected</span>
+            <button id="bulkApprove">Approve all</button>
+            <button id="bulkReject">Reject all</button>
+            <button id="bulkClear">Clear</button>
+          </div>
+          <div class="list" id="reviewList"><p class="muted">Loading...</p></div>
         </section>
 
         <!-- APPROVED -->
         <section class="section" data-section="approved">
-          <div class="list" id="approvedList"><p class="muted">Loading…</p></div>
+          <p class="muted" style="margin:0 0 12px;font-size:13px">Drag cards to reorder within the digest.</p>
+          <div class="list" id="approvedList"><p class="muted">Loading...</p></div>
         </section>
 
         <!-- REJECTED -->
         <section class="section" data-section="rejected">
-          <div class="list" id="rejectedList"><p class="muted">Loading…</p></div>
+          <div class="list" id="rejectedList"><p class="muted">Loading...</p></div>
+        </section>
+
+        <!-- HISTORY -->
+        <section class="section" data-section="history">
+          <div class="table-wrap">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Articles</th>
+                  <th>Recipients</th>
+                  <th>Sent</th>
+                  <th>Failed</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="historyRows"><tr><td colspan="6" class="muted" style="padding:20px;text-align:center">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ANALYTICS -->
+        <section class="section" data-section="analytics">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-value" id="statDigests">-</div>
+              <div class="stat-label">Digests sent</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="statArticles">-</div>
+              <div class="stat-label">Articles processed</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="statSubscribers">-</div>
+              <div class="stat-label">Active subscribers</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="statDeliveryRate">-</div>
+              <div class="stat-label">Delivery rate</div>
+            </div>
+          </div>
+          <h3 style="margin:0 0 12px">Recent Digests</h3>
+          <div class="table-wrap">
+            <table class="history-table">
+              <thead>
+                <tr><th>Date</th><th>Sent</th><th>Failed</th><th>Rate</th></tr>
+              </thead>
+              <tbody id="analyticsRows"><tr><td colspan="4" class="muted" style="padding:20px;text-align:center">Loading...</td></tr></tbody>
+            </table>
+          </div>
         </section>
 
         <!-- SUBSCRIBERS -->
         <section class="section" data-section="subscribers">
           <form id="subForm" class="sub-form">
             <input id="subEmail" type="email" placeholder="email@example.com" required />
-            <input id="subName"  type="text"  placeholder="Full name (optional)" />
+            <input id="subName" type="text" placeholder="Full name (optional)" />
             <button class="btn-primary" type="submit">Add subscriber</button>
           </form>
           <div class="table-wrap">
             <table class="data-table">
-              <thead>
-                <tr><th>Email</th><th>Name</th><th>Status</th><th></th></tr>
-              </thead>
+              <thead><tr><th>Email</th><th>Name</th><th>Status</th><th></th></tr></thead>
               <tbody id="subRows"></tbody>
             </table>
           </div>
@@ -77,23 +160,35 @@
 
         <!-- SCRAPER -->
         <section class="section" data-section="scraper">
-          <p class="muted">
+          <p class="muted" style="margin:0 0 12px">
             Submit one article at a time. The server will summarize it with GPT-4o and add it to the review queue.
-            Wire your external scraper to <code>POST ${window.SHORTLY?.submit ?? '/api/submit-article'}</code>.
           </p>
           <form id="scrapeForm" class="scrape-form">
             <label>Title <input id="scTitle" type="text" required placeholder="Article title" /></label>
             <label>URL <input id="scUrl" type="url" required placeholder="https://source/article" /></label>
-            <label>Source <input id="scSource" type="text" placeholder="BBC, Reuters, …" /></label>
-            <label>Topic <input id="scTopic" type="text" placeholder="World, Business, Tech…" /></label>
+            <label>Source <input id="scSource" type="text" placeholder="Shortly" /></label>
+            <label>Topic <input id="scTopic" type="text" placeholder="World, Business, India..." /></label>
             <label class="full">Raw content / excerpt
-              <textarea id="scRaw" rows="6" placeholder="Paste the article text or RSS excerpt. The summarizer reads this."></textarea>
+              <textarea id="scRaw" rows="6" placeholder="Paste the article text or RSS excerpt."></textarea>
             </label>
             <button class="btn-primary" type="submit">Submit & summarize</button>
           </form>
           <pre id="scraperResult" class="code-card hidden"></pre>
         </section>
       </main>
+    </div>
+
+    <!-- Preview Modal -->
+    <div class="modal-overlay" id="previewModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Email Preview</h2>
+          <button class="modal-close" id="closePreview">&times;</button>
+        </div>
+        <div class="modal-body">
+          <iframe id="previewFrame" title="Email preview"></iframe>
+        </div>
+      </div>
     </div>
 
     <div class="backdrop" id="backdrop"></div>
