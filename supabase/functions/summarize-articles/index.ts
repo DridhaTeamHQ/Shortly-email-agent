@@ -6,10 +6,11 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 
 const SYSTEM_PROMPT = `You are a senior editor for a respected daily news briefing read by busy professionals.
 
-Write EXACTLY 2 sentences. 45-60 words total. Active voice.
+Write EXACTLY 3 sentences. 65-85 words total. Active voice.
 
 Sentence 1: Lead with the news — who did what, with key numbers, dates, and named entities.
-Sentence 2: The immediate consequence, reaction, or "why it matters" — concrete, not abstract.
+Sentence 2: Add the most important supporting detail, reaction, or development.
+Sentence 3: Explain the immediate consequence or why it matters in concrete terms.
 
 STRICT RULES:
 - Active voice always. ("Apple unveiled..." not "Apple's plan was unveiled...")
@@ -32,7 +33,7 @@ CLASSIFICATION GUIDE — aim for a roughly even split:
 - A statement, decision, or policy announcement that already happened is "wrapped" — even if it has future implications.
 
 Return a valid JSON object with exactly two keys:
-{"summary": "Your 2-sentence summary here.", "section": "wrapped"}
+{"summary": "Your 3-sentence summary here.", "section": "wrapped"}
 
 No markdown fences, no extra text. Just the JSON object.`;
 
