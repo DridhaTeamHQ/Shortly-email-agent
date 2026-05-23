@@ -487,7 +487,18 @@ function attachDragListeners() {
 }
 
 // ---------- email preview ----------
+function collectLiveSummaryOverrides() {
+  const overrides = new Map();
+  $$(".card[data-id] textarea[data-role=summary]").forEach((node) => {
+    const card = node.closest(".card");
+    const id = card?.dataset.id;
+    if (id) overrides.set(id, node.value.trim());
+  });
+  return overrides;
+}
+
 function generatePreviewHtml() {
+  const liveSummaries = collectLiveSummaryOverrides();
   const approved = state.articles.filter(isApprovedToday);
   if (approved.length === 0) return "<p>No articles approved yet.</p>";
 
@@ -499,7 +510,7 @@ function generatePreviewHtml() {
 
   function renderItems(articles) {
     return articles.map((a, i) => {
-      const text = (a.edited_summary || a.summary || "").trim();
+      const text = liveSummaries.get(a.id) || (a.edited_summary || a.summary || "").trim();
       const meta = esc(a.topic || "Top story");
       return `<tr><td style="padding:24px 0;${i < articles.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
@@ -531,7 +542,9 @@ function generatePreviewHtml() {
   }
 
   // Calculate read time
-  const allText = wrapped.map((a) => a.edited_summary || a.summary || "").join(" ");
+  const allText = wrapped
+    .map((a) => liveSummaries.get(a.id) || a.edited_summary || a.summary || "")
+    .join(" ");
   const wordCount = allText.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.ceil(wordCount / 200));
 
@@ -545,7 +558,7 @@ function generatePreviewHtml() {
         </td></tr>
       </table>
       <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0 16px;border:1px solid #e8e0f5">
-        <p style="margin:0 0 12px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">Hey there,</p>
+        <p style="margin:0 0 12px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">Hey &lt;NAME&gt;,</p>
         <p style="margin:0;color:#6b6b8a;font-size:18px;line-height:1.6;font-weight:400;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
           Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!
         </p>
