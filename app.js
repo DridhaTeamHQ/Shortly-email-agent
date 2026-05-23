@@ -532,7 +532,7 @@ function generatePreviewHtml() {
     return `<div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5;margin-bottom:16px">
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
         <tr><td style="padding:24px 0 4px">
-          <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px;font-family:Roboto,Arial,sans-serif">${esc(title)}</h2>
+          <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${esc(title)}</h2>
           <p style="margin:0;font-size:13px;color:#9a9ab0;font-weight:500;font-family:Roboto,Arial,sans-serif">${esc(subtitle)}</p>
         </td></tr>
         <tr><td><div style="border-top:2px solid #7c3aed;margin:12px 0 0"></div></td></tr>
