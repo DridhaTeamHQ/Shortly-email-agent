@@ -548,7 +548,7 @@ function generatePreviewHtml() {
   const wordCount = allText.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.ceil(wordCount / 200));
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet"></head>
   <body style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#7c3aed;border-radius:0 0 16px 16px">

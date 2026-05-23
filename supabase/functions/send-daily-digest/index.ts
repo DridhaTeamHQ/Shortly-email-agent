@@ -234,6 +234,9 @@ async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string
   const whatsappUrl = `https://wa.me/?text=${shareText}`;
 
   return `
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <div style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
 
