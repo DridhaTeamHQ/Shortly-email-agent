@@ -202,7 +202,7 @@ function cardHtml(a, mode) {
           </div>
         </div>
       </header>
-      <textarea data-role="summary" ${readonly}>${esc(text)}</textarea>
+      <textarea data-role="summary" rows="4" ${readonly}>${esc(text)}</textarea>
       ${actions}
     </article>`;
 }
