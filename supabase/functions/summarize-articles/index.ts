@@ -42,10 +42,16 @@ type Article = {
   title: string;
   url: string;
   raw_content: string | null;
+  summary?: string | null;
   source: string | null;
   rank_score: number | null;
   scraped_at: string;
+  status?: string;
 };
+
+function wordCount(text: string | null | undefined): number {
+  return (text ?? "").trim().split(/\s+/).filter(Boolean).length;
+}
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -61,7 +67,7 @@ Deno.serve(async (request) => {
   const since = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
   const { data: pending, error } = await supabase
     .from("articles")
-    .select("id,title,url,raw_content,source,rank_score,scraped_at")
+    .select("id,title,url,raw_content,summary,source,rank_score,scraped_at,status")
     .eq("status", "pending")
     .gte("scraped_at", since)
     .order("rank_score", { ascending: false })
@@ -70,8 +76,22 @@ Deno.serve(async (request) => {
 
   if (error) return json({ error: error.message }, 500);
 
-  const articles = (pending ?? []) as Article[];
-  if (articles.length === 0) return json({ summarized: 0, message: "No pending articles" });
+  // Also refresh recent summarized items whose summaries are still too short.
+  const { data: summarized, error: summarizedError } = await supabase
+    .from("articles")
+    .select("id,title,url,raw_content,summary,source,rank_score,scraped_at,status")
+    .eq("status", "summarized")
+    .gte("scraped_at", since)
+    .order("rank_score", { ascending: false })
+    .order("scraped_at", { ascending: false })
+    .limit(120);
+
+  if (summarizedError) return json({ error: summarizedError.message }, 500);
+
+  const pendingArticles = (pending ?? []) as Article[];
+  const shortSummaries = ((summarized ?? []) as Article[]).filter((a) => wordCount(a.summary) < 85);
+  const articles = [...pendingArticles, ...shortSummaries];
+  if (articles.length === 0) return json({ summarized: 0, message: "No pending or short summarized articles" });
 
   // Summarize in parallel (capped) to keep within edge time budget
   const CONCURRENCY = 6;
@@ -130,7 +150,7 @@ Deno.serve(async (request) => {
     .slice(0, 50)
     .map((r) => r.id);
 
-  if (topIds.length > 0) {
+  if (topIds.length > 0 && pendingArticles.length > 0) {
     // Anything summarized today that isn't in top 50 → back to pending (kept as history)
     const { data: tooMany } = await supabase
       .from("articles")
