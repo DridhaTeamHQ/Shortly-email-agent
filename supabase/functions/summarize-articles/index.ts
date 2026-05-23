@@ -6,7 +6,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 
 const SYSTEM_PROMPT = `You are a senior editor for a respected daily news briefing read by busy professionals.
 
-Write EXACTLY 3 sentences. 65-85 words total. Active voice.
+Write EXACTLY 3 sentences. 90-110 words total. Active voice.
 
 Sentence 1: Lead with the news — who did what, with key numbers, dates, and named entities.
 Sentence 2: Add the most important supporting detail, reaction, or development.
