@@ -625,21 +625,19 @@ function generatePreviewHtml() {
   function renderItems(articles) {
     return articles.map((a, i) => {
       const text = (a.edited_summary || a.summary || "").trim();
-      const meta = esc((a.topic || "Top story").toUpperCase());
-      const breaking = (a.prominence ?? 0) >= 4;
-      const topicChip = `<span style="display:inline-block;font-family:${FONT};background:#f3eefc;color:#7c3aed;font-size:10px;font-weight:700;letter-spacing:0.08em;padding:4px 11px;border-radius:999px">${meta}</span>`;
-      const breakingChip = breaking
-        ? `<span style="display:inline-block;font-family:${FONT};background:#dc2626;color:#fff;font-size:9px;font-weight:800;padding:4px 9px;border-radius:999px;letter-spacing:0.06em;margin-left:6px">BREAKING</span>`
+      const meta = esc(a.topic || "Top story");
+      const prominenceBadge = (a.prominence ?? 0) >= 4
+        ? `<span style="display:inline-block;font-family:${FONT};background:#dc2626;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:8px;vertical-align:middle;letter-spacing:0.05em">BREAKING</span>`
         : "";
-      return `<tr><td style="padding:22px 0;${i < articles.length - 1 ? "border-bottom:1px solid #f0ecf8;" : ""}">
+      return `<tr><td style="padding:24px 0;${i < articles.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-          <td style="width:46px;vertical-align:top;padding-top:3px">
-            <div style="width:36px;height:36px;border-radius:11px;font-family:${FONT};background:#7c3aed;background:linear-gradient(135deg,#7c3aed 0%,#a855f7 100%);color:#ffffff;font-size:16px;font-weight:800;text-align:center;line-height:36px;box-shadow:0 4px 10px rgba(124,58,237,0.28)">${i + 1}</div>
+          <td style="width:40px;vertical-align:top;padding-top:2px">
+            <div style="width:32px;height:32px;border-radius:50%;font-family:${FONT};background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">${i + 1}</div>
           </td>
           <td style="padding-left:14px">
-            <div style="margin-bottom:8px">${topicChip}${breakingChip}</div>
-            <h2 style="font-family:${FONT};font-size:18px;line-height:1.35;margin:0 0 9px;color:#1a1a2e;font-weight:700;letter-spacing:-0.2px">${esc(a.edited_title || a.title)}</h2>
-            <p style="font-family:${FONT};font-size:15px;line-height:1.7;color:#54546e;margin:0">${esc(text)}</p>
+            <div style="font-family:${FONT};font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px">${meta}</div>
+            <h2 style="font-family:${FONT};font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">${esc(a.edited_title || a.title)}${prominenceBadge}</h2>
+            <p style="font-family:${FONT};font-size:15px;line-height:1.7;color:#4a4a68;margin:0">${esc(text)}</p>
           </td>
         </tr></table>
       </td></tr>`;
@@ -648,17 +646,14 @@ function generatePreviewHtml() {
 
   function renderSection(title, subtitle, articles) {
     if (articles.length === 0) return "";
-    return `<div style="background:#ffffff;border-radius:18px;border:1px solid #ece6f7;margin-bottom:18px;overflow:hidden;box-shadow:0 6px 24px rgba(124,58,237,0.06)">
+    return `<div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5;margin-bottom:16px">
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-        <tr><td style="background:#7c3aed;background:linear-gradient(120deg,#7c3aed 0%,#9d5cf5 100%);padding:22px 28px">
-          <div style="font-family:${FONT};font-size:21px;font-weight:800;color:#ffffff;letter-spacing:-0.3px">${esc(title)}</div>
-          <div style="font-family:${FONT};margin-top:4px;font-size:13px;color:#e8dcfc;font-weight:500">${esc(subtitle)}</div>
+        <tr><td style="padding:24px 0 4px">
+          <h2 style="font-family:${FONT};margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px">${esc(title)}</h2>
+          <p style="font-family:${FONT};margin:0;font-size:13px;color:#9a9ab0;font-weight:500">${esc(subtitle)}</p>
         </td></tr>
-        <tr><td style="padding:6px 28px 14px">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-            ${renderItems(articles)}
-          </table>
-        </td></tr>
+        <tr><td><div style="border-top:2px solid #7c3aed;margin:12px 0 0"></div></td></tr>
+        ${renderItems(articles)}
       </table>
     </div>`;
   }
@@ -675,13 +670,15 @@ function generatePreviewHtml() {
           <img src="https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/banner.jpeg" alt="Shortly Daily Wrap — 10 Stories. 10 min." width="640" style="display:block;width:100%;max-width:640px;height:auto;border:0;border-radius:0 0 16px 16px" />
         </td></tr>
       </table>
-      <div style="background:#ffffff;border-radius:18px;padding:28px;margin:20px 0 18px;border:1px solid #ece6f7;border-left:4px solid #7c3aed">
-        <p style="font-family:${FONT};margin:0 0 6px;color:#1a1a2e;font-size:17px;font-weight:700">Hi there,</p>
-        <p style="font-family:${FONT};margin:0 0 14px;color:#6b6b8a;font-size:14px;line-height:1.65">
+      <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0 16px;border:1px solid #e8e0f5">
+        <p style="font-family:${FONT};margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">Hi there,</p>
+        <p style="font-family:${FONT};margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
           We read everything &mdash; so you get only what matters.<br>
           Here's your quick news update for ${esc(today)}.
         </p>
-        <span style="display:inline-block;font-family:${FONT};padding:6px 14px;background:#7c3aed;background:linear-gradient(120deg,#7c3aed,#a855f7);border-radius:999px;font-size:12px;color:#ffffff;font-weight:700;letter-spacing:0.02em">${readTime} min read</span>
+        <div style="font-family:${FONT};margin-top:12px;display:inline-block;background:#f5f3ff;border:1px solid #e8e0f5;border-radius:20px;padding:4px 14px;font-size:12px;color:#7c3aed;font-weight:600">
+          ${readTime} min read
+        </div>
       </div>
       ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
       ${renderSection("Shortly Ahead", `${ahead.length} stories to look out for`, ahead)}
@@ -692,12 +689,12 @@ function generatePreviewHtml() {
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
           </p>
-          <p style="margin:0 0 14px;font-size:12px">
-            <a href="#" style="display:inline-block;font-family:${FONT};background:#f3eefc;color:#7c3aed;text-decoration:none;font-weight:600;font-size:12px;padding:9px 18px;border-radius:999px;margin:0 4px 6px">Share on X</a>
-            <a href="#" style="display:inline-block;font-family:${FONT};background:#f3eefc;color:#7c3aed;text-decoration:none;font-weight:600;font-size:12px;padding:9px 18px;border-radius:999px;margin:0 4px 6px">LinkedIn</a>
-            <a href="#" style="display:inline-block;font-family:${FONT};background:#f3eefc;color:#7c3aed;text-decoration:none;font-weight:600;font-size:12px;padding:9px 18px;border-radius:999px;margin:0 4px 6px">WhatsApp</a>
+          <p style="font-family:${FONT};margin:0;font-size:12px;color:#9a9ab0">
+            <a href="#" style="font-family:${FONT};color:#7c3aed;text-decoration:underline">Share on X</a> &nbsp;|&nbsp;
+            <a href="#" style="font-family:${FONT};color:#7c3aed;text-decoration:underline">LinkedIn</a> &nbsp;|&nbsp;
+            <a href="#" style="font-family:${FONT};color:#7c3aed;text-decoration:underline">WhatsApp</a>
           </p>
-          <p style="margin:0;font-size:11px;color:#b0b0c0">
+          <p style="font-family:${FONT};margin:12px 0 0;font-size:11px;color:#b0b0c0">
             <a href="#" style="font-family:${FONT};color:#b0b0c0;text-decoration:underline">Unsubscribe</a>
           </p>
         </td></tr>
