@@ -8,28 +8,27 @@ export type Source = {
 };
 
 export const SOURCES: Source[] = [
-  // World
-  { name: "Shortly", url: "https://feeds.bbci.co.uk/news/world/rss.xml", weight: 1.0, topic: "World" },
-  { name: "Shortly", url: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml", weight: 1.0, topic: "World" },
-
-  // Business
-  { name: "Shortly", url: "https://feeds.bbci.co.uk/news/business/rss.xml", weight: 0.9, topic: "Business" },
-  { name: "Shortly", url: "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml", weight: 0.9, topic: "Business" },
-
-  // Technology
-  { name: "Shortly", url: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml", weight: 0.85, topic: "Technology" },
-
   // India — National
   { name: "Shortly", url: "https://timesofindia.indiatimes.com/rssfeedstopstories.cms", weight: 1.0, topic: "India" },
-  { name: "Shortly", url: "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms", weight: 0.95, topic: "India" },
   { name: "Shortly", url: "https://www.thehindu.com/news/national/feeder/default.rss", weight: 1.0, topic: "India" },
-  { name: "Shortly", url: "https://feeds.feedburner.com/ndtvnews-top-stories", weight: 0.95, topic: "India" },
-  { name: "Shortly", url: "https://indianexpress.com/section/india/feed/", weight: 0.9, topic: "India" },
+  { name: "Shortly", url: "https://feeds.feedburner.com/ndtvnews-india-news", weight: 0.95, topic: "India" },
+  { name: "Shortly", url: "https://indianexpress.com/section/india/feed/", weight: 0.95, topic: "India" },
+  { name: "Shortly", url: "https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml", weight: 0.9, topic: "India" },
 
-  // India — Business
-  { name: "Shortly", url: "https://timesofindia.indiatimes.com/rssfeeds/1898055.cms", weight: 0.9, topic: "India Business" },
+  // World — via Indian outlets' international desks
+  { name: "Shortly", url: "https://www.thehindu.com/news/international/feeder/default.rss", weight: 0.9, topic: "World" },
+  { name: "Shortly", url: "https://feeds.feedburner.com/ndtvnews-world-news", weight: 0.9, topic: "World" },
+  { name: "Shortly", url: "https://indianexpress.com/section/world/feed/", weight: 0.85, topic: "World" },
+  { name: "Shortly", url: "https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml", weight: 0.85, topic: "World" },
+
+  // India — Business / Markets
+  { name: "Shortly", url: "https://economictimes.indiatimes.com/rssfeedstopstories.cms", weight: 0.95, topic: "India Business" },
+  { name: "Shortly", url: "https://www.livemint.com/rss/markets", weight: 0.9, topic: "India Business" },
+  { name: "Shortly", url: "https://www.business-standard.com/rss/home_page_top_stories.rss", weight: 0.9, topic: "India Business" },
   { name: "Shortly", url: "https://www.thehindu.com/business/feeder/default.rss", weight: 0.85, topic: "India Business" },
+  { name: "Shortly", url: "https://indianexpress.com/section/business/feed/", weight: 0.85, topic: "India Business" },
 
   // India — Technology
-  { name: "Shortly", url: "https://timesofindia.indiatimes.com/rssfeeds/66949542.cms", weight: 0.85, topic: "India Tech" },
+  { name: "Shortly", url: "https://indianexpress.com/section/technology/feed/", weight: 0.85, topic: "India Tech" },
+  { name: "Shortly", url: "https://gadgets360.com/rss/feeds", weight: 0.8, topic: "India Tech" },
 ];
