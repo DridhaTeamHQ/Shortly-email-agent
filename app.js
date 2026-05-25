@@ -16,79 +16,11 @@ function esc(s = "") {
     .replaceAll("'", "&#039;");
 }
 
-// ---------- toast system (stacked, typed) ----------
-const TOAST_ICONS = {
-  success: "&#10003;",
-  error:   "&#10007;",
-  warning: "&#9888;",
-  info:    "&#8505;"
-};
-
-function toast(msg, type = "info") {
-  const container = $("#toastContainer");
-  const item = document.createElement("div");
-  item.className = `toast-item toast-${type}`;
-  item.innerHTML = `
-    <span class="toast-icon">${TOAST_ICONS[type] || TOAST_ICONS.info}</span>
-    <span class="toast-text">${esc(msg)}</span>
-    <button class="toast-dismiss" aria-label="Dismiss">&times;</button>
-  `;
-  container.appendChild(item);
-
-  // Dismiss on click
-  item.querySelector(".toast-dismiss").addEventListener("click", () => removeToast(item));
-
-  // Auto-remove after 3.5s
-  setTimeout(() => removeToast(item), 3500);
-}
-
-function removeToast(item) {
-  if (item.classList.contains("removing")) return;
-  item.classList.add("removing");
-  item.addEventListener("animationend", () => item.remove());
-}
-
-// ---------- custom confirm dialog ----------
-function showConfirm({ title = "Are you sure?", message = "", icon = "warning", confirmText = "Confirm", danger = false } = {}) {
-  return new Promise((resolve) => {
-    const overlay = $("#confirmOverlay");
-    const iconEl = $("#confirmIcon");
-    const titleEl = $("#confirmTitle");
-    const msgEl = $("#confirmMessage");
-    const okBtn = $("#confirmOk");
-    const cancelBtn = $("#confirmCancel");
-
-    const icons = { warning: "&#9888;", danger: "&#9888;", info: "&#8505;", success: "&#10003;" };
-    iconEl.innerHTML = icons[icon] || icons.warning;
-    iconEl.className = `confirm-icon ${icon === "danger" ? "danger" : icon}`;
-    titleEl.textContent = title;
-    msgEl.textContent = message;
-    okBtn.textContent = confirmText;
-    okBtn.className = `btn-confirm${danger ? " danger" : ""}`;
-
-    overlay.classList.add("show");
-
-    function cleanup(result) {
-      overlay.classList.remove("show");
-      okBtn.removeEventListener("click", onOk);
-      cancelBtn.removeEventListener("click", onCancel);
-      overlay.removeEventListener("click", onBackdrop);
-      document.removeEventListener("keydown", onKey);
-      resolve(result);
-    }
-    function onOk() { cleanup(true); }
-    function onCancel() { cleanup(false); }
-    function onBackdrop(e) { if (e.target === overlay) cleanup(false); }
-    function onKey(e) { if (e.key === "Escape") cleanup(false); }
-
-    okBtn.addEventListener("click", onOk);
-    cancelBtn.addEventListener("click", onCancel);
-    overlay.addEventListener("click", onBackdrop);
-    document.addEventListener("keydown", onKey);
-
-    // Focus confirm button
-    setTimeout(() => okBtn.focus(), 100);
-  });
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2800);
 }
 
 async function api(method, path, body) {
@@ -132,8 +64,7 @@ function approvedTodayCount() {
 function sectionCounts() {
   const approved = state.articles.filter(isApprovedToday);
   return {
-    wrapped: approved.filter((a) => a.section !== "ahead").length,
-    ahead: approved.filter((a) => a.section === "ahead").length
+    wrapped: approved.length
   };
 }
 
@@ -179,15 +110,15 @@ function refreshChrome() {
   $("#badgeSubs").textContent = subs;
 
   const send = $("#sendDigest");
-  send.textContent = `Send (${counts.wrapped}W + ${counts.ahead}A)`;
+  send.textContent = `Send (${counts.wrapped})`;
   send.disabled = approved === 0 || subs === 0;
 
   const preview = $("#previewDigest");
   preview.style.display = approved > 0 ? "" : "none";
 
   const titles = {
-    review: ["Review queue", `Wrapped: ${counts.wrapped}/5 | Ahead: ${counts.ahead}/5 | ${pending} pending`],
-    approved: ["Approved", `${counts.wrapped} Wrapped + ${counts.ahead} Ahead = ${approved} total`],
+    review: ["Review queue", `Wrapped: ${counts.wrapped}/${DAILY_CAP} | ${pending} pending`],
+    approved: ["Approved", `${counts.wrapped} Wrapped article${counts.wrapped === 1 ? "" : "s"} ready`],
     rejected: ["Rejected", `${rejected} articles removed from queue`],
     history: ["Digest History", "All past digests and delivery stats"],
     analytics: ["Analytics", "Overview of your newsletter performance"],
@@ -209,31 +140,21 @@ function populateTopicFilter() {
 
 function cardHtml(a, mode) {
   const text = a.edited_summary || a.summary || "";
-  const headline = a.edited_title || a.title || "";
   const date = new Date(a.scraped_at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const time = new Date(a.scraped_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   const source = a.source ? `<span class="source-pill">${esc(a.source)}</span>` : "";
   const topic = a.topic ? `<span class="topic-chip">${esc(a.topic)}</span>` : "";
-  const sec = a.section || "wrapped";
-  const prom = a.prominence ?? 2;
+  const sec = "wrapped";
   const atCap = approvedTodayCount() >= DAILY_CAP;
   const checked = state.selected.has(a.id) ? "checked" : "";
   const draggable = mode === "approved" ? 'draggable="true"' : "";
-
-  // Prominence badge
-  const promBadge = prom >= 4
-    ? `<span class="tag prominence-high">${prom >= 5 ? "BREAKING" : "HIGH"}</span>`
-    : prom >= 3
-    ? `<span class="tag prominence-mid">NOTABLE</span>`
-    : "";
 
   // Section picker
   const sectionPicker = mode !== "rejected" ? `
     <div class="section-picker">
       <label class="section-label">Section:</label>
-      <select data-role="section">
-        <option value="wrapped" ${sec === "wrapped" ? "selected" : ""}>Wrapped</option>
-        <option value="ahead" ${sec === "ahead" ? "selected" : ""}>Ahead</option>
+      <select data-role="section" disabled>
+        <option value="wrapped" selected>Wrapped</option>
       </select>
     </div>` : "";
 
@@ -267,18 +188,13 @@ function cardHtml(a, mode) {
   const words = text.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.ceil(words / 200));
 
-  // Editable title (input for review/approved, plain text for rejected)
-  const titleField = mode !== "rejected"
-    ? `<input type="text" class="title-input" data-role="title" value="${esc(headline)}" />`
-    : `<h3>${esc(headline)}</h3>`;
-
   return `
-    <article class="card ${checked ? "selected" : ""} ${prom >= 4 ? "card-breaking" : ""}" data-id="${a.id}" ${draggable}>
+    <article class="card ${checked ? "selected" : ""}" data-id="${a.id}" ${draggable}>
       <header>
         ${checkbox}
         <div class="card-head">
-          <div class="chips">${source}${topic}${sectionTag}${promBadge}<span class="tag ${a.status}">${a.status}</span></div>
-          ${titleField}
+          <div class="chips">${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
+          <h3>${esc(a.title)}</h3>
           <div class="meta">
             ${date} &middot; ${time}
             &middot; <a href="${esc(a.url)}" target="_blank" rel="noreferrer">Source</a>
@@ -286,17 +202,9 @@ function cardHtml(a, mode) {
           </div>
         </div>
       </header>
-      <textarea data-role="summary" ${readonly}>${esc(text)}</textarea>
+      <textarea data-role="summary" rows="4" ${readonly}>${esc(text)}</textarea>
       ${actions}
     </article>`;
-}
-
-function emptyState(icon, title, subtitle) {
-  return `<div class="empty-state">
-    <span class="empty-icon">${icon}</span>
-    <h3>${esc(title)}</h3>
-    <p>${esc(subtitle)}</p>
-  </div>`;
 }
 
 function renderReview() {
@@ -304,7 +212,7 @@ function renderReview() {
   const node = $("#reviewList");
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "review")).join("")
-    : emptyState("📋", "No articles to review", state.search ? "Try a different search term." : "Hit 'Fetch & Summarize' in the Scraper tab to get started.");
+    : `<p class="muted">No articles to review${state.search ? " matching your search" : ""}.</p>`;
 }
 
 function renderApproved() {
@@ -312,7 +220,7 @@ function renderApproved() {
   const node = $("#approvedList");
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "approved")).join("")
-    : emptyState("✅", "Nothing approved yet", "Approve articles from the Review queue to build today's digest.");
+    : `<p class="muted">Nothing approved yet today.</p>`;
   attachDragListeners();
 }
 
@@ -321,7 +229,7 @@ function renderRejected() {
   const node = $("#rejectedList");
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "rejected")).join("")
-    : emptyState("🗑️", "No rejected articles", "Articles you reject will appear here.");
+    : `<p class="muted">No rejected articles.</p>`;
 }
 
 function renderSubscribers() {
@@ -415,12 +323,15 @@ function renderAll() {
 
 // ---------- data loaders ----------
 async function loadArticles() {
+  // Load each relevant status separately to avoid high-rank pending articles
+  // pushing summarized articles past the limit
   const [review, approved, rejected, sent] = await Promise.all([
     api("GET", `${cfg.list}?status=summarized&limit=100`),
     api("GET", `${cfg.list}?status=approved&limit=50`),
     api("GET", `${cfg.list}?status=rejected&limit=50`),
     api("GET", `${cfg.list}?status=sent&limit=100`)
   ]);
+  // Merge and dedupe by id
   const map = new Map();
   [review, approved, rejected, sent].forEach((res) => {
     (res.articles || []).forEach((a) => map.set(a.id, a));
@@ -435,6 +346,16 @@ async function loadSubscribers() {
 
 async function loadDigests() {
   try {
+    // Use Supabase REST API directly for digests
+    const base = cfg.list.replace("/list-articles", "");
+    const headers = { "Content-Type": "application/json" };
+    if (cfg.anonKey) {
+      headers["apikey"] = cfg.anonKey;
+      headers["Authorization"] = `Bearer ${cfg.anonKey}`;
+    }
+    const url = cfg.list.replace("list-articles", "").replace("functions/v1/", "rest/v1/");
+    const supabaseUrl = url.replace(/\/functions\/.*/, "").replace(/\/rest\/.*/, "");
+    // Build REST URL from the function URL
     const projectUrl = cfg.list.match(/(https:\/\/[^/]+)/)?.[1]?.replace(".functions.", ".");
     if (projectUrl) {
       const r = await fetch(`${projectUrl}/rest/v1/digests?select=*&order=sent_at.desc&limit=50`, {
@@ -457,7 +378,7 @@ async function reload() {
     await Promise.all([loadArticles(), loadSubscribers(), loadDigests()]);
     renderAll();
   } catch (e) {
-    toast(`Load failed: ${e.message}`, "error");
+    toast(`Load failed: ${e.message}`);
   }
 }
 
@@ -465,66 +386,31 @@ async function reload() {
 async function handleArticleAction(card, action) {
   const id = card.dataset.id;
   const summary = card.querySelector("textarea")?.value.trim();
-  const title = card.querySelector("[data-role=title]")?.value?.trim();
   const section = card.querySelector("select[data-role=section]")?.value || "wrapped";
   const body = { id, action, reviewer: cfg.reviewer, section };
-  if (action === "edit" || action === "approve") {
-    body.edited_summary = summary;
-    if (title) body.edited_title = title;
-  }
-
-  // Confirm for reject action
-  if (action === "reject") {
-    const articleTitle = title || card.querySelector("h3")?.textContent || "this article";
-    const ok = await showConfirm({
-      title: "Reject article?",
-      message: `"${articleTitle}" will be moved to the rejected queue.`,
-      icon: "warning",
-      confirmText: "Reject",
-      danger: true
-    });
-    if (!ok) return;
-  }
-
+  if (action === "edit" || action === "approve") body.edited_summary = summary;
   try {
     await api("POST", cfg.review, body);
     state.selected.delete(id);
     await reload();
-    if (action === "edit") toast("Changes saved.", "success");
-    else if (action === "approve") toast("Article approved!", "success");
-    else toast("Article rejected.", "info");
+    toast(action === "edit" ? "Summary saved." : `Article ${action}d.`);
   } catch (e) {
-    toast(`Failed: ${e.message}`, "error");
+    toast(`Failed: ${e.message}`);
   }
 }
 
 async function handleSubscriberAction(row, action) {
   const id = row.dataset.id;
-  const email = row.querySelector("td")?.textContent || "";
-
-  if (action === "delete") {
-    const ok = await showConfirm({
-      title: "Delete subscriber?",
-      message: `${email} will be permanently removed.`,
-      icon: "danger",
-      confirmText: "Delete",
-      danger: true
-    });
-    if (!ok) return;
-  }
-
   try {
     if (action === "delete") {
       await api("POST", cfg.subscribers, { action: "delete", id });
-      toast("Subscriber deleted.", "info");
     } else {
       const status = action === "subscribe" ? "subscribed" : "unsubscribed";
       await api("POST", cfg.subscribers, { action: "update", id, status });
-      toast(action === "subscribe" ? "Re-subscribed!" : "Unsubscribed.", "success");
     }
     await reload();
   } catch (e) {
-    toast(`Failed: ${e.message}`, "error");
+    toast(`Failed: ${e.message}`);
   }
 }
 
@@ -543,26 +429,16 @@ function updateBulkBar() {
 async function bulkAction(action) {
   if (state.selected.size === 0) return;
   const ids = [...state.selected];
-
-  const ok = await showConfirm({
-    title: `${action === "approve" ? "Approve" : "Reject"} ${ids.length} articles?`,
-    message: `This will ${action} all selected articles at once.`,
-    icon: action === "approve" ? "success" : "warning",
-    confirmText: `${action === "approve" ? "Approve" : "Reject"} all`,
-    danger: action === "reject"
-  });
-  if (!ok) return;
-
-  toast(`Processing ${ids.length} articles...`, "info");
+  toast(`Processing ${ids.length} articles...`);
   try {
     for (const id of ids) {
       await api("POST", cfg.review, { id, action, reviewer: cfg.reviewer });
     }
     state.selected.clear();
     await reload();
-    toast(`${ids.length} articles ${action}d!`, "success");
+    toast(`${ids.length} articles ${action}d.`);
   } catch (e) {
-    toast(`Failed: ${e.message}`, "error");
+    toast(`Failed: ${e.message}`);
   }
 }
 
@@ -593,30 +469,40 @@ function attachDragListeners() {
       card.classList.remove("drag-over");
       if (!state.dragId || state.dragId === card.dataset.id) return;
 
+      // Reorder in state
       const list = state.articles.filter(isApprovedToday);
       const fromIdx = list.findIndex((a) => a.id === state.dragId);
       const toIdx = list.findIndex((a) => a.id === card.dataset.id);
       if (fromIdx === -1 || toIdx === -1) return;
 
+      // Swap rank_score values to persist order
       const tempScore = list[fromIdx].rank_score;
       list[fromIdx].rank_score = list[toIdx].rank_score;
       list[toIdx].rank_score = tempScore;
 
       renderApproved();
-      toast("Reordered.", "success");
+      toast("Reordered.");
     });
   });
 }
 
 // ---------- email preview ----------
-const FONT = "Inter,'Helvetica Neue',Helvetica,Arial,sans-serif";
+function collectLiveSummaryOverrides() {
+  const overrides = new Map();
+  $$(".card[data-id] textarea[data-role=summary]").forEach((node) => {
+    const card = node.closest(".card");
+    const id = card?.dataset.id;
+    if (id) overrides.set(id, node.value.trim());
+  });
+  return overrides;
+}
 
 function generatePreviewHtml() {
+  const liveSummaries = collectLiveSummaryOverrides();
   const approved = state.articles.filter(isApprovedToday);
   if (approved.length === 0) return "<p>No articles approved yet.</p>";
 
-  const wrapped = approved.filter((a) => (a.section || "wrapped") !== "ahead").slice(0, 5);
-  const ahead = approved.filter((a) => a.section === "ahead").slice(0, 5);
+  const wrapped = approved.slice(0, DAILY_CAP);
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric"
@@ -624,20 +510,17 @@ function generatePreviewHtml() {
 
   function renderItems(articles) {
     return articles.map((a, i) => {
-      const text = (a.edited_summary || a.summary || "").trim();
+      const text = liveSummaries.get(a.id) || (a.edited_summary || a.summary || "").trim();
       const meta = esc(a.topic || "Top story");
-      const prominenceBadge = (a.prominence ?? 0) >= 4
-        ? `<span style="display:inline-block;font-family:${FONT};background:#dc2626;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:8px;vertical-align:middle;letter-spacing:0.05em">BREAKING</span>`
-        : "";
       return `<tr><td style="padding:24px 0;${i < articles.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
           <td style="width:40px;vertical-align:top;padding-top:2px">
-            <div style="width:32px;height:32px;border-radius:50%;font-family:${FONT};background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">${i + 1}</div>
+            <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">${i + 1}</div>
           </td>
           <td style="padding-left:14px">
-            <div style="font-family:${FONT};font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px">${meta}</div>
-            <h2 style="font-family:${FONT};font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">${esc(a.edited_title || a.title)}${prominenceBadge}</h2>
-            <p style="font-family:${FONT};font-size:15px;line-height:1.7;color:#4a4a68;margin:0">${esc(text)}</p>
+            <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px;font-family:Roboto,Arial,sans-serif">${meta}</div>
+            <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${esc(a.title)}</h2>
+            <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0;font-family:Roboto,Arial,sans-serif">${esc(text)}</p>
           </td>
         </tr></table>
       </td></tr>`;
@@ -646,56 +529,55 @@ function generatePreviewHtml() {
 
   function renderSection(title, subtitle, articles) {
     if (articles.length === 0) return "";
-    return `<div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5;margin-bottom:16px">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-        <tr><td style="padding:24px 0 4px">
-          <h2 style="font-family:${FONT};margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px">${esc(title)}</h2>
-          <p style="font-family:${FONT};margin:0;font-size:13px;color:#9a9ab0;font-weight:500">${esc(subtitle)}</p>
-        </td></tr>
-        <tr><td><div style="border-top:2px solid #7c3aed;margin:12px 0 0"></div></td></tr>
-        ${renderItems(articles)}
-      </table>
+    return `<div style="margin-bottom:20px;border-radius:18px;overflow:hidden;background:#ffffff;border:1px solid #e8e0f5">
+      <div style="background:linear-gradient(90deg,#7c3aed 0%,#9b5cf6 100%);padding:24px 28px 20px">
+        <h2 style="margin:0 0 6px;font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.3px;font-family:Roboto,Arial,sans-serif">${esc(title)}</h2>
+        <p style="margin:0;font-size:13px;color:#efe7ff;font-weight:500;font-family:Roboto,Arial,sans-serif">${esc(subtitle)}</p>
+      </div>
+      <div style="padding:10px 28px 8px">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+          ${renderItems(articles)}
+        </table>
+      </div>
     </div>`;
   }
 
-  const allText = [...wrapped, ...ahead].map((a) => a.edited_summary || a.summary || "").join(" ");
+  // Calculate read time
+  const allText = wrapped
+    .map((a) => liveSummaries.get(a.id) || a.edited_summary || a.summary || "")
+    .join(" ");
   const wordCount = allText.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.ceil(wordCount / 200));
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
-  <body style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet"></head>
+  <body style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-        <tr><td style="padding:0;font-size:0;line-height:0">
-          <img src="https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/banner.jpeg" alt="Shortly Daily Wrap — 10 Stories. 10 min." width="640" style="display:block;width:100%;max-width:640px;height:auto;border:0;border-radius:0 0 16px 16px" />
-        </td></tr>
-      </table>
-      <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0 16px;border:1px solid #e8e0f5">
-        <p style="font-family:${FONT};margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">Hi there,</p>
-        <p style="font-family:${FONT};margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
+      <img src="/assets/email-banner.jpg" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
+      <div style="background:#ffffff;border-radius:18px;padding:28px 30px;margin:20px 0 20px;border:1px solid #e8e0f5;border-left:4px solid #7c3aed">
+        <p style="margin:0 0 10px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:Roboto,Arial,sans-serif">Hi there,</p>
+        <p style="margin:0;color:#6b6b8a;font-size:16px;line-height:1.65;font-weight:400;font-family:Roboto,Arial,sans-serif">
           We read everything &mdash; so you get only what matters.<br>
           Here's your quick news update for ${esc(today)}.
         </p>
-        <div style="font-family:${FONT};margin-top:12px;display:inline-block;background:#f5f3ff;border:1px solid #e8e0f5;border-radius:20px;padding:4px 14px;font-size:12px;color:#7c3aed;font-weight:600">
+        <div style="margin-top:16px;display:inline-block;background:#8b5cf6;border-radius:999px;padding:6px 16px;font-size:12px;color:#ffffff;font-weight:700;font-family:Roboto,Arial,sans-serif">
           ${readTime} min read
         </div>
       </div>
       ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
-      ${renderSection("Shortly Ahead", `${ahead.length} stories to look out for`, ahead)}
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
         <tr><td style="text-align:center;padding:20px">
-          <img src="https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/shortlyfooter.png" alt="Shortly" width="130" style="display:block;width:130px;max-width:60%;height:auto;border:0;margin:0 auto 10px" />
-          <p style="font-family:${FONT};margin:0 0 12px;color:#9a9ab0;font-size:12px;line-height:1.5">
+          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px;font-family:Roboto,Arial,sans-serif">shortly</div>
+          <p style="margin:0 0 12px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
           </p>
-          <p style="font-family:${FONT};margin:0;font-size:12px;color:#9a9ab0">
-            <a href="#" style="font-family:${FONT};color:#7c3aed;text-decoration:underline">Share on X</a> &nbsp;|&nbsp;
-            <a href="#" style="font-family:${FONT};color:#7c3aed;text-decoration:underline">LinkedIn</a> &nbsp;|&nbsp;
-            <a href="#" style="font-family:${FONT};color:#7c3aed;text-decoration:underline">WhatsApp</a>
+          <p style="margin:0;font-size:12px;color:#9a9ab0;font-family:Roboto,Arial,sans-serif">
+            <a href="#" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Share on X</a> &nbsp;|&nbsp;
+            <a href="#" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">LinkedIn</a> &nbsp;|&nbsp;
+            <a href="#" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">WhatsApp</a>
           </p>
-          <p style="font-family:${FONT};margin:12px 0 0;font-size:11px;color:#b0b0c0">
-            <a href="#" style="font-family:${FONT};color:#b0b0c0;text-decoration:underline">Unsubscribe</a>
+          <p style="margin:12px 0 0;font-size:11px;color:#b0b0c0">
+            <a href="#" style="color:#b0b0c0;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Unsubscribe</a>
           </p>
         </td></tr>
       </table>
@@ -801,6 +683,7 @@ $("#bulkClear").addEventListener("click", () => {
 // Article action delegation (+ checkbox handling)
 ["#reviewList", "#approvedList", "#rejectedList"].forEach((sel) => {
   $(sel).addEventListener("click", (e) => {
+    // Handle checkbox
     const check = e.target.closest(".card-check");
     if (check) {
       const id = check.dataset.id;
@@ -810,6 +693,7 @@ $("#bulkClear").addEventListener("click", () => {
       updateBulkBar();
       return;
     }
+    // Handle action button
     const btn = e.target.closest("button[data-action]");
     if (!btn) return;
     const card = btn.closest(".card");
@@ -835,9 +719,9 @@ $("#subForm").addEventListener("submit", async (e) => {
     $("#subEmail").value = "";
     $("#subName").value = "";
     await reload();
-    toast("Subscriber added!", "success");
+    toast("Subscriber added.");
   } catch (e) {
-    toast(`Failed: ${e.message}`, "error");
+    toast(`Failed: ${e.message}`);
   }
 });
 
@@ -860,7 +744,7 @@ $("#fetchToday").addEventListener("click", async () => {
     const sumRes = await api("POST", cfg.summarize, {});
     const sumInfo = `Summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, Failed: ${sumRes.failed ?? 0}`;
 
-    // Step 3: Retry pass for rate-limited articles
+    // Step 3: Second summarize pass for rate-limited articles
     if (sumRes.failed > 0) {
       btnText.innerHTML = `<span class="spinner"></span> Retry (${sumRes.failed} remaining)...`;
       const retryRes = await api("POST", cfg.summarize, {});
@@ -873,9 +757,9 @@ $("#fetchToday").addEventListener("click", async () => {
     resultBox.classList.remove("hidden");
     await reload();
     showSection("review");
-    toast(`Done! ${sumRes.summarized ?? 0} articles ready for review.`, "success");
+    toast(`Done! ${sumRes.summarized ?? 0} articles ready for review.`);
   } catch (e) {
-    toast(`Fetch failed: ${e.message}`, "error");
+    toast(`Failed: ${e.message}`);
     resultBox.textContent = `Error: ${e.message}`;
     resultBox.classList.remove("hidden");
   } finally {
@@ -894,7 +778,7 @@ $("#scrapeForm").addEventListener("submit", async (e) => {
     topic: $("#scTopic").value.trim(),
     raw_content: $("#scRaw").value.trim()
   };
-  toast("Summarizing...", "info");
+  toast("Summarizing...");
   try {
     const res = await api("POST", cfg.submit, payload);
     const out = $("#scraperResult");
@@ -902,9 +786,9 @@ $("#scrapeForm").addEventListener("submit", async (e) => {
     out.classList.remove("hidden");
     $("#scrapeForm").reset();
     await reload();
-    toast("Article queued for review!", "success");
+    toast("Article queued for review.");
   } catch (e) {
-    toast(`Failed: ${e.message}`, "error");
+    toast(`Failed: ${e.message}`);
   }
 });
 
@@ -922,30 +806,21 @@ $("#sendDigest").addEventListener("click", async () => {
   const approved = approvedTodayCount();
   const subCount = state.subscribers.filter((s) => s.status === "subscribed").length;
   const fallbackMsg = approved < DAILY_CAP
-    ? ` Only ${approved}/${DAILY_CAP} approved — the rest will be auto-selected by rank.`
+    ? `\n\nOnly ${approved}/${DAILY_CAP} approved — the rest will be auto-selected by rank.`
     : "";
-
-  const ok = await showConfirm({
-    title: "Send today's digest?",
-    message: `This will deliver the newsletter to ${subCount} subscriber${subCount === 1 ? "" : "s"}.${fallbackMsg}`,
-    icon: "info",
-    confirmText: "Send now"
-  });
-  if (!ok) return;
-
+  if (!confirm(`Send digest to ${subCount} subscribers?${fallbackMsg}`)) return;
   try {
-    toast("Sending digest...", "info");
     const res = await api("POST", cfg.digest);
     const autoMsg = res.autoSelected ? " (with auto-selected articles)" : "";
-    toast(`Sent to ${res.sent ?? 0} subscribers${autoMsg}!`, "success");
+    toast(`Sent to ${res.sent ?? 0} subscribers${autoMsg}.`);
     await reload();
     showSection("review");
   } catch (e) {
-    toast(`Send failed: ${e.message}`, "error");
+    toast(`Failed: ${e.message}`);
   }
 });
 
-// Keyboard shortcut: Escape closes modals
+// Keyboard shortcut: Escape closes modal
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     $("#previewModal").classList.remove("show");

@@ -1,7 +1,6 @@
-// send-daily-digest: Two-section newsletter with fallback auto-select.
-// Section 1: "Shortly Wrapped" — 5 stories to catch up on
-// Section 2: "Shortly Ahead"   — 5 stories to look out for
-// Guarantees at least 1 finance/business article per section.
+// send-daily-digest: Single-section newsletter with fallback auto-select.
+// Sends 10 stories in one "Shortly Wrapped" section.
+// Guarantees at least 1 finance/business article when possible.
 // Fallback: if QA hasn't approved enough, auto-selects from summarized pool.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -12,7 +11,6 @@ import { generateUnsubToken } from "../_shared/unsub.ts";
 type Article = {
   id: string;
   title: string;
-  edited_title: string | null;
   url: string;
   summary: string | null;
   edited_summary: string | null;
@@ -20,84 +18,37 @@ type Article = {
   topic: string | null;
   section: string | null;
   rank_score: number;
-  prominence: number;
 };
 
 type Subscriber = { id: string; email: string; full_name: string | null };
 
-const SECTION_SIZE = 5;
-const TOTAL_ARTICLES = SECTION_SIZE * 2;
+const TOTAL_ARTICLES = 10;
 const FINANCE_TOPICS = ["business", "india business", "finance", "economy", "markets"];
+const BANNER_DATA_URL = loadBannerDataUrl();
 
-// Hosted brand assets (public Supabase Storage bucket)
-const BANNER_URL = "https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/banner.jpeg";
-const FOOTER_LOGO_URL = "https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/shortlyfooter.png";
-
-// Sans-serif stack — applied to every text element so clients never fall back to Times.
-const FONT = "Inter,'Helvetica Neue',Helvetica,Arial,sans-serif";
+function loadBannerDataUrl(): string {
+  const bytes = Deno.readFileSync(new URL("../../../assets/email-banner.jpg", import.meta.url));
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return `data:image/jpeg;base64,${btoa(binary)}`;
+}
 
 function isFinance(a: Article): boolean {
   return FINANCE_TOPICS.includes((a.topic ?? "").toLowerCase());
 }
 
-const FINANCE_PER_SECTION = 2;
+function normalizeWrapped(articles: Article[]): Article[] {
+  const wrapped = articles.slice(0, TOTAL_ARTICLES);
+  if (wrapped.some(isFinance)) return wrapped;
 
-/** Split articles into wrapped (5) and ahead (5), guaranteeing 2 finance each. */
-function splitSections(articles: Article[]): { wrapped: Article[]; ahead: Article[] } {
-  const wrapped: Article[] = [];
-  const ahead: Article[] = [];
-
-  // First pass: place articles by their GPT-assigned section
-  for (const a of articles) {
-    if (a.section === "ahead" && ahead.length < SECTION_SIZE) ahead.push(a);
-    else if (wrapped.length < SECTION_SIZE) wrapped.push(a);
-    else if (ahead.length < SECTION_SIZE) ahead.push(a);
+  const spare = articles.find((a) => isFinance(a) && !wrapped.some((used) => used.id === a.id));
+  if (spare && wrapped.length > 0) {
+    wrapped[wrapped.length - 1] = spare;
   }
-
-  // Guarantee 2 finance per section
-  ensureFinance(wrapped, ahead, articles);
-  ensureFinance(ahead, wrapped, articles);
-
-  return { wrapped, ahead };
-}
-
-/** Ensure `target` has at least FINANCE_PER_SECTION finance articles. */
-function ensureFinance(target: Article[], other: Article[], pool: Article[]) {
-  const finCount = target.filter(isFinance).length;
-  let needed = FINANCE_PER_SECTION - finCount;
-  if (needed <= 0) return;
-
-  const usedIds = () => new Set([...target, ...other].map((a) => a.id));
-
-  // First, try swapping non-finance from target with finance from pool
-  const allFinance = pool.filter((a) => isFinance(a) && !usedIds().has(a.id));
-  for (const fin of allFinance) {
-    if (needed <= 0) break;
-    // Find a non-finance article in target to replace
-    const nonFinIdx = target.findIndex((a) => !isFinance(a));
-    if (nonFinIdx !== -1) {
-      const replaced = target.splice(nonFinIdx, 1)[0];
-      target.push(fin);
-      if (other.length < SECTION_SIZE) other.push(replaced);
-      needed--;
-    }
-  }
-
-  // If still short, try taking finance from the other section
-  while (needed > 0) {
-    const otherFinIdx = other.findIndex(isFinance);
-    if (otherFinIdx === -1) break;
-    const fin = other.splice(otherFinIdx, 1)[0];
-    const nonFinIdx = target.findIndex((a) => !isFinance(a));
-    if (nonFinIdx !== -1) {
-      const replaced = target.splice(nonFinIdx, 1)[0];
-      target.push(fin);
-      other.push(replaced);
-    } else {
-      target.push(fin);
-    }
-    needed--;
-  }
+  return wrapped;
 }
 
 Deno.serve(async (request) => {
@@ -108,7 +59,7 @@ Deno.serve(async (request) => {
   // 1. Try approved articles first
   const { data: approved, error: approvedError } = await supabase
     .from("articles")
-    .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score,prominence")
+    .select("id,title,url,summary,edited_summary,source,topic,section,rank_score")
     .eq("status", "approved")
     .order("rank_score", { ascending: false })
     .order("scraped_at", { ascending: false })
@@ -125,14 +76,14 @@ Deno.serve(async (request) => {
 
     const { data: fallback } = await supabase
       .from("articles")
-      .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score,prominence")
+      .select("id,title,url,summary,edited_summary,source,topic,section,rank_score")
       .eq("status", "summarized")
       .order("rank_score", { ascending: false })
       .order("scraped_at", { ascending: false })
       .limit(need + 10); // grab extra for finance guarantee
 
     const extras = ((fallback ?? []) as Article[]).filter((a) => !usedIds.includes(a.id));
-    articles = [...articles, ...extras].slice(0, 20);
+    articles = [...articles, ...extras].slice(0, TOTAL_ARTICLES);
     autoSelected = extras.length > 0;
 
     // Auto-approve the fallback articles
@@ -147,10 +98,9 @@ Deno.serve(async (request) => {
 
   if (articles.length === 0) return json({ error: "No articles available to send" }, 400);
 
-  // Cap at 10 and split into sections
-  articles = articles.slice(0, TOTAL_ARTICLES);
-  const { wrapped, ahead } = splitSections(articles);
-  const allArticles = [...wrapped, ...ahead];
+  // Cap at 10 and keep a single wrapped section
+  const wrapped = normalizeWrapped(articles);
+  const allArticles = wrapped;
 
   // 3. Subscribers
   const { data: subs, error: subError } = await supabase
@@ -177,7 +127,7 @@ Deno.serve(async (request) => {
   let failed = 0;
 
   for (const sub of subscribers) {
-    const html = await renderDigest(wrapped, ahead, sub);
+    const html = await renderDigest(wrapped, sub);
     const result = await sendEmail({
       to: sub.email,
       subject,
@@ -206,7 +156,6 @@ Deno.serve(async (request) => {
   return json({
     digestId,
     wrapped: wrapped.length,
-    ahead: ahead.length,
     recipients: subscribers.length,
     sent,
     failed,
@@ -229,27 +178,23 @@ function renderItems(articles: Article[]): string {
   return articles
     .map((a, i) => {
       const text = (a.edited_summary || a.summary || "").trim();
-      const headline = (a.edited_title || a.title || "").trim();
       const meta = escapeHtml(a.topic ?? "Top story");
-      const prominenceBadge = (a.prominence ?? 0) >= 4
-        ? `<span style="display:inline-block;font-family:${FONT};background:#dc2626;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:8px;vertical-align:middle;letter-spacing:0.05em">BREAKING</span>`
-        : "";
       return `
         <tr><td style="padding:24px 0;${i < articles.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
           <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
             <td style="width:40px;vertical-align:top;padding-top:2px">
-              <div style="width:32px;height:32px;border-radius:50%;font-family:${FONT};background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">
+              <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">
                 ${i + 1}
               </div>
             </td>
             <td style="padding-left:14px">
-              <div style="font-family:${FONT};font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px">
+              <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px;font-family:Roboto,Arial,sans-serif">
                 ${meta}
               </div>
-              <h2 style="font-family:${FONT};font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">
-                ${escapeHtml(headline)}${prominenceBadge}
+              <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
+                ${escapeHtml(a.title)}
               </h2>
-              <p style="font-family:${FONT};font-size:15px;line-height:1.7;color:#4a4a68;margin:0">${escapeHtml(text)}</p>
+              <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</p>
             </td>
           </tr></table>
         </td></tr>`;
@@ -260,20 +205,21 @@ function renderItems(articles: Article[]): string {
 function renderSectionBlock(title: string, subtitle: string, articles: Article[]): string {
   if (articles.length === 0) return "";
   return `
-      <div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5;margin-bottom:16px">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-          <tr><td style="padding:24px 0 4px">
-            <h2 style="font-family:${FONT};margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px">${escapeHtml(title)}</h2>
-            <p style="font-family:${FONT};margin:0;font-size:13px;color:#9a9ab0;font-weight:500">${escapeHtml(subtitle)}</p>
-          </td></tr>
-          <tr><td><div style="border-top:2px solid #7c3aed;margin:12px 0 0"></div></td></tr>
-          ${renderItems(articles)}
-        </table>
+      <div style="margin-bottom:20px;border-radius:18px;overflow:hidden;background:#ffffff;border:1px solid #e8e0f5">
+        <div style="background:linear-gradient(90deg,#7c3aed 0%,#9b5cf6 100%);padding:24px 28px 20px">
+          <h2 style="margin:0 0 6px;font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.3px;font-family:Roboto,Arial,sans-serif">${escapeHtml(title)}</h2>
+          <p style="margin:0;font-size:13px;color:#efe7ff;font-weight:500;font-family:Roboto,Arial,sans-serif">${escapeHtml(subtitle)}</p>
+        </div>
+        <div style="padding:10px 28px 8px">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+            ${renderItems(articles)}
+          </table>
+        </div>
       </div>`;
 }
 
-async function renderDigest(wrapped: Article[], ahead: Article[], sub: Subscriber): Promise<string> {
-  const greeting = sub.full_name ? `Hi ${escapeHtml(sub.full_name)},` : "Hi there,";
+async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string> {
+  const greeting = sub.full_name ? `Hey ${escapeHtml(sub.full_name)},` : "Hey there,";
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -282,8 +228,7 @@ async function renderDigest(wrapped: Article[], ahead: Article[], sub: Subscribe
   });
 
   // Read time estimate
-  const allArticles = [...wrapped, ...ahead];
-  const totalWords = allArticles.reduce((sum, a) => {
+  const totalWords = wrapped.reduce((sum, a) => {
     const text = (a.edited_summary || a.summary || "").trim();
     return sum + text.split(/\s+/).filter(Boolean).length;
   }, 0);
@@ -301,45 +246,45 @@ async function renderDigest(wrapped: Article[], ahead: Article[], sub: Subscribe
   const whatsappUrl = `https://wa.me/?text=${shareText}`;
 
   return `
-  <div style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <div style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
 
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-        <tr><td style="padding:0;font-size:0;line-height:0">
-          <img src="${BANNER_URL}" alt="Shortly Daily Wrap — 10 Stories. 10 min." width="640" style="display:block;width:100%;max-width:640px;height:auto;border:0;border-radius:0 0 16px 16px" />
-        </td></tr>
-      </table>
+      <img src="${BANNER_DATA_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
 
-      <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0 16px;border:1px solid #e8e0f5">
-        <p style="font-family:${FONT};margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">${greeting}</p>
-        <p style="font-family:${FONT};margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
+      <div style="background:#ffffff;border-radius:18px;padding:28px 30px;margin:20px 0 20px;border:1px solid #e8e0f5;border-left:4px solid #7c3aed">
+        <p style="margin:0 0 10px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:Roboto,Arial,sans-serif">
+          ${greeting}
+        </p>
+        <p style="margin:0;color:#6b6b8a;font-size:16px;line-height:1.65;font-weight:400;font-family:Roboto,Arial,sans-serif">
           We read everything &mdash; so you get only what matters.<br>
           Here's your quick news update for ${escapeHtml(today)}.
         </p>
-        <div style="font-family:${FONT};margin-top:12px;display:inline-block;background:#f5f3ff;border:1px solid #e8e0f5;border-radius:20px;padding:4px 14px;font-size:12px;color:#7c3aed;font-weight:600">
+        <div style="margin-top:16px;display:inline-block;padding:6px 16px;background:#8b5cf6;border-radius:999px;font-size:12px;color:#ffffff;font-weight:700;font-family:Roboto,Arial,sans-serif">
           ${readTime} min read
         </div>
       </div>
 
       ${renderSectionBlock("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
-      ${renderSectionBlock("Shortly Ahead", `${ahead.length} stories to look out for`, ahead)}
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
-        <tr><td style="text-align:center;padding:28px 20px">
-          <img src="${FOOTER_LOGO_URL}" alt="Shortly" width="130" style="display:block;width:130px;max-width:60%;height:auto;border:0;margin:0 auto 12px" />
-          <p style="font-family:${FONT};margin:0;color:#9a9ab0;font-size:12px;line-height:1.5">
+        <tr><td style="text-align:center;padding:20px">
+          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px;font-family:Roboto,Arial,sans-serif">shortly</div>
+          <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
           </p>
-          <p style="font-family:${FONT};margin:16px 0 0;font-size:13px;line-height:1.5">
-            <a href="${twitterUrl}" style="font-family:${FONT};color:#7c3aed;text-decoration:none;font-weight:600">Share on X</a>
+          <p style="margin:16px 0 0;font-size:13px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
+            <a href="${twitterUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">Share on X</a>
             &nbsp;&nbsp;|&nbsp;&nbsp;
-            <a href="${linkedinUrl}" style="font-family:${FONT};color:#7c3aed;text-decoration:none;font-weight:600">LinkedIn</a>
+            <a href="${linkedinUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">LinkedIn</a>
             &nbsp;&nbsp;|&nbsp;&nbsp;
-            <a href="${whatsappUrl}" style="font-family:${FONT};color:#7c3aed;text-decoration:none;font-weight:600">WhatsApp</a>
+            <a href="${whatsappUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">WhatsApp</a>
           </p>
           <p style="margin:12px 0 0;">
-            <a href="${unsubUrl}" style="font-family:${FONT};color:#9a9ab0;font-size:11px;text-decoration:underline">Unsubscribe</a>
+            <a href="${unsubUrl}" style="color:#9a9ab0;font-size:11px;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Unsubscribe</a>
           </p>
         </td></tr>
       </table>
