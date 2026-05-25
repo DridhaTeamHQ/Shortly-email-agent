@@ -3,18 +3,6 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { generateUnsubToken } from "../_shared/unsub.ts";
 
-const BANNER_DATA_URL = loadBannerDataUrl();
-
-function loadBannerDataUrl(): string {
-  const bytes = Deno.readFileSync(new URL("../../../assets/email-banner.jpg", import.meta.url));
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return `data:image/jpeg;base64,${btoa(binary)}`;
-}
-
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -100,7 +88,7 @@ async function sendWelcomeDigest(
 
   if (!articles || articles.length === 0) return;
 
-  const greeting = fullName ? `Hey ${escapeHtml(fullName)},` : "Hey there,";
+  const greeting = fullName ? `Hi ${escapeHtml(fullName)},` : "Hi there,";
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
   });
@@ -138,7 +126,7 @@ async function sendWelcomeDigest(
       <div style="background:#ffffff;border-radius:16px;padding:8px 28px;border:1px solid #e8e0f5;margin-bottom:16px">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
           <tr><td style="padding:24px 0 4px">
-          <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(title)}</h2>
+            <h2 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1a1a2e;letter-spacing:-0.3px">${escapeHtml(title)}</h2>
             <p style="margin:0;font-size:13px;color:#9a9ab0;font-weight:500">${escapeHtml(subtitle)}</p>
           </td></tr>
           <tr><td><div style="border-top:2px solid #7c3aed;margin:12px 0 0"></div></td></tr>
@@ -180,40 +168,44 @@ async function sendWelcomeDigest(
   const whatsappUrl = `https://wa.me/?text=${shareText}`;
 
   const html = `
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <div style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
+  <div style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
 
-      <img src="${BANNER_DATA_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#7c3aed;border-radius:0 0 16px 16px">
+        <tr><td style="padding:36px 32px 28px;text-align:center">
+          <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px">shortly</div>
+          <p style="margin:8px 0 0;color:#e0d4fc;font-size:13px;font-weight:500">${escapeHtml(today)}</p>
+        </td></tr>
+      </table>
 
       <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0 16px;border:1px solid #e8e0f5">
-        <p style="margin:0 0 12px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${greeting}</p>
-        <p style="margin:0;color:#6b6b8a;font-size:18px;line-height:1.6;font-weight:400;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
-          Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!
+        <p style="margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">${greeting}</p>
+        <p style="margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
+          Welcome to Shortly! We read everything &mdash; so you get only what matters.<br>
+          Here's your quick news update for the day.
+          <span style="display:inline-block;margin-left:8px;padding:2px 10px;background:#f0ecfa;border-radius:12px;font-size:12px;color:#7c3aed;font-weight:600">${readTime} min read</span>
         </p>
-        <div style="margin-top:18px;display:inline-block;padding:6px 16px;background:#f0ecfa;border:1px solid #e8e0f5;border-radius:999px;font-size:12px;color:#7c3aed;font-weight:600;font-family:Roboto,Arial,sans-serif">${readTime} min read</div>
       </div>
 
       ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
+      ${renderSection("Shortly Ahead", `${ahead.length} stories to look out for`, ahead)}
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
         <tr><td style="text-align:center;padding:20px">
-          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px;font-family:Roboto,Arial,sans-serif">shortly</div>
-          <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
+          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px">shortly</div>
+          <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
           </p>
-          <p style="margin:16px 0 0;font-size:13px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
-            <a href="${twitterUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">Share on X</a>
+          <p style="margin:16px 0 0;font-size:13px;line-height:1.5">
+            <a href="${twitterUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600">Share on X</a>
             &nbsp;&nbsp;|&nbsp;&nbsp;
-            <a href="${linkedinUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">LinkedIn</a>
+            <a href="${linkedinUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600">LinkedIn</a>
             &nbsp;&nbsp;|&nbsp;&nbsp;
-            <a href="${whatsappUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">WhatsApp</a>
+            <a href="${whatsappUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600">WhatsApp</a>
           </p>
           <p style="margin:12px 0 0;">
-            <a href="${unsubUrl}" style="color:#9a9ab0;font-size:11px;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Unsubscribe</a>
+            <a href="${unsubUrl}" style="color:#9a9ab0;font-size:11px;text-decoration:underline">Unsubscribe</a>
           </p>
         </td></tr>
       </table>

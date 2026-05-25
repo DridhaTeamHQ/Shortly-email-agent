@@ -29,6 +29,10 @@ const SECTION_SIZE = 5;
 const TOTAL_ARTICLES = SECTION_SIZE * 2;
 const FINANCE_TOPICS = ["business", "india business", "finance", "economy", "markets"];
 
+// Hosted brand assets (public Supabase Storage bucket)
+const BANNER_URL = "https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/banner.jpeg";
+const FOOTER_LOGO_URL = "https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/shortlyfooter.png";
+
 function isFinance(a: Article): boolean {
   return FINANCE_TOPICS.includes((a.topic ?? "").toLowerCase());
 }
@@ -297,10 +301,9 @@ async function renderDigest(wrapped: Article[], ahead: Article[], sub: Subscribe
   <div style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
 
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#7c3aed;border-radius:0 0 16px 16px">
-        <tr><td style="padding:36px 32px 28px;text-align:center">
-          <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px">shortly</div>
-          <p style="margin:8px 0 0;color:#e0d4fc;font-size:13px;font-weight:500">${escapeHtml(today)}</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+        <tr><td style="padding:0;font-size:0;line-height:0">
+          <img src="${BANNER_URL}" alt="Shortly Daily Wrap — 10 Stories. 10 min." width="640" style="display:block;width:100%;max-width:640px;height:auto;border:0;border-radius:0 0 16px 16px" />
         </td></tr>
       </table>
 
@@ -308,7 +311,7 @@ async function renderDigest(wrapped: Article[], ahead: Article[], sub: Subscribe
         <p style="margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">${greeting}</p>
         <p style="margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
           We read everything &mdash; so you get only what matters.<br>
-          Here's your quick news update for the day.
+          Here's your quick news update for ${escapeHtml(today)}.
           <span style="display:inline-block;margin-left:8px;padding:2px 10px;background:#f0ecfa;border-radius:12px;font-size:12px;color:#7c3aed;font-weight:600">${readTime} min read</span>
         </p>
       </div>
@@ -318,7 +321,7 @@ async function renderDigest(wrapped: Article[], ahead: Article[], sub: Subscribe
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
         <tr><td style="text-align:center;padding:20px">
-          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px">shortly</div>
+          <img src="${FOOTER_LOGO_URL}" alt="Shortly" width="130" style="display:block;width:130px;max-width:60%;height:auto;border:0;margin:0 auto 10px" />
           <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.

@@ -16,11 +16,79 @@ function esc(s = "") {
     .replaceAll("'", "&#039;");
 }
 
-function toast(msg) {
-  const t = $("#toast");
-  t.textContent = msg;
-  t.classList.add("show");
-  setTimeout(() => t.classList.remove("show"), 2800);
+// ---------- toast system (stacked, typed) ----------
+const TOAST_ICONS = {
+  success: "&#10003;",
+  error:   "&#10007;",
+  warning: "&#9888;",
+  info:    "&#8505;"
+};
+
+function toast(msg, type = "info") {
+  const container = $("#toastContainer");
+  const item = document.createElement("div");
+  item.className = `toast-item toast-${type}`;
+  item.innerHTML = `
+    <span class="toast-icon">${TOAST_ICONS[type] || TOAST_ICONS.info}</span>
+    <span class="toast-text">${esc(msg)}</span>
+    <button class="toast-dismiss" aria-label="Dismiss">&times;</button>
+  `;
+  container.appendChild(item);
+
+  // Dismiss on click
+  item.querySelector(".toast-dismiss").addEventListener("click", () => removeToast(item));
+
+  // Auto-remove after 3.5s
+  setTimeout(() => removeToast(item), 3500);
+}
+
+function removeToast(item) {
+  if (item.classList.contains("removing")) return;
+  item.classList.add("removing");
+  item.addEventListener("animationend", () => item.remove());
+}
+
+// ---------- custom confirm dialog ----------
+function showConfirm({ title = "Are you sure?", message = "", icon = "warning", confirmText = "Confirm", danger = false } = {}) {
+  return new Promise((resolve) => {
+    const overlay = $("#confirmOverlay");
+    const iconEl = $("#confirmIcon");
+    const titleEl = $("#confirmTitle");
+    const msgEl = $("#confirmMessage");
+    const okBtn = $("#confirmOk");
+    const cancelBtn = $("#confirmCancel");
+
+    const icons = { warning: "&#9888;", danger: "&#9888;", info: "&#8505;", success: "&#10003;" };
+    iconEl.innerHTML = icons[icon] || icons.warning;
+    iconEl.className = `confirm-icon ${icon === "danger" ? "danger" : icon}`;
+    titleEl.textContent = title;
+    msgEl.textContent = message;
+    okBtn.textContent = confirmText;
+    okBtn.className = `btn-confirm${danger ? " danger" : ""}`;
+
+    overlay.classList.add("show");
+
+    function cleanup(result) {
+      overlay.classList.remove("show");
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      overlay.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    }
+    function onOk() { cleanup(true); }
+    function onCancel() { cleanup(false); }
+    function onBackdrop(e) { if (e.target === overlay) cleanup(false); }
+    function onKey(e) { if (e.key === "Escape") cleanup(false); }
+
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    overlay.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+
+    // Focus confirm button
+    setTimeout(() => okBtn.focus(), 100);
+  });
 }
 
 async function api(method, path, body) {
@@ -223,12 +291,20 @@ function cardHtml(a, mode) {
     </article>`;
 }
 
+function emptyState(icon, title, subtitle) {
+  return `<div class="empty-state">
+    <span class="empty-icon">${icon}</span>
+    <h3>${esc(title)}</h3>
+    <p>${esc(subtitle)}</p>
+  </div>`;
+}
+
 function renderReview() {
   const items = filteredArticles("summarized");
   const node = $("#reviewList");
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "review")).join("")
-    : `<p class="muted">No articles to review${state.search ? " matching your search" : ""}.</p>`;
+    : emptyState("📋", "No articles to review", state.search ? "Try a different search term." : "Hit 'Fetch & Summarize' in the Scraper tab to get started.");
 }
 
 function renderApproved() {
@@ -236,7 +312,7 @@ function renderApproved() {
   const node = $("#approvedList");
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "approved")).join("")
-    : `<p class="muted">Nothing approved yet today.</p>`;
+    : emptyState("✅", "Nothing approved yet", "Approve articles from the Review queue to build today's digest.");
   attachDragListeners();
 }
 
@@ -245,7 +321,7 @@ function renderRejected() {
   const node = $("#rejectedList");
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "rejected")).join("")
-    : `<p class="muted">No rejected articles.</p>`;
+    : emptyState("🗑️", "No rejected articles", "Articles you reject will appear here.");
 }
 
 function renderSubscribers() {
@@ -339,15 +415,12 @@ function renderAll() {
 
 // ---------- data loaders ----------
 async function loadArticles() {
-  // Load each relevant status separately to avoid high-rank pending articles
-  // pushing summarized articles past the limit
   const [review, approved, rejected, sent] = await Promise.all([
     api("GET", `${cfg.list}?status=summarized&limit=100`),
     api("GET", `${cfg.list}?status=approved&limit=50`),
     api("GET", `${cfg.list}?status=rejected&limit=50`),
     api("GET", `${cfg.list}?status=sent&limit=100`)
   ]);
-  // Merge and dedupe by id
   const map = new Map();
   [review, approved, rejected, sent].forEach((res) => {
     (res.articles || []).forEach((a) => map.set(a.id, a));
@@ -362,16 +435,6 @@ async function loadSubscribers() {
 
 async function loadDigests() {
   try {
-    // Use Supabase REST API directly for digests
-    const base = cfg.list.replace("/list-articles", "");
-    const headers = { "Content-Type": "application/json" };
-    if (cfg.anonKey) {
-      headers["apikey"] = cfg.anonKey;
-      headers["Authorization"] = `Bearer ${cfg.anonKey}`;
-    }
-    const url = cfg.list.replace("list-articles", "").replace("functions/v1/", "rest/v1/");
-    const supabaseUrl = url.replace(/\/functions\/.*/, "").replace(/\/rest\/.*/, "");
-    // Build REST URL from the function URL
     const projectUrl = cfg.list.match(/(https:\/\/[^/]+)/)?.[1]?.replace(".functions.", ".");
     if (projectUrl) {
       const r = await fetch(`${projectUrl}/rest/v1/digests?select=*&order=sent_at.desc&limit=50`, {
@@ -394,7 +457,7 @@ async function reload() {
     await Promise.all([loadArticles(), loadSubscribers(), loadDigests()]);
     renderAll();
   } catch (e) {
-    toast(`Load failed: ${e.message}`);
+    toast(`Load failed: ${e.message}`, "error");
   }
 }
 
@@ -409,28 +472,59 @@ async function handleArticleAction(card, action) {
     body.edited_summary = summary;
     if (title) body.edited_title = title;
   }
+
+  // Confirm for reject action
+  if (action === "reject") {
+    const articleTitle = title || card.querySelector("h3")?.textContent || "this article";
+    const ok = await showConfirm({
+      title: "Reject article?",
+      message: `"${articleTitle}" will be moved to the rejected queue.`,
+      icon: "warning",
+      confirmText: "Reject",
+      danger: true
+    });
+    if (!ok) return;
+  }
+
   try {
     await api("POST", cfg.review, body);
     state.selected.delete(id);
     await reload();
-    toast(action === "edit" ? "Summary saved." : `Article ${action}d.`);
+    if (action === "edit") toast("Changes saved.", "success");
+    else if (action === "approve") toast("Article approved!", "success");
+    else toast("Article rejected.", "info");
   } catch (e) {
-    toast(`Failed: ${e.message}`);
+    toast(`Failed: ${e.message}`, "error");
   }
 }
 
 async function handleSubscriberAction(row, action) {
   const id = row.dataset.id;
+  const email = row.querySelector("td")?.textContent || "";
+
+  if (action === "delete") {
+    const ok = await showConfirm({
+      title: "Delete subscriber?",
+      message: `${email} will be permanently removed.`,
+      icon: "danger",
+      confirmText: "Delete",
+      danger: true
+    });
+    if (!ok) return;
+  }
+
   try {
     if (action === "delete") {
       await api("POST", cfg.subscribers, { action: "delete", id });
+      toast("Subscriber deleted.", "info");
     } else {
       const status = action === "subscribe" ? "subscribed" : "unsubscribed";
       await api("POST", cfg.subscribers, { action: "update", id, status });
+      toast(action === "subscribe" ? "Re-subscribed!" : "Unsubscribed.", "success");
     }
     await reload();
   } catch (e) {
-    toast(`Failed: ${e.message}`);
+    toast(`Failed: ${e.message}`, "error");
   }
 }
 
@@ -449,16 +543,26 @@ function updateBulkBar() {
 async function bulkAction(action) {
   if (state.selected.size === 0) return;
   const ids = [...state.selected];
-  toast(`Processing ${ids.length} articles...`);
+
+  const ok = await showConfirm({
+    title: `${action === "approve" ? "Approve" : "Reject"} ${ids.length} articles?`,
+    message: `This will ${action} all selected articles at once.`,
+    icon: action === "approve" ? "success" : "warning",
+    confirmText: `${action === "approve" ? "Approve" : "Reject"} all`,
+    danger: action === "reject"
+  });
+  if (!ok) return;
+
+  toast(`Processing ${ids.length} articles...`, "info");
   try {
     for (const id of ids) {
       await api("POST", cfg.review, { id, action, reviewer: cfg.reviewer });
     }
     state.selected.clear();
     await reload();
-    toast(`${ids.length} articles ${action}d.`);
+    toast(`${ids.length} articles ${action}d!`, "success");
   } catch (e) {
-    toast(`Failed: ${e.message}`);
+    toast(`Failed: ${e.message}`, "error");
   }
 }
 
@@ -489,19 +593,17 @@ function attachDragListeners() {
       card.classList.remove("drag-over");
       if (!state.dragId || state.dragId === card.dataset.id) return;
 
-      // Reorder in state
       const list = state.articles.filter(isApprovedToday);
       const fromIdx = list.findIndex((a) => a.id === state.dragId);
       const toIdx = list.findIndex((a) => a.id === card.dataset.id);
       if (fromIdx === -1 || toIdx === -1) return;
 
-      // Swap rank_score values to persist order
       const tempScore = list[fromIdx].rank_score;
       list[fromIdx].rank_score = list[toIdx].rank_score;
       list[toIdx].rank_score = tempScore;
 
       renderApproved();
-      toast("Reordered.");
+      toast("Reordered.", "success");
     });
   });
 }
@@ -529,7 +631,7 @@ function generatePreviewHtml() {
           </td>
           <td style="padding-left:14px">
             <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px">${meta}</div>
-            <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">${esc(a.title)}</h2>
+            <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">${esc(a.edited_title || a.title)}</h2>
             <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0">${esc(text)}</p>
           </td>
         </tr></table>
@@ -551,7 +653,6 @@ function generatePreviewHtml() {
     </div>`;
   }
 
-  // Calculate read time
   const allText = [...wrapped, ...ahead].map((a) => a.edited_summary || a.summary || "").join(" ");
   const wordCount = allText.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.ceil(wordCount / 200));
@@ -559,17 +660,16 @@ function generatePreviewHtml() {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
   <body style="margin:0;background:#f5f3ff;padding:0;font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#7c3aed;border-radius:0 0 16px 16px">
-        <tr><td style="padding:36px 32px 28px;text-align:center">
-          <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px">shortly</div>
-          <p style="margin:8px 0 0;color:#e0d4fc;font-size:13px;font-weight:500">${esc(today)}</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+        <tr><td style="padding:0;font-size:0;line-height:0">
+          <img src="https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/banner.jpeg" alt="Shortly Daily Wrap — 10 Stories. 10 min." width="640" style="display:block;width:100%;max-width:640px;height:auto;border:0;border-radius:0 0 16px 16px" />
         </td></tr>
       </table>
       <div style="background:#ffffff;border-radius:16px;padding:32px 28px;margin:20px 0 16px;border:1px solid #e8e0f5">
         <p style="margin:0 0 4px;color:#1a1a2e;font-size:16px;font-weight:600">Hi there,</p>
         <p style="margin:0;color:#6b6b8a;font-size:14px;line-height:1.6">
           We read everything &mdash; so you get only what matters.<br>
-          Here's your quick news update for the day.
+          Here's your quick news update for ${esc(today)}.
         </p>
         <div style="margin-top:12px;display:inline-block;background:#f5f3ff;border:1px solid #e8e0f5;border-radius:20px;padding:4px 14px;font-size:12px;color:#7c3aed;font-weight:600">
           ${readTime} min read
@@ -579,7 +679,7 @@ function generatePreviewHtml() {
       ${renderSection("Shortly Ahead", `${ahead.length} stories to look out for`, ahead)}
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
         <tr><td style="text-align:center;padding:20px">
-          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px">shortly</div>
+          <img src="https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/shortlyfooter.png" alt="Shortly" width="130" style="display:block;width:130px;max-width:60%;height:auto;border:0;margin:0 auto 10px" />
           <p style="margin:0 0 12px;color:#9a9ab0;font-size:12px;line-height:1.5">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
@@ -696,7 +796,6 @@ $("#bulkClear").addEventListener("click", () => {
 // Article action delegation (+ checkbox handling)
 ["#reviewList", "#approvedList", "#rejectedList"].forEach((sel) => {
   $(sel).addEventListener("click", (e) => {
-    // Handle checkbox
     const check = e.target.closest(".card-check");
     if (check) {
       const id = check.dataset.id;
@@ -706,7 +805,6 @@ $("#bulkClear").addEventListener("click", () => {
       updateBulkBar();
       return;
     }
-    // Handle action button
     const btn = e.target.closest("button[data-action]");
     if (!btn) return;
     const card = btn.closest(".card");
@@ -732,9 +830,9 @@ $("#subForm").addEventListener("submit", async (e) => {
     $("#subEmail").value = "";
     $("#subName").value = "";
     await reload();
-    toast("Subscriber added.");
+    toast("Subscriber added!", "success");
   } catch (e) {
-    toast(`Failed: ${e.message}`);
+    toast(`Failed: ${e.message}`, "error");
   }
 });
 
@@ -757,7 +855,7 @@ $("#fetchToday").addEventListener("click", async () => {
     const sumRes = await api("POST", cfg.summarize, {});
     const sumInfo = `Summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, Failed: ${sumRes.failed ?? 0}`;
 
-    // Step 3: Second summarize pass for rate-limited articles
+    // Step 3: Retry pass for rate-limited articles
     if (sumRes.failed > 0) {
       btnText.innerHTML = `<span class="spinner"></span> Retry (${sumRes.failed} remaining)...`;
       const retryRes = await api("POST", cfg.summarize, {});
@@ -770,9 +868,9 @@ $("#fetchToday").addEventListener("click", async () => {
     resultBox.classList.remove("hidden");
     await reload();
     showSection("review");
-    toast(`Done! ${sumRes.summarized ?? 0} articles ready for review.`);
+    toast(`Done! ${sumRes.summarized ?? 0} articles ready for review.`, "success");
   } catch (e) {
-    toast(`Failed: ${e.message}`);
+    toast(`Fetch failed: ${e.message}`, "error");
     resultBox.textContent = `Error: ${e.message}`;
     resultBox.classList.remove("hidden");
   } finally {
@@ -791,7 +889,7 @@ $("#scrapeForm").addEventListener("submit", async (e) => {
     topic: $("#scTopic").value.trim(),
     raw_content: $("#scRaw").value.trim()
   };
-  toast("Summarizing...");
+  toast("Summarizing...", "info");
   try {
     const res = await api("POST", cfg.submit, payload);
     const out = $("#scraperResult");
@@ -799,9 +897,9 @@ $("#scrapeForm").addEventListener("submit", async (e) => {
     out.classList.remove("hidden");
     $("#scrapeForm").reset();
     await reload();
-    toast("Article queued for review.");
+    toast("Article queued for review!", "success");
   } catch (e) {
-    toast(`Failed: ${e.message}`);
+    toast(`Failed: ${e.message}`, "error");
   }
 });
 
@@ -819,21 +917,30 @@ $("#sendDigest").addEventListener("click", async () => {
   const approved = approvedTodayCount();
   const subCount = state.subscribers.filter((s) => s.status === "subscribed").length;
   const fallbackMsg = approved < DAILY_CAP
-    ? `\n\nOnly ${approved}/${DAILY_CAP} approved — the rest will be auto-selected by rank.`
+    ? ` Only ${approved}/${DAILY_CAP} approved — the rest will be auto-selected by rank.`
     : "";
-  if (!confirm(`Send digest to ${subCount} subscribers?${fallbackMsg}`)) return;
+
+  const ok = await showConfirm({
+    title: "Send today's digest?",
+    message: `This will deliver the newsletter to ${subCount} subscriber${subCount === 1 ? "" : "s"}.${fallbackMsg}`,
+    icon: "info",
+    confirmText: "Send now"
+  });
+  if (!ok) return;
+
   try {
+    toast("Sending digest...", "info");
     const res = await api("POST", cfg.digest);
     const autoMsg = res.autoSelected ? " (with auto-selected articles)" : "";
-    toast(`Sent to ${res.sent ?? 0} subscribers${autoMsg}.`);
+    toast(`Sent to ${res.sent ?? 0} subscribers${autoMsg}!`, "success");
     await reload();
     showSection("review");
   } catch (e) {
-    toast(`Failed: ${e.message}`);
+    toast(`Send failed: ${e.message}`, "error");
   }
 });
 
-// Keyboard shortcut: Escape closes modal
+// Keyboard shortcut: Escape closes modals
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     $("#previewModal").classList.remove("show");

@@ -10,7 +10,7 @@ Automated daily news digest with a QA-in-the-loop.
 - `supabase/schema.sql` — subscribers, articles (with status workflow), per-recipient delivery log, digest log.
 - `supabase/cron.sql` — pg_cron schedule for scrape / summarize / send.
 - `supabase/functions/`
-  - `scrape-news` — pulls TOI, ET, and The Hindu RSS feeds, dedupes by URL, inserts `pending` rows.
+  - `scrape-news` — pulls BBC, Reuters, AP, NYT RSS, dedupes by URL, inserts `pending` rows.
   - `summarize-articles` — calls GPT-4o on pending rows, ranks top 50, promotes to `summarized`.
   - `list-articles` — feeds the QA dashboard (`?status=summarized|approved|rejected|sent`).
   - `review-article` — accepts `approve | reject | edit` actions from the dashboard.
@@ -74,4 +74,4 @@ Top of the panel has **Run scrape**, **Summarize**, and **Send today's digest** 
 
 ## Sources
 
-Configured in `supabase/functions/_shared/sources.ts` — TOI, ET, and The Hindu. Add or remove RSS URLs there.
+Configured in `supabase/functions/_shared/sources.ts` — BBC, Reuters, AP, NYT (World, Business, Tech). Add more RSS URLs there.
