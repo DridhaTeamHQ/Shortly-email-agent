@@ -6,11 +6,11 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 
 const SYSTEM_PROMPT = `You are a senior editor for a respected daily news briefing read by busy professionals.
 
-Write EXACTLY 3 sentences. 90-110 words total. Active voice.
+Write EXACTLY 3 sentences. 60-90 words total. Active voice.
 
 Sentence 1: Lead with the news — who did what, with key numbers, dates, and named entities.
-Sentence 2: Add the most important supporting detail, reaction, or development.
-Sentence 3: Explain the immediate consequence or why it matters in concrete terms.
+Sentence 2: The critical context — what led to this, or the key detail that makes it significant.
+Sentence 3: The immediate consequence, reaction, or "why it matters" — concrete, not abstract.
 
 STRICT RULES:
 - Active voice always. ("Apple unveiled..." not "Apple's plan was unveiled...")
@@ -32,8 +32,15 @@ CLASSIFICATION GUIDE — aim for a roughly even split:
 - Use "ahead" only when the story is genuinely unresolved: an ongoing conflict, a pending vote, an upcoming event, continuing negotiations, or an emerging trend with no conclusion yet.
 - A statement, decision, or policy announcement that already happened is "wrapped" — even if it has future implications.
 
-Return a valid JSON object with exactly two keys:
-{"summary": "Your 3-sentence summary here.", "section": "wrapped"}
+Also rate the article's prominence on a scale of 1-5:
+5 = BREAKING: Major world event, huge market move, death of a head of state, natural disaster, terror attack
+4 = HIGH: Top headline on major outlets, significant policy change, major corporate news
+3 = NOTABLE: Important story likely covered by multiple outlets
+2 = STANDARD: Regular news, single-outlet story
+1 = LOW: Niche or soft feature
+
+Return a valid JSON object with exactly three keys:
+{"summary": "Your 3-sentence summary here.", "section": "wrapped", "prominence": 4}
 
 No markdown fences, no extra text. Just the JSON object.`;
 
@@ -42,16 +49,10 @@ type Article = {
   title: string;
   url: string;
   raw_content: string | null;
-  summary?: string | null;
   source: string | null;
   rank_score: number | null;
   scraped_at: string;
-  status?: string;
 };
-
-function wordCount(text: string | null | undefined): number {
-  return (text ?? "").trim().split(/\s+/).filter(Boolean).length;
-}
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -63,11 +64,11 @@ Deno.serve(async (request) => {
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-  // Pull recent pending articles, biased by source weight + freshness
-  const since = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+  // Pull recent pending articles — only last 10 hours for freshness
+  const since = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
   const { data: pending, error } = await supabase
     .from("articles")
-    .select("id,title,url,raw_content,summary,source,rank_score,scraped_at,status")
+    .select("id,title,url,raw_content,source,rank_score,scraped_at")
     .eq("status", "pending")
     .gte("scraped_at", since)
     .order("rank_score", { ascending: false })
@@ -76,26 +77,12 @@ Deno.serve(async (request) => {
 
   if (error) return json({ error: error.message }, 500);
 
-  // Also refresh recent summarized items whose summaries are still too short.
-  const { data: summarized, error: summarizedError } = await supabase
-    .from("articles")
-    .select("id,title,url,raw_content,summary,source,rank_score,scraped_at,status")
-    .eq("status", "summarized")
-    .gte("scraped_at", since)
-    .order("rank_score", { ascending: false })
-    .order("scraped_at", { ascending: false })
-    .limit(120);
-
-  if (summarizedError) return json({ error: summarizedError.message }, 500);
-
-  const pendingArticles = (pending ?? []) as Article[];
-  const shortSummaries = ((summarized ?? []) as Article[]).filter((a) => wordCount(a.summary) < 85);
-  const articles = [...pendingArticles, ...shortSummaries];
-  if (articles.length === 0) return json({ summarized: 0, message: "No pending or short summarized articles" });
+  const articles = (pending ?? []) as Article[];
+  if (articles.length === 0) return json({ summarized: 0, message: "No pending articles" });
 
   // Summarize in parallel (capped) to keep within edge time budget
   const CONCURRENCY = 6;
-  const results: Array<{ id: string; summary: string | null; section: string; error?: string }> = [];
+  const results: Array<{ id: string; summary: string | null; section: string; prominence: number; error?: string }> = [];
 
   for (let i = 0; i < articles.length; i += CONCURRENCY) {
     const batch = articles.slice(i, i + CONCURRENCY);
@@ -103,28 +90,31 @@ Deno.serve(async (request) => {
       batch.map(async (a) => {
         try {
           const result = await summarize(openAiKey, model, a);
-          return { id: a.id, summary: result.summary, section: result.section };
+          return { id: a.id, summary: result.summary, section: result.section, prominence: result.prominence };
         } catch (e) {
-          return { id: a.id, summary: null, section: "wrapped", error: String(e) };
+          return { id: a.id, summary: null, section: "wrapped", prominence: 2, error: String(e) };
         }
       })
     );
     results.push(...settled);
   }
 
-  // Persist summaries + bump rank with a small freshness component
+  // Persist summaries + rank using prominence + freshness
   const now = Date.now();
   const updates = results
     .filter((r) => r.summary)
     .map((r) => {
       const a = articles.find((x) => x.id === r.id)!;
       const ageHours = (now - new Date(a.scraped_at).getTime()) / 3_600_000;
-      const freshness = Math.max(0, 1 - ageHours / 36);
-      const score = (Number(a.rank_score ?? 0) + freshness) / 2;
+      const freshness = Math.max(0, 1 - ageHours / 10);
+      // Score = 40% source weight + 30% prominence + 30% freshness
+      const prominenceNorm = (r.prominence ?? 2) / 5;
+      const score = Number(a.rank_score ?? 0) * 0.4 + prominenceNorm * 0.3 + freshness * 0.3;
       return {
         id: a.id,
         summary: r.summary!,
         section: r.section,
+        prominence: r.prominence,
         rank_score: score,
         status: "summarized",
         summarized_at: new Date().toISOString()
@@ -136,6 +126,7 @@ Deno.serve(async (request) => {
     await supabase.from("articles").update({
       summary: row.summary,
       section: row.section,
+      prominence: row.prominence,
       rank_score: row.rank_score,
       status: row.status,
       summarized_at: row.summarized_at
@@ -150,7 +141,7 @@ Deno.serve(async (request) => {
     .slice(0, 50)
     .map((r) => r.id);
 
-  if (topIds.length > 0 && pendingArticles.length > 0) {
+  if (topIds.length > 0) {
     // Anything summarized today that isn't in top 50 → back to pending (kept as history)
     const { data: tooMany } = await supabase
       .from("articles")
@@ -174,7 +165,7 @@ Deno.serve(async (request) => {
   });
 });
 
-async function summarize(apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string }> {
+async function summarize(apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string; prominence: number }> {
   const userPrompt = [
     `TITLE: ${article.title}`,
     article.source ? `SOURCE: ${article.source}` : null,
@@ -193,7 +184,7 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
     body: JSON.stringify({
       model,
       temperature: 0.3,
-      max_tokens: 250,
+      max_tokens: 350,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt }
@@ -214,9 +205,10 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
   try {
     const parsed = JSON.parse(raw);
     const section = parsed.section === "ahead" ? "ahead" : "wrapped";
-    return { summary: parsed.summary ?? raw, section };
+    const prominence = Math.min(5, Math.max(1, parseInt(parsed.prominence) || 2));
+    return { summary: parsed.summary ?? raw, section, prominence };
   } catch {
     // Fallback: treat entire response as summary, default to wrapped
-    return { summary: raw, section: "wrapped" };
+    return { summary: raw, section: "wrapped", prominence: 2 };
   }
 }

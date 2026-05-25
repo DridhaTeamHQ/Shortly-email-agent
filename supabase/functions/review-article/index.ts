@@ -10,14 +10,14 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  let body: { id?: string; action?: Action; edited_summary?: string; reviewer?: string; section?: string };
+  let body: { id?: string; action?: Action; edited_summary?: string; edited_title?: string; reviewer?: string; section?: string };
   try {
     body = await request.json();
   } catch {
     return json({ error: "invalid JSON" }, 400);
   }
 
-  const { id, action, edited_summary, reviewer, section } = body;
+  const { id, action, edited_summary, edited_title, reviewer, section } = body;
   if (!id) return json({ error: "id is required" }, 400);
   if (!action || !["approve", "reject", "edit"].includes(action))
     return json({ error: "action must be approve|reject|edit" }, 400);
@@ -34,9 +34,14 @@ Deno.serve(async (request) => {
     patch.section = section;
   }
 
+  // Allow saving edited title on any action
+  if (edited_title?.trim()) {
+    patch.edited_title = edited_title.trim();
+  }
+
   if (action === "edit") {
-    if (!edited_summary?.trim()) return json({ error: "edited_summary required for edit" }, 400);
-    patch.edited_summary = edited_summary.trim();
+    if (!edited_summary?.trim() && !edited_title?.trim()) return json({ error: "edited_summary or edited_title required for edit" }, 400);
+    if (edited_summary?.trim()) patch.edited_summary = edited_summary.trim();
     // Editing doesn't auto-approve; QA can edit then approve in two clicks
   } else if (action === "approve") {
     patch.status = "approved";
