@@ -609,6 +609,8 @@ function attachDragListeners() {
 }
 
 // ---------- email preview ----------
+const FONT = "Inter,'Helvetica Neue',Helvetica,Arial,sans-serif";
+
 function generatePreviewHtml() {
   const approved = state.articles.filter(isApprovedToday);
   if (approved.length === 0) return "<p>No articles approved yet.</p>";
@@ -625,32 +627,32 @@ function generatePreviewHtml() {
       const text = (a.edited_summary || a.summary || "").trim();
       const meta = esc((a.topic || "Top story").toUpperCase());
       const breaking = (a.prominence ?? 0) >= 4;
-      const topicChip = `<span style="display:inline-block;background:#f3eefc;color:#7c3aed;font-size:10px;font-weight:700;letter-spacing:0.08em;padding:4px 11px;border-radius:999px">${meta}</span>`;
+      const topicChip = `<span style="display:inline-block;font-family:${FONT};background:#f3eefc;color:#7c3aed;font-size:10px;font-weight:700;letter-spacing:0.08em;padding:4px 11px;border-radius:999px">${meta}</span>`;
       const breakingChip = breaking
-        ? `<span style="display:inline-block;background:#dc2626;color:#fff;font-size:9px;font-weight:800;padding:4px 9px;border-radius:999px;letter-spacing:0.06em;margin-left:6px">&#9889; BREAKING</span>`
+        ? `<span style="display:inline-block;font-family:${FONT};background:#dc2626;color:#fff;font-size:9px;font-weight:800;padding:4px 9px;border-radius:999px;letter-spacing:0.06em;margin-left:6px">BREAKING</span>`
         : "";
       return `<tr><td style="padding:22px 0;${i < articles.length - 1 ? "border-bottom:1px solid #f0ecf8;" : ""}">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
           <td style="width:46px;vertical-align:top;padding-top:3px">
-            <div style="width:36px;height:36px;border-radius:11px;background:#7c3aed;background:linear-gradient(135deg,#7c3aed 0%,#a855f7 100%);color:#ffffff;font-size:16px;font-weight:800;text-align:center;line-height:36px;box-shadow:0 4px 10px rgba(124,58,237,0.28)">${i + 1}</div>
+            <div style="width:36px;height:36px;border-radius:11px;font-family:${FONT};background:#7c3aed;background:linear-gradient(135deg,#7c3aed 0%,#a855f7 100%);color:#ffffff;font-size:16px;font-weight:800;text-align:center;line-height:36px;box-shadow:0 4px 10px rgba(124,58,237,0.28)">${i + 1}</div>
           </td>
           <td style="padding-left:14px">
             <div style="margin-bottom:8px">${topicChip}${breakingChip}</div>
-            <h2 style="font-size:18px;line-height:1.35;margin:0 0 9px;color:#1a1a2e;font-weight:700;letter-spacing:-0.2px">${esc(a.edited_title || a.title)}</h2>
-            <p style="font-size:15px;line-height:1.7;color:#54546e;margin:0">${esc(text)}</p>
+            <h2 style="font-family:${FONT};font-size:18px;line-height:1.35;margin:0 0 9px;color:#1a1a2e;font-weight:700;letter-spacing:-0.2px">${esc(a.edited_title || a.title)}</h2>
+            <p style="font-family:${FONT};font-size:15px;line-height:1.7;color:#54546e;margin:0">${esc(text)}</p>
           </td>
         </tr></table>
       </td></tr>`;
     }).join("");
   }
 
-  function renderSection(title, subtitle, icon, articles) {
+  function renderSection(title, subtitle, articles) {
     if (articles.length === 0) return "";
     return `<div style="background:#ffffff;border-radius:18px;border:1px solid #ece6f7;margin-bottom:18px;overflow:hidden;box-shadow:0 6px 24px rgba(124,58,237,0.06)">
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
         <tr><td style="background:#7c3aed;background:linear-gradient(120deg,#7c3aed 0%,#9d5cf5 100%);padding:22px 28px">
-          <div style="font-size:21px;font-weight:800;color:#ffffff;letter-spacing:-0.3px">${icon}&nbsp; ${esc(title)}</div>
-          <div style="margin-top:4px;font-size:13px;color:#e8dcfc;font-weight:500">${esc(subtitle)}</div>
+          <div style="font-family:${FONT};font-size:21px;font-weight:800;color:#ffffff;letter-spacing:-0.3px">${esc(title)}</div>
+          <div style="font-family:${FONT};margin-top:4px;font-size:13px;color:#e8dcfc;font-weight:500">${esc(subtitle)}</div>
         </td></tr>
         <tr><td style="padding:6px 28px 14px">
           <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
@@ -674,29 +676,29 @@ function generatePreviewHtml() {
         </td></tr>
       </table>
       <div style="background:#ffffff;border-radius:18px;padding:28px;margin:20px 0 18px;border:1px solid #ece6f7;border-left:4px solid #7c3aed">
-        <p style="margin:0 0 6px;color:#1a1a2e;font-size:17px;font-weight:700">Hi there,</p>
-        <p style="margin:0 0 14px;color:#6b6b8a;font-size:14px;line-height:1.65">
+        <p style="font-family:${FONT};margin:0 0 6px;color:#1a1a2e;font-size:17px;font-weight:700">Hi there,</p>
+        <p style="font-family:${FONT};margin:0 0 14px;color:#6b6b8a;font-size:14px;line-height:1.65">
           We read everything &mdash; so you get only what matters.<br>
           Here's your quick news update for ${esc(today)}.
         </p>
-        <span style="display:inline-block;padding:6px 14px;background:#7c3aed;background:linear-gradient(120deg,#7c3aed,#a855f7);border-radius:999px;font-size:12px;color:#ffffff;font-weight:700;letter-spacing:0.02em">&#128338; ${readTime} min read</span>
+        <span style="display:inline-block;font-family:${FONT};padding:6px 14px;background:#7c3aed;background:linear-gradient(120deg,#7c3aed,#a855f7);border-radius:999px;font-size:12px;color:#ffffff;font-weight:700;letter-spacing:0.02em">${readTime} min read</span>
       </div>
-      ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, "&#9749;", wrapped)}
-      ${renderSection("Shortly Ahead", `${ahead.length} stories to look out for`, "&#128301;", ahead)}
+      ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
+      ${renderSection("Shortly Ahead", `${ahead.length} stories to look out for`, ahead)}
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
         <tr><td style="text-align:center;padding:20px">
           <img src="https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/shortlyfooter.png" alt="Shortly" width="130" style="display:block;width:130px;max-width:60%;height:auto;border:0;margin:0 auto 10px" />
-          <p style="margin:0 0 12px;color:#9a9ab0;font-size:12px;line-height:1.5">
+          <p style="font-family:${FONT};margin:0 0 12px;color:#9a9ab0;font-size:12px;line-height:1.5">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
           </p>
           <p style="margin:0 0 14px;font-size:12px">
-            <a href="#" style="display:inline-block;background:#f3eefc;color:#7c3aed;text-decoration:none;font-weight:600;font-size:12px;padding:9px 18px;border-radius:999px;margin:0 4px 6px">Share on X</a>
-            <a href="#" style="display:inline-block;background:#f3eefc;color:#7c3aed;text-decoration:none;font-weight:600;font-size:12px;padding:9px 18px;border-radius:999px;margin:0 4px 6px">LinkedIn</a>
-            <a href="#" style="display:inline-block;background:#f3eefc;color:#7c3aed;text-decoration:none;font-weight:600;font-size:12px;padding:9px 18px;border-radius:999px;margin:0 4px 6px">WhatsApp</a>
+            <a href="#" style="display:inline-block;font-family:${FONT};background:#f3eefc;color:#7c3aed;text-decoration:none;font-weight:600;font-size:12px;padding:9px 18px;border-radius:999px;margin:0 4px 6px">Share on X</a>
+            <a href="#" style="display:inline-block;font-family:${FONT};background:#f3eefc;color:#7c3aed;text-decoration:none;font-weight:600;font-size:12px;padding:9px 18px;border-radius:999px;margin:0 4px 6px">LinkedIn</a>
+            <a href="#" style="display:inline-block;font-family:${FONT};background:#f3eefc;color:#7c3aed;text-decoration:none;font-weight:600;font-size:12px;padding:9px 18px;border-radius:999px;margin:0 4px 6px">WhatsApp</a>
           </p>
           <p style="margin:0;font-size:11px;color:#b0b0c0">
-            <a href="#" style="color:#b0b0c0;text-decoration:underline">Unsubscribe</a>
+            <a href="#" style="font-family:${FONT};color:#b0b0c0;text-decoration:underline">Unsubscribe</a>
           </p>
         </td></tr>
       </table>
