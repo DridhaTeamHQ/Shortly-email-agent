@@ -219,7 +219,7 @@ function renderSectionBlock(title: string, subtitle: string, articles: Article[]
 }
 
 async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string> {
-  const greeting = sub.full_name ? `Hey ${escapeHtml(sub.full_name)},` : "Hey there,";
+  const greeting = sub.full_name ? `Hi ${escapeHtml(sub.full_name)},` : "Hi there,";
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",

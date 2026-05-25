@@ -100,7 +100,7 @@ async function sendWelcomeDigest(
 
   if (!articles || articles.length === 0) return;
 
-  const greeting = fullName ? `Hey ${escapeHtml(fullName)},` : "Hey there,";
+  const greeting = fullName ? `Hi ${escapeHtml(fullName)},` : "Hi there,";
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
   });
