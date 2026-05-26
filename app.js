@@ -503,6 +503,11 @@ function generatePreviewHtml() {
   if (approved.length === 0) return "<p>No articles approved yet.</p>";
 
   const wrapped = approved.slice(0, DAILY_CAP);
+  const previewBaseUrl =
+    window.location.origin && window.location.origin !== "null"
+      ? `${window.location.origin}/`
+      : new URL(".", window.location.href).href;
+  const previewBannerUrl = `${new URL("assets/email-banner.jpg", previewBaseUrl).href}?v=${Date.now()}`;
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric"
@@ -548,10 +553,10 @@ function generatePreviewHtml() {
     .join(" ");
   const wordCount = allText.split(/\s+/).filter(Boolean).length;
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet"></head>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><base href="${previewBaseUrl}"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet"></head>
   <body style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
-      <img src="/assets/email-banner.jpg" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
+      <img src="${previewBannerUrl}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
       <div style="background:#ffffff;border-radius:18px;padding:28px 30px;margin:20px 0 20px;border:1px solid #e8e0f5;border-left:4px solid #7c3aed">
         <p style="margin:0 0 10px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:Roboto,Arial,sans-serif">Hi &lt;NAME&gt;,</p>
         <p style="margin:0;color:#6b6b8a;font-size:16px;line-height:1.65;font-weight:400;font-family:Roboto,Arial,sans-serif">
