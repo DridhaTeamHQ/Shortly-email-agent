@@ -531,7 +531,7 @@ function generatePreviewHtml() {
     if (articles.length === 0) return "";
     return `<div style="margin-bottom:20px;border-radius:18px;overflow:hidden;background:#ffffff;border:1px solid #e8e0f5">
       <div style="background:linear-gradient(90deg,#7c3aed 0%,#9b5cf6 100%);padding:24px 28px 20px">
-        <h2 style="margin:0 0 6px;font-size:18px;font-weight:800;color:#ffffff;letter-spacing:-0.3px;font-family:Roboto,Arial,sans-serif">${esc(title)}</h2>
+        <h2 style="margin:0 0 6px;font-size:18px;font-weight:800;color:#ffffff;letter-spacing:-0.3px;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${esc(title)}</h2>
         <p style="margin:0;font-size:13px;color:#efe7ff;font-weight:500;font-family:Roboto,Arial,sans-serif">${esc(subtitle)}</p>
       </div>
       <div style="padding:10px 28px 8px">
@@ -555,8 +555,7 @@ function generatePreviewHtml() {
       <div style="background:#ffffff;border-radius:18px;padding:28px 30px;margin:20px 0 20px;border:1px solid #e8e0f5;border-left:4px solid #7c3aed">
         <p style="margin:0 0 10px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:Roboto,Arial,sans-serif">Hi &lt;NAME&gt;,</p>
         <p style="margin:0;color:#6b6b8a;font-size:16px;line-height:1.65;font-weight:400;font-family:Roboto,Arial,sans-serif">
-          We read everything &mdash; so you get only what matters.<br>
-          Here's your quick news update for ${esc(today)}.
+          Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!
         </p>
       </div>
       ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
