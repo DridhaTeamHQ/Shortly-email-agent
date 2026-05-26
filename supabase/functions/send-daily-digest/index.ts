@@ -24,9 +24,17 @@ type Subscriber = { id: string; email: string; full_name: string | null };
 
 const TOTAL_ARTICLES = 10;
 const FINANCE_TOPICS = ["business", "india business", "finance", "economy", "markets"];
-// Hosted banner (public Supabase Storage). Gmail strips base64 data: URIs, so we
-// reference the hosted image instead of inlining it.
-const BANNER_URL = "https://ygxdrphajvrbjcaxhvcn.supabase.co/storage/v1/object/public/assets/banner.jpeg";
+const BANNER_DATA_URL = loadBannerDataUrl();
+
+function loadBannerDataUrl(): string {
+  const bytes = Deno.readFileSync(new URL("../../../assets/email-banner.jpg", import.meta.url));
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return `data:image/jpeg;base64,${btoa(binary)}`;
+}
 
 function isFinance(a: Article): boolean {
   return FINANCE_TOPICS.includes((a.topic ?? "").toLowerCase());
@@ -211,7 +219,7 @@ function renderSectionBlock(title: string, subtitle: string, articles: Article[]
 }
 
 async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string> {
-  const greeting = sub.full_name ? `Hey ${escapeHtml(sub.full_name)},` : "Hey there,";
+  const greeting = sub.full_name ? `Hi ${escapeHtml(sub.full_name)},` : "Hi there,";
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -220,11 +228,10 @@ async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string
   });
 
   // Read time estimate
-  const totalWords = wrapped.reduce((sum, a) => {
+  wrapped.reduce((sum, a) => {
     const text = (a.edited_summary || a.summary || "").trim();
     return sum + text.split(/\s+/).filter(Boolean).length;
   }, 0);
-  const readTime = Math.max(1, Math.ceil(totalWords / 200));
 
   // Unsubscribe link
   const secret = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -244,18 +251,16 @@ async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string
   <div style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
 
-      <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
+      <img src="${BANNER_DATA_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
 
       <div style="background:#ffffff;border-radius:18px;padding:28px 30px;margin:20px 0 20px;border:1px solid #e8e0f5;border-left:4px solid #7c3aed">
         <p style="margin:0 0 10px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:Roboto,Arial,sans-serif">
           ${greeting}
         </p>
         <p style="margin:0;color:#6b6b8a;font-size:16px;line-height:1.65;font-weight:400;font-family:Roboto,Arial,sans-serif">
-          Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!
+          We read everything &mdash; so you get only what matters.<br>
+          Here's your quick news update for ${escapeHtml(today)}.
         </p>
-        <div style="margin-top:16px;display:inline-block;padding:6px 16px;background:#8b5cf6;border-radius:999px;font-size:12px;color:#ffffff;font-weight:700;font-family:Roboto,Arial,sans-serif">
-          ${readTime} min read
-        </div>
       </div>
 
       ${renderSectionBlock("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}

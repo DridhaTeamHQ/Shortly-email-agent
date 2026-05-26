@@ -163,11 +163,10 @@ async function sendWelcomeDigest(
 
   // Read time estimate
   const allItems = [...wrapped, ...ahead];
-  const totalWords = allItems.reduce((sum, a) => {
+  allItems.reduce((sum, a) => {
     const text = ((a.edited_summary || a.summary || "") as string).trim();
     return sum + text.split(/\s+/).filter(Boolean).length;
   }, 0);
-  const readTime = Math.max(1, Math.ceil(totalWords / 200));
 
   // Unsubscribe link
   const secret = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -195,7 +194,6 @@ async function sendWelcomeDigest(
           We read everything &mdash; so you get only what matters.<br>
           Here's your quick news update for ${escapeHtml(today)}.
         </p>
-        <div style="margin-top:16px;display:inline-block;padding:6px 16px;background:#8b5cf6;border-radius:999px;font-size:12px;color:#ffffff;font-weight:700;font-family:Roboto,Arial,sans-serif">${readTime} min read</div>
       </div>
 
       ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
