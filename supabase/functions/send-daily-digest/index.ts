@@ -24,17 +24,9 @@ type Subscriber = { id: string; email: string; full_name: string | null };
 
 const TOTAL_ARTICLES = 10;
 const FINANCE_TOPICS = ["business", "india business", "finance", "economy", "markets"];
-const BANNER_DATA_URL = loadBannerDataUrl();
-
-function loadBannerDataUrl(): string {
-  const bytes = Deno.readFileSync(new URL("../../../assets/email-banner.jpg", import.meta.url));
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return `data:image/jpeg;base64,${btoa(binary)}`;
-}
+const BANNER_URL =
+  Deno.env.get("SHORTLY_BANNER_URL") ??
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";
 
 function isFinance(a: Article): boolean {
   return FINANCE_TOPICS.includes((a.topic ?? "").toLowerCase());
@@ -251,7 +243,7 @@ async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string
   <div style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
     <div style="max-width:640px;margin:0 auto">
 
-      <img src="${BANNER_DATA_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
+      <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
 
       <div style="background:#ffffff;border-radius:18px;padding:28px 30px;margin:20px 0 20px;border:1px solid #e8e0f5;border-left:4px solid #7c3aed">
         <p style="margin:0 0 10px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:Roboto,Arial,sans-serif">
