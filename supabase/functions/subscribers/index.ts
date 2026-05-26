@@ -137,7 +137,7 @@ async function sendWelcomeDigest(
     return `
       <div style="margin-bottom:20px;border-radius:18px;overflow:hidden;background:#ffffff;border:1px solid #e8e0f5">
         <div style="background:linear-gradient(90deg,#7c3aed 0%,#9b5cf6 100%);padding:24px 28px 20px">
-          <h2 style="margin:0 0 6px;font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.3px;font-family:Roboto,Arial,sans-serif">${escapeHtml(title)}</h2>
+          <h2 style="margin:0 0 6px;font-size:18px;font-weight:800;color:#ffffff;letter-spacing:-0.3px;font-family:Roboto,Arial,sans-serif">${escapeHtml(title)}</h2>
           <p style="margin:0;font-size:13px;color:#efe7ff;font-weight:500;font-family:Roboto,Arial,sans-serif">${escapeHtml(subtitle)}</p>
         </div>
         <div style="padding:10px 28px 8px">
