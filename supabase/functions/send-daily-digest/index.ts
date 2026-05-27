@@ -146,7 +146,8 @@ Deno.serve(async (request) => {
   if (digestError) return json({ error: digestError.message }, 500);
   const digestId = digest!.id as string;
 
-  const subject = `${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} — Shortly Digest`;
+  const subjectDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  const subject = `${subjectDate} - Shortly Daily Wrap is here!`;
 
   // 5. Send to each subscriber
   let sent = 0;

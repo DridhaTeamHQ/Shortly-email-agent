@@ -239,7 +239,7 @@ async function sendWelcomeDigest(
 
   await sendEmail({
     to: email,
-    subject: `Welcome to Shortly Digest — ${today}`,
+    subject: `${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" })} - Shortly Daily Wrap is here!`,
     html,
   });
 }
