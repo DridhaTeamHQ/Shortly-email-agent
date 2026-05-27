@@ -189,9 +189,9 @@ async function sendWelcomeDigest(
 
       ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
 
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
-        <tr><td style="text-align:center;padding:20px">
-          <img src="${FOOTER_LOGO_URL}" alt="Shortly" width="140" style="display:block;width:140px;max-width:100%;height:auto;margin:0 auto 10px">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:4px;margin-bottom:20px">
+        <tr><td style="text-align:center;padding:10px 20px 14px">
+          <img src="${FOOTER_LOGO_URL}" alt="Shortly" width="96" style="display:block;width:96px;max-width:100%;height:auto;margin:0 auto 8px">
           <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
