@@ -631,10 +631,6 @@ function toggleTheme() {
   updateThemeButton(!isDark);
 }
 
-function updateThemeButton(isDark) {
-  $("#themeIcon").textContent = isDark ? "☀" : "☾";
-  $("#themeLabel").textContent = isDark ? "Light mode" : "Dark mode";
-}
 
 // ---------- section nav ----------
 function updateThemeButton(isDark) {
