@@ -150,9 +150,17 @@
             <input id="subName" type="text" placeholder="Full name (optional)" />
             <button class="btn-primary" type="submit">Add subscriber</button>
           </form>
+          <div class="subscriber-bulk-bar" id="subscriberBulkBar">
+            <label class="subscriber-select-all">
+              <input type="checkbox" id="subSelectAll" />
+              <span>Select all subscribed</span>
+            </label>
+            <span id="subscriberBulkCount">All subscribed recipients will receive the digest</span>
+            <button id="clearRecipientSelection" class="btn-ghost" type="button">Clear selection</button>
+          </div>
           <div class="table-wrap">
             <table class="data-table">
-              <thead><tr><th>Email</th><th>Name</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th></th><th>Email</th><th>Name</th><th>Status</th><th></th></tr></thead>
               <tbody id="subRows"></tbody>
             </table>
           </div>
@@ -200,21 +208,6 @@
         </div>
         <div class="modal-body">
           <iframe id="previewFrame" title="Email preview"></iframe>
-        </div>
-      </div>
-    </div>
-
-    <!-- Custom Confirm Dialog -->
-    <div class="confirm-overlay" id="confirmOverlay">
-      <div class="confirm-modal">
-        <div class="confirm-body">
-          <div class="confirm-icon warning" id="confirmIcon">&#9888;</div>
-          <h3 id="confirmTitle">Are you sure?</h3>
-          <p id="confirmMessage">This action cannot be undone.</p>
-        </div>
-        <div class="confirm-actions">
-          <button class="btn-cancel" id="confirmCancel">Cancel</button>
-          <button class="btn-confirm" id="confirmOk">Confirm</button>
         </div>
       </div>
     </div>

@@ -59,6 +59,13 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
+  let subscriberIds: string[] = [];
+  if (request.method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    subscriberIds = Array.isArray(body?.subscriber_ids)
+      ? body.subscriber_ids.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
+      : [];
+  }
 
   // 1. Try approved articles first
   const { data: approved, error: approvedError } = await supabase
@@ -107,10 +114,14 @@ Deno.serve(async (request) => {
   const allArticles = wrapped;
 
   // 3. Subscribers
-  const { data: subs, error: subError } = await supabase
+  let subQuery = supabase
     .from("subscribers")
     .select("id,email,full_name")
     .eq("status", "subscribed");
+  if (subscriberIds.length > 0) {
+    subQuery = subQuery.in("id", subscriberIds);
+  }
+  const { data: subs, error: subError } = await subQuery;
   if (subError) return json({ error: subError.message }, 500);
   const subscribers = (subs ?? []) as Subscriber[];
   if (subscribers.length === 0) return json({ error: "No subscribers" }, 400);

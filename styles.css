@@ -288,9 +288,23 @@ a:hover { text-decoration: underline; }
 /* ── Subscribers ── */
 .sub-form { display: flex; gap: 10px; margin-bottom: 16px; }
 .sub-form input { flex: 1; }
+.subscriber-bulk-bar {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+  padding: 10px 12px; background: var(--soft); border: 1px solid var(--line);
+  border-radius: 10px; font-size: 13px; color: var(--muted); flex-wrap: wrap;
+}
+.subscriber-bulk-bar.show {
+  background: var(--purple-soft);
+  border-color: #d8c7ff;
+}
+.subscriber-select-all {
+  display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 600;
+}
+.sub-check { width: 16px; height: 16px; accent-color: var(--purple); }
 .table-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table th, .data-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--line); }
+.data-table th:first-child, .data-table td:first-child { width: 44px; padding-right: 0; }
 .data-table th { background: var(--soft); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 700; }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
@@ -419,6 +433,7 @@ a:hover { text-decoration: underline; }
   .card .actions button { flex: 1; padding: 10px 8px; font-size: 12px; }
   .sub-form { flex-direction: column; }
   .sub-form button { width: 100%; }
+  .subscriber-bulk-bar { flex-direction: column; align-items: stretch; }
   .fetch-today-card { flex-direction: column; text-align: center; padding: 16px; }
   .btn-fetch { width: 100%; min-width: unset; }
   .scrape-form { grid-template-columns: 1fr; padding: 16px; }

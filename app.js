@@ -53,6 +53,7 @@ const state = {
   filterTopic: "",
   filterSection: "",
   selected: new Set(),
+  selectedSubscribers: new Set(),
   dragId: null
 };
 
@@ -97,6 +98,31 @@ function uniqueTopics() {
   return [...topics].sort();
 }
 
+function selectedSubscriberCount() {
+  return state.subscribers.filter((s) => s.status === "subscribed" && state.selectedSubscribers.has(s.id)).length;
+}
+
+function updateSubscriberSelectionUi() {
+  const count = selectedSubscriberCount();
+  const bar = $("#subscriberBulkBar");
+  const label = $("#subscriberBulkCount");
+  const selectAll = $("#subSelectAll");
+  if (label) {
+    label.textContent = count > 0
+      ? `${count} recipient${count === 1 ? "" : "s"} selected`
+      : "All subscribed recipients will receive the digest";
+  }
+  if (bar) {
+    bar.classList.toggle("show", count > 0);
+  }
+  if (selectAll) {
+    const subscribed = state.subscribers.filter((s) => s.status === "subscribed");
+    const allChecked = subscribed.length > 0 && subscribed.every((s) => state.selectedSubscribers.has(s.id));
+    selectAll.checked = allChecked;
+    selectAll.indeterminate = !allChecked && count > 0;
+  }
+}
+
 // ---------- rendering ----------
 function refreshChrome() {
   const approved = approvedTodayCount();
@@ -111,7 +137,10 @@ function refreshChrome() {
   $("#badgeSubs").textContent = subs;
 
   const send = $("#sendDigest");
-  send.textContent = `Send (${counts.wrapped})`;
+  const selectedSubs = selectedSubscriberCount();
+  send.textContent = selectedSubs > 0
+    ? `Send (${counts.wrapped}) to ${selectedSubs}`
+    : `Send (${counts.wrapped})`;
   send.disabled = approved === 0 || subs === 0;
 
   const preview = $("#previewDigest");
@@ -236,10 +265,13 @@ function renderRejected() {
 }
 
 function renderSubscribers() {
+  const subscribed = state.subscribers.filter((s) => s.status === "subscribed");
+  const allChecked = subscribed.length > 0 && subscribed.every((s) => state.selectedSubscribers.has(s.id));
   const rows = state.subscribers
     .map(
       (s) => `
       <tr data-id="${s.id}">
+        <td>${s.status === "subscribed" ? `<input type="checkbox" class="sub-check" data-id="${s.id}" ${state.selectedSubscribers.has(s.id) ? "checked" : ""}>` : ""}</td>
         <td>${esc(s.email)}</td>
         <td>${esc(s.full_name || "")}</td>
         <td><span class="dot ${s.status}"></span>${esc(s.status)}</td>
@@ -252,7 +284,13 @@ function renderSubscribers() {
       </tr>`
     )
     .join("");
-  $("#subRows").innerHTML = rows || `<tr><td colspan="4" class="muted" style="padding:18px">No subscribers yet.</td></tr>`;
+  $("#subRows").innerHTML = rows || `<tr><td colspan="5" class="muted" style="padding:18px">No subscribers yet.</td></tr>`;
+  const selectAll = $("#subSelectAll");
+  if (selectAll) {
+    selectAll.checked = allChecked;
+    selectAll.indeterminate = !allChecked && selectedSubscriberCount() > 0;
+  }
+  updateSubscriberSelectionUi();
 }
 
 function renderHistory() {
@@ -345,6 +383,10 @@ async function loadArticles() {
 async function loadSubscribers() {
   const data = await api("GET", cfg.subscribers);
   state.subscribers = data.subscribers || [];
+  const validIds = new Set(state.subscribers.filter((s) => s.status === "subscribed").map((s) => s.id));
+  state.selectedSubscribers.forEach((id) => {
+    if (!validIds.has(id)) state.selectedSubscribers.delete(id);
+  });
 }
 
 async function loadDigests() {
@@ -720,6 +762,33 @@ $("#subRows").addEventListener("click", (e) => {
   handleSubscriberAction(btn.closest("tr"), btn.dataset.action);
 });
 
+$("#subRows").addEventListener("change", (e) => {
+  const check = e.target.closest(".sub-check");
+  if (!check) return;
+  if (check.checked) state.selectedSubscribers.add(check.dataset.id);
+  else state.selectedSubscribers.delete(check.dataset.id);
+  refreshChrome();
+  renderSubscribers();
+});
+
+$("#subSelectAll").addEventListener("change", (e) => {
+  const checked = e.target.checked;
+  state.subscribers
+    .filter((s) => s.status === "subscribed")
+    .forEach((s) => {
+      if (checked) state.selectedSubscribers.add(s.id);
+      else state.selectedSubscribers.delete(s.id);
+    });
+  refreshChrome();
+  renderSubscribers();
+});
+
+$("#clearRecipientSelection").addEventListener("click", () => {
+  state.selectedSubscribers.clear();
+  refreshChrome();
+  renderSubscribers();
+});
+
 // Add subscriber form
 $("#subForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -816,13 +885,14 @@ $("#previewModal").addEventListener("click", (e) => {
 // Send digest
 $("#sendDigest").addEventListener("click", async () => {
   const approved = approvedTodayCount();
-  const subCount = state.subscribers.filter((s) => s.status === "subscribed").length;
+  const selectedIds = [...state.selectedSubscribers];
+  const subCount = selectedIds.length || state.subscribers.filter((s) => s.status === "subscribed").length;
   const fallbackMsg = approved < DAILY_CAP
     ? `\n\nOnly ${approved}/${DAILY_CAP} approved — the rest will be auto-selected by rank.`
     : "";
   if (!confirm(`Send digest to ${subCount} subscribers?${fallbackMsg}`)) return;
   try {
-    const res = await api("POST", cfg.digest);
+    const res = await api("POST", cfg.digest, selectedIds.length ? { subscriber_ids: selectedIds } : {});
     const autoMsg = res.autoSelected ? " (with auto-selected articles)" : "";
     toast(`Sent to ${res.sent ?? 0} subscribers${autoMsg}.`);
     await reload();
