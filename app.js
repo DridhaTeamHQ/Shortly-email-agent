@@ -529,6 +529,9 @@ function generatePreviewHtml() {
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric"
   });
+  const shareText = encodeURIComponent("Check out Shortly newsletter - curated news, summarized daily.");
+  const twitterUrl = `https://twitter.com/intent/tweet?text=${shareText}`;
+  const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent("https://shortly.news")}&summary=${shareText}`;
 
   function renderItems(articles) {
     return articles.map((a, i) => {
@@ -587,16 +590,12 @@ function generatePreviewHtml() {
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
           </p>
-          <p style="margin:0;font-size:12px;color:#9a9ab0;font-family:Roboto,Arial,sans-serif">
-            <a href="#" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Share on X</a> &nbsp;|&nbsp;
-            <a href="#" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">LinkedIn</a> &nbsp;|&nbsp;
-            <a href="#" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">WhatsApp</a>
-          </p>
-          <p style="margin:12px 0 0;font-size:11px;color:#b0b0c0">
-            <a href="#" style="color:#b0b0c0;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Unsubscribe</a>
-          </p>
-        </td></tr>
-      </table>
+            <p style="margin:0;font-size:12px;color:#9a9ab0;font-family:Roboto,Arial,sans-serif">
+              <a href="${twitterUrl}" target="_blank" rel="noreferrer" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Share on X</a> &nbsp;|&nbsp;
+              <a href="${linkedinUrl}" target="_blank" rel="noreferrer" style="color:#7c3aed;text-decoration:underline;font-family:Roboto,Arial,sans-serif">LinkedIn</a>
+            </p>
+          </td></tr>
+        </table>
     </div>
   </body></html>`;
 }

@@ -6,7 +6,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
-import { generateUnsubToken } from "../_shared/unsub.ts";
 
 type Article = {
   id: string;
@@ -236,16 +235,10 @@ async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string
     return sum + text.split(/\s+/).filter(Boolean).length;
   }, 0);
 
-  // Unsubscribe link
-  const secret = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const unsubToken = await generateUnsubToken(sub.email, secret);
-  const unsubUrl = `https://ygxdrphajvrbjcaxhvcn.functions.supabase.co/unsubscribe?email=${encodeURIComponent(sub.email)}&token=${encodeURIComponent(unsubToken)}`;
-
   // Social sharing
   const shareText = encodeURIComponent("Check out Shortly newsletter — curated news, summarized daily.");
   const twitterUrl = `https://twitter.com/intent/tweet?text=${shareText}`;
   const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent("https://shortly.news")}&summary=${shareText}`;
-  const whatsappUrl = `https://wa.me/?text=${shareText}`;
 
   return `
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -274,16 +267,11 @@ async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
           </p>
-          <p style="margin:16px 0 0;font-size:13px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
-            <a href="${twitterUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">Share on X</a>
-            &nbsp;&nbsp;|&nbsp;&nbsp;
-            <a href="${linkedinUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">LinkedIn</a>
-            &nbsp;&nbsp;|&nbsp;&nbsp;
-            <a href="${whatsappUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">WhatsApp</a>
-          </p>
-          <p style="margin:12px 0 0;">
-            <a href="${unsubUrl}" style="color:#9a9ab0;font-size:11px;text-decoration:underline;font-family:Roboto,Arial,sans-serif">Unsubscribe</a>
-          </p>
+            <p style="margin:16px 0 0;font-size:13px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
+              <a href="${twitterUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">Share on X</a>
+              &nbsp;&nbsp;|&nbsp;&nbsp;
+              <a href="${linkedinUrl}" style="color:#7c3aed;text-decoration:none;font-weight:600;font-family:Roboto,Arial,sans-serif">LinkedIn</a>
+            </p>
         </td></tr>
       </table>
 
