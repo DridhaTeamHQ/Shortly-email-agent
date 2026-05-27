@@ -6,6 +6,9 @@ import { generateUnsubToken } from "../_shared/unsub.ts";
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";
+const FOOTER_LOGO_URL =
+  Deno.env.get("SHORTLY_FOOTER_LOGO_URL") ??
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/footer-logo.png";
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
@@ -78,30 +81,6 @@ function escapeHtml(v = "") {
     .replaceAll("'", "&#039;");
 }
 
-function toTitleCase(value = "") {
-  return value
-    .toLowerCase()
-    .replace(/\b\w/g, (ch) => ch.toUpperCase());
-}
-
-function emailCategoryLabel(article: Record<string, string | null>) {
-  const topic = String(article.topic || "").trim();
-  const source = String(article.source || "").trim();
-  const normalized = topic.toLowerCase();
-  const genericTopics = new Set([
-    "",
-    "india",
-    "general",
-    "news",
-    "top story",
-    "top stories",
-    "latest news",
-    "breaking news",
-  ]);
-  const label = genericTopics.has(normalized) ? (source || "Top Story") : topic;
-  return escapeHtml(toTitleCase(label));
-}
-
 async function sendWelcomeDigest(
   supabase: ReturnType<typeof createClient>,
   email: string,
@@ -127,18 +106,14 @@ async function sendWelcomeDigest(
     return list.map((a, i) => {
       const headline = ((a.edited_title || a.title || "") as string).trim();
       const text = (a.edited_summary || a.summary || "").trim();
-      const meta = emailCategoryLabel(a);
       return `<tr><td style="padding:24px 0;${i < list.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-          <td style="width:40px;vertical-align:top;padding-top:2px">
+          <td style="width:40px;vertical-align:top;padding-top:6px">
             <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">
               ${i + 1}
             </div>
           </td>
           <td style="padding-left:14px">
-            <div style="font-size:11px;letter-spacing:0.06em;color:#7c3aed;font-weight:600;margin-bottom:6px">
-              ${meta}
-            </div>
             <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">
               ${escapeHtml(headline)}
             </h2>
@@ -216,7 +191,7 @@ async function sendWelcomeDigest(
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:8px;margin-bottom:32px">
         <tr><td style="text-align:center;padding:20px">
-          <div style="font-size:22px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:8px;font-family:Roboto,Arial,sans-serif">shortly</div>
+          <img src="${FOOTER_LOGO_URL}" alt="Shortly" width="140" style="display:block;width:140px;max-width:100%;height:auto;margin:0 auto 10px">
           <p style="margin:0;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
             Curated news, summarized daily.<br>
             You're receiving this because you subscribed to Shortly.
