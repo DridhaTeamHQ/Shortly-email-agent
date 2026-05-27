@@ -637,6 +637,11 @@ function updateThemeButton(isDark) {
 }
 
 // ---------- section nav ----------
+function updateThemeButton(isDark) {
+  $("#themeIcon").textContent = isDark ? "\u2600" : "\u263E";
+  $("#themeLabel").textContent = isDark ? "Light mode" : "Dark mode";
+}
+
 function showSection(name) {
   state.section = name;
   $$(".section").forEach((s) => s.classList.toggle("active", s.dataset.section === name));

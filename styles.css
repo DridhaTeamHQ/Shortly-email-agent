@@ -101,7 +101,7 @@ a:hover { text-decoration: underline; }
 }
 .badge.accent { background: #defaf0; color: var(--green); }
 .sidebar-footer {
-  margin-top: auto; padding-top: 16px;
+  margin-top: 16px; padding-top: 16px;
   border-top: 1px solid var(--line);
   display: flex; flex-direction: column; gap: 8px;
 }
