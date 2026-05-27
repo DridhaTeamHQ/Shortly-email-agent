@@ -15,7 +15,7 @@ Deno.serve(async (request) => {
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
   let query = supabase
     .from("articles")
-    .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,status,rank_score,prominence,scraped_at,summarized_at,reviewed_at,sent_at")
+    .select("id,title,url,summary,edited_title,edited_summary,source,topic,section,status,rank_score,scraped_at,summarized_at,reviewed_at,sent_at")
     .order("rank_score", { ascending: false })
     .order("scraped_at", { ascending: false })
     .limit(limit);

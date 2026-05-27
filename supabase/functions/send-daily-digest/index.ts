@@ -11,6 +11,7 @@ import { generateUnsubToken } from "../_shared/unsub.ts";
 type Article = {
   id: string;
   title: string;
+  edited_title: string | null;
   url: string;
   summary: string | null;
   edited_summary: string | null;
@@ -27,6 +28,39 @@ const FINANCE_TOPICS = ["business", "india business", "finance", "economy", "mar
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";
+
+function escapeHtmlText(value = ""): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function toTitleCase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function emailCategoryLabel(article: Pick<Article, "topic" | "source">): string {
+  const topic = String(article.topic ?? "").trim();
+  const source = String(article.source ?? "").trim();
+  const normalized = topic.toLowerCase();
+  const genericTopics = new Set([
+    "",
+    "india",
+    "general",
+    "news",
+    "top story",
+    "top stories",
+    "latest news",
+    "breaking news",
+  ]);
+  const label = genericTopics.has(normalized) ? (source || "Top Story") : topic;
+  return escapeHtmlText(toTitleCase(label));
+}
 
 function isFinance(a: Article): boolean {
   return FINANCE_TOPICS.includes((a.topic ?? "").toLowerCase());
@@ -51,7 +85,7 @@ Deno.serve(async (request) => {
   // 1. Try approved articles first
   const { data: approved, error: approvedError } = await supabase
     .from("articles")
-    .select("id,title,url,summary,edited_summary,source,topic,section,rank_score")
+    .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
     .eq("status", "approved")
     .order("rank_score", { ascending: false })
     .order("scraped_at", { ascending: false })
@@ -68,7 +102,7 @@ Deno.serve(async (request) => {
 
     const { data: fallback } = await supabase
       .from("articles")
-      .select("id,title,url,summary,edited_summary,source,topic,section,rank_score")
+      .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
       .eq("status", "summarized")
       .order("rank_score", { ascending: false })
       .order("scraped_at", { ascending: false })
@@ -169,9 +203,10 @@ function escapeHtml(v = "") {
 function renderItems(articles: Article[]): string {
   return articles
     .map((a, i) => {
+      const headline = (a.edited_title || a.title || "").trim();
       const text = (a.edited_summary || a.summary || "").trim();
-      const meta = escapeHtml(a.topic ?? "Top story");
-      return `
+        const meta = emailCategoryLabel(a);
+        return `
         <tr><td style="padding:24px 0;${i < articles.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
           <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
             <td style="width:40px;vertical-align:top;padding-top:2px">
@@ -180,11 +215,11 @@ function renderItems(articles: Article[]): string {
               </div>
             </td>
             <td style="padding-left:14px">
-              <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px;font-family:Roboto,Arial,sans-serif">
-                ${meta}
-              </div>
+                <div style="font-size:11px;letter-spacing:0.06em;color:#7c3aed;font-weight:600;margin-bottom:6px;font-family:Roboto,Arial,sans-serif">
+                  ${meta}
+                </div>
               <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
-                ${escapeHtml(a.title)}
+                ${escapeHtml(headline)}
               </h2>
               <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</p>
             </td>

@@ -17,6 +17,7 @@ create table if not exists public.articles (
   url text not null unique,
   raw_content text,
   summary text,
+  edited_title text,
   edited_summary text,
   source text,
   topic text,

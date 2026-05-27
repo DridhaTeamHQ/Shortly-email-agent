@@ -78,6 +78,30 @@ function escapeHtml(v = "") {
     .replaceAll("'", "&#039;");
 }
 
+function toTitleCase(value = "") {
+  return value
+    .toLowerCase()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function emailCategoryLabel(article: Record<string, string | null>) {
+  const topic = String(article.topic || "").trim();
+  const source = String(article.source || "").trim();
+  const normalized = topic.toLowerCase();
+  const genericTopics = new Set([
+    "",
+    "india",
+    "general",
+    "news",
+    "top story",
+    "top stories",
+    "latest news",
+    "breaking news",
+  ]);
+  const label = genericTopics.has(normalized) ? (source || "Top Story") : topic;
+  return escapeHtml(toTitleCase(label));
+}
+
 async function sendWelcomeDigest(
   supabase: ReturnType<typeof createClient>,
   email: string,
@@ -85,7 +109,7 @@ async function sendWelcomeDigest(
 ) {
   const { data: articles } = await supabase
     .from("articles")
-    .select("title,url,summary,edited_summary,source,topic,section")
+    .select("title,edited_title,url,summary,edited_summary,source,topic,section")
     .eq("status", "sent")
     .order("sent_at", { ascending: false })
     .limit(10);
@@ -101,8 +125,9 @@ async function sendWelcomeDigest(
 
   function renderItems(list: WelcomeArticle[]): string {
     return list.map((a, i) => {
+      const headline = ((a.edited_title || a.title || "") as string).trim();
       const text = (a.edited_summary || a.summary || "").trim();
-      const meta = escapeHtml((a.topic as string) ?? "Top story");
+      const meta = emailCategoryLabel(a);
       return `<tr><td style="padding:24px 0;${i < list.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
           <td style="width:40px;vertical-align:top;padding-top:2px">
@@ -111,11 +136,11 @@ async function sendWelcomeDigest(
             </div>
           </td>
           <td style="padding-left:14px">
-            <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px">
+            <div style="font-size:11px;letter-spacing:0.06em;color:#7c3aed;font-weight:600;margin-bottom:6px">
               ${meta}
             </div>
             <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700">
-              ${escapeHtml(a.title!)}
+              ${escapeHtml(headline)}
             </h2>
             <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0">${escapeHtml(text)}</p>
           </td>

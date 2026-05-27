@@ -16,6 +16,30 @@ function esc(s = "") {
     .replaceAll("'", "&#039;");
 }
 
+function toTitleCase(value = "") {
+  return String(value)
+    .toLowerCase()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function emailCategoryLabel(article) {
+  const topic = String(article?.topic || "").trim();
+  const source = String(article?.source || "").trim();
+  const normalized = topic.toLowerCase();
+  const genericTopics = new Set([
+    "",
+    "india",
+    "general",
+    "news",
+    "top story",
+    "top stories",
+    "latest news",
+    "breaking news"
+  ]);
+  const label = genericTopics.has(normalized) ? (source || "Top Story") : topic;
+  return esc(toTitleCase(label));
+}
+
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg;
@@ -75,6 +99,7 @@ function filteredArticles(statusFilter) {
     items = items.filter(
       (a) =>
         (a.title || "").toLowerCase().includes(q) ||
+        (a.edited_title || "").toLowerCase().includes(q) ||
         (a.summary || "").toLowerCase().includes(q) ||
         (a.edited_summary || "").toLowerCase().includes(q) ||
         (a.topic || "").toLowerCase().includes(q) ||
@@ -139,6 +164,7 @@ function populateTopicFilter() {
 }
 
 function cardHtml(a, mode) {
+  const headline = a.edited_title || a.title || "";
   const text = a.edited_summary || a.summary || "";
   const date = new Date(a.scraped_at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const time = new Date(a.scraped_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
@@ -183,6 +209,7 @@ function cardHtml(a, mode) {
 
   const sectionTag = `<span class="tag section-${sec}">${sec}</span>`;
   const readonly = mode === "rejected" ? "readonly" : "";
+  const headlineReadonly = mode === "rejected" ? "readonly" : "";
 
   // Read time estimate
   const words = text.split(/\s+/).filter(Boolean).length;
@@ -192,12 +219,12 @@ function cardHtml(a, mode) {
     <article class="card ${checked ? "selected" : ""}" data-id="${a.id}" ${draggable}>
       <header>
         ${checkbox}
-        <div class="card-head">
-          <div class="chips">${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
-          <h3>${esc(a.title)}</h3>
-          <div class="meta">
-            ${date} &middot; ${time}
-            &middot; <a href="${esc(a.url)}" target="_blank" rel="noreferrer">Source</a>
+          <div class="card-head">
+            <div class="chips">${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
+            <input class="headline-input" data-role="headline" type="text" value="${esc(headline)}" ${headlineReadonly} />
+            <div class="meta">
+              ${date} &middot; ${time}
+              &middot; <a href="${esc(a.url)}" target="_blank" rel="noreferrer">Source</a>
             &middot; ${readTime} min read
           </div>
         </div>
@@ -385,9 +412,11 @@ async function reload() {
 // ---------- actions ----------
 async function handleArticleAction(card, action) {
   const id = card.dataset.id;
+  const headline = card.querySelector("input[data-role=headline]")?.value.trim();
   const summary = card.querySelector("textarea")?.value.trim();
   const section = card.querySelector("select[data-role=section]")?.value || "wrapped";
   const body = { id, action, reviewer: cfg.reviewer, section };
+  if (action === "edit" || action === "approve") body.edited_title = headline;
   if (action === "edit" || action === "approve") body.edited_summary = summary;
   try {
     await api("POST", cfg.review, body);
@@ -497,7 +526,18 @@ function collectLiveSummaryOverrides() {
   return overrides;
 }
 
+function collectLiveHeadlineOverrides() {
+  const overrides = new Map();
+  $$(".card[data-id] input[data-role=headline]").forEach((node) => {
+    const card = node.closest(".card");
+    const id = card?.dataset.id;
+    if (id) overrides.set(id, node.value.trim());
+  });
+  return overrides;
+}
+
 function generatePreviewHtml() {
+  const liveHeadlines = collectLiveHeadlineOverrides();
   const liveSummaries = collectLiveSummaryOverrides();
   const approved = state.articles.filter(isApprovedToday);
   if (approved.length === 0) return "<p>No articles approved yet.</p>";
@@ -515,16 +555,17 @@ function generatePreviewHtml() {
 
   function renderItems(articles) {
     return articles.map((a, i) => {
+      const headline = liveHeadlines.get(a.id) || (a.edited_title || a.title || "").trim();
       const text = liveSummaries.get(a.id) || (a.edited_summary || a.summary || "").trim();
-      const meta = esc(a.topic || "Top story");
+      const meta = emailCategoryLabel(a);
       return `<tr><td style="padding:24px 0;${i < articles.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
           <td style="width:40px;vertical-align:top;padding-top:2px">
             <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">${i + 1}</div>
           </td>
           <td style="padding-left:14px">
-            <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#7c3aed;font-weight:600;margin-bottom:6px;font-family:Roboto,Arial,sans-serif">${meta}</div>
-            <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${esc(a.title)}</h2>
+            <div style="font-size:11px;letter-spacing:0.06em;color:#7c3aed;font-weight:600;margin-bottom:6px;font-family:Roboto,Arial,sans-serif">${meta}</div>
+            <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${esc(headline)}</h2>
             <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0;font-family:Roboto,Arial,sans-serif">${esc(text)}</p>
           </td>
         </tr></table>
