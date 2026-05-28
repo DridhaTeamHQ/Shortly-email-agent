@@ -37,9 +37,6 @@ Deno.serve(async (request) => {
         .insert({ email: email.trim(), full_name: full_name?.trim() || null });
       if (error) return json({ error: error.message }, 400);
 
-      // Send the latest digest as a welcome email (fire-and-forget)
-      sendWelcomeDigest(supabase, email.trim(), full_name?.trim() || null).catch(() => {});
-
       return json({ ok: true });
     }
 
