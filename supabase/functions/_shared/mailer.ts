@@ -11,10 +11,10 @@ type SendOpts = {
 
 export async function sendEmail(opts: SendOpts) {
   const apiKey = requiredEnv("SMTP_PASS");
-  const fromRaw = Deno.env.get("FROM_EMAIL") ?? "Shortly Digest <digest@example.com>";
+  const fromRaw = Deno.env.get("FROM_EMAIL") ?? "Shortly Dailywrap <dailywrap@shortlyindia.com>";
 
   const match = fromRaw.match(/^(.+?)\s*<(.+?)>$/);
-  const senderName = match?.[1] ?? "Shortly Digest";
+  const senderName = match?.[1] ?? "Shortly Dailywrap";
   const senderEmail = match?.[2] ?? fromRaw;
 
   const response = await fetch("https://api.brevo.com/v3/smtp/email", {

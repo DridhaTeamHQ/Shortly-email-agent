@@ -32,7 +32,7 @@ pending  →  summarized  →  approved  →  sent
 3. Set function secrets (mirror your `.env`):
    ```bash
    supabase secrets set SUPABASE_URL="..." SUPABASE_SERVICE_ROLE_KEY="..." \
-     RESEND_API_KEY="..." FROM_EMAIL="Shortly Digest <digest@yourdomain.com>" \
+     RESEND_API_KEY="..." FROM_EMAIL="Shortly Dailywrap <dailywrap@shortlyindia.com>" \
      OPENAI_API_KEY="..." OPENAI_MODEL="gpt-4o"
    ```
 4. Deploy functions:
