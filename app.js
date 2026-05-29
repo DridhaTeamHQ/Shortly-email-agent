@@ -571,9 +571,10 @@ function generatePreviewHtml() {
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric"
   });
-  const shareText = encodeURIComponent("Check out Shortly newsletter - curated news, summarized daily.");
-  const twitterUrl = `https://twitter.com/intent/tweet?text=${shareText}`;
-  const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent("https://shortly.news")}&summary=${shareText}`;
+  const shareUrl = "https://shortly.news/?utm_source=email&utm_medium=share&utm_campaign=dailywrap";
+  const shareMessage = "Follow Shortly (@Shortly_news) for curated daily news that helps you catch up fast. Read the latest Daily Wrap:";
+  const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`;
+  const linkedinUrl = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(`${shareMessage} ${shareUrl}`)}`;
 
   function renderItems(articles) {
     return articles.map((a, i) => {
