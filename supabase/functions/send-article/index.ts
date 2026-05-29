@@ -16,6 +16,10 @@ type Subscriber = {
   full_name: string | null;
 };
 
+const BANNER_URL =
+  Deno.env.get("SHORTLY_BANNER_URL") ??
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -116,7 +120,10 @@ function renderEmail(article: ArticlePayload, subscriber: Subscriber) {
 
   return `
     <div style="margin:0;background:#f3f7fb;padding:32px;font-family:Inter,Arial,sans-serif;color:#34394f">
-      <div style="max-width:620px;margin:0 auto;background:#ffffff;border-radius:8px;padding:28px;border:1px solid #dce7ef">
+      <div style="max-width:640px;margin:0 auto">
+        <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
+      </div>
+      <div style="max-width:620px;margin:20px auto 0;background:#ffffff;border-radius:8px;padding:28px;border:1px solid #dce7ef">
         <p style="margin:0 0 18px;color:#6a7188">Hi${name},</p>
         ${note}
         ${source}
