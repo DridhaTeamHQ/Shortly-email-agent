@@ -522,13 +522,33 @@ function attachDragListeners() {
       const toIdx = list.findIndex((a) => a.id === card.dataset.id);
       if (fromIdx === -1 || toIdx === -1) return;
 
-      // Swap rank_score values to persist order
+      // Swap rank_score values locally first, then persist both updates.
       const tempScore = list[fromIdx].rank_score;
       list[fromIdx].rank_score = list[toIdx].rank_score;
       list[toIdx].rank_score = tempScore;
 
       renderApproved();
-      toast("Reordered.");
+      Promise.all([
+        api("POST", cfg.review, {
+          id: list[fromIdx].id,
+          action: "reorder",
+          reviewer: cfg.reviewer,
+          rank_score: list[fromIdx].rank_score
+        }),
+        api("POST", cfg.review, {
+          id: list[toIdx].id,
+          action: "reorder",
+          reviewer: cfg.reviewer,
+          rank_score: list[toIdx].rank_score
+        })
+      ])
+        .then(() => reload())
+        .then(() => toast("Reordered."))
+        .catch((err) => {
+          toast(`Reorder failed: ${err.message}`);
+          reload();
+        });
+      state.dragId = null;
     });
   });
 }
@@ -574,7 +594,7 @@ function generatePreviewHtml() {
   const shareUrl = "https://shortly.news/?utm_source=email&utm_medium=share&utm_campaign=dailywrap";
   const shareMessage = "Follow Shortly (@Shortly_news) for curated daily news that helps you catch up fast. Read the latest Daily Wrap:";
   const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`;
-  const linkedinUrl = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(`${shareMessage} ${shareUrl}`)}`;
+  const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
 
   function renderItems(articles) {
     return articles.map((a, i) => {
@@ -895,6 +915,7 @@ $("#sendDigest").addEventListener("click", async () => {
   try {
     const res = await api("POST", cfg.digest, selectedIds.length ? { subscriber_ids: selectedIds } : {});
     const autoMsg = res.autoSelected ? " (with auto-selected articles)" : "";
+    state.selectedSubscribers.clear();
     toast(`Sent to ${res.sent ?? 0} subscribers${autoMsg}.`);
     await reload();
     showSection("review");

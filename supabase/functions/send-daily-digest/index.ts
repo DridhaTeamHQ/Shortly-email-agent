@@ -138,27 +138,32 @@ Deno.serve(async (request) => {
   const subjectDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
   const subject = `${subjectDate} - Shortly Daily Wrap is here!`;
 
-  // 5. Send to each subscriber
+  // 5. Send to subscribers in small batches to avoid long sequential runs.
   let sent = 0;
   let failed = 0;
+  const batchSize = 5;
 
-  for (const sub of subscribers) {
-    const html = await renderDigest(wrapped, sub);
-    const result = await sendEmail({
-      to: sub.email,
-      subject,
-      html,
-    });
-    if (result.ok) sent++;
-    else failed++;
-    await supabase.from("article_deliveries").insert({
-      digest_id: digestId,
-      subscriber_id: sub.id,
-      email: sub.email,
-      status: result.ok ? "sent" : "failed",
-      provider_message_id: result.messageId ?? null,
-      error: result.error ?? null,
-    });
+  for (let i = 0; i < subscribers.length; i += batchSize) {
+    const batch = subscribers.slice(i, i + batchSize);
+    const results = await Promise.all(batch.map(async (sub) => {
+      const html = renderDigest(wrapped, sub);
+      const result = await sendEmail({
+        to: sub.email,
+        subject,
+        html,
+      });
+      await supabase.from("article_deliveries").insert({
+        digest_id: digestId,
+        subscriber_id: sub.id,
+        email: sub.email,
+        status: result.ok ? "sent" : "failed",
+        provider_message_id: result.messageId ?? null,
+        error: result.error ?? null,
+      });
+      return result.ok;
+    }));
+    sent += results.filter(Boolean).length;
+    failed += results.length - results.filter(Boolean).length;
   }
 
   // 6. Mark articles as sent
@@ -227,7 +232,7 @@ function renderSectionBlock(title: string, subtitle: string, articles: Article[]
       </div>`;
 }
 
-async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string> {
+function renderDigest(wrapped: Article[], sub: Subscriber): string {
   const greeting = sub.full_name ? `Hi ${escapeHtml(sub.full_name)},` : "Hi there,";
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -246,7 +251,7 @@ async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string
   const shareUrl = "https://shortly.news/?utm_source=email&utm_medium=share&utm_campaign=dailywrap";
   const shareMessage = "Follow Shortly (@Shortly_news) for curated daily news that helps you catch up fast. Read the latest Daily Wrap:";
   const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`;
-  const linkedinUrl = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(`${shareMessage} ${shareUrl}`)}`;
+  const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
 
   return `
   <link rel="preconnect" href="https://fonts.googleapis.com">
