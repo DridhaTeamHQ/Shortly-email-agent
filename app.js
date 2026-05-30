@@ -478,12 +478,32 @@ async function bulkAction(action) {
   const ids = [...state.selected];
   toast(`Processing ${ids.length} articles...`);
   try {
-    for (const id of ids) {
-      await api("POST", cfg.review, { id, action, reviewer: cfg.reviewer });
+    const payloads = ids.map((id) => {
+      const card = document.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
+      return {
+        id,
+        action,
+        reviewer: cfg.reviewer,
+        edited_title: card?.querySelector('[data-role="headline"]')?.value || undefined,
+        edited_summary: card?.querySelector('[data-role="summary"]')?.value || undefined,
+        section: card?.querySelector('[data-role="section"]')?.value || undefined
+      };
+    });
+    const results = await Promise.allSettled(
+      payloads.map((body) => api("POST", cfg.review, body))
+    );
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.length - succeeded;
+    if (succeeded > 0) {
+      payloads.forEach(({ id }) => state.selected.delete(id));
+      await reload();
     }
-    state.selected.clear();
-    await reload();
-    toast(`${ids.length} articles ${action}d.`);
+    if (failed > 0) {
+      const firstError = results.find((r) => r.status === "rejected");
+      toast(`${succeeded} article${succeeded === 1 ? "" : "s"} ${action}d, ${failed} failed${firstError ? `: ${firstError.reason.message}` : "."}`);
+      return;
+    }
+    toast(`${succeeded} article${succeeded === 1 ? "" : "s"} ${action}d.`);
   } catch (e) {
     toast(`Failed: ${e.message}`);
   }
