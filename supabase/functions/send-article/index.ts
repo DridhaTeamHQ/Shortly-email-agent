@@ -123,11 +123,11 @@ function renderEmail(article: ArticlePayload, subscriber: Subscriber) {
       <div style="max-width:640px;margin:0 auto">
         <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
       </div>
-      <div style="max-width:620px;margin:20px auto 0;background:#ffffff;border-radius:18px;padding:28px;border:1px solid #e8e0f5;border-left:4px solid #7c3aed">
+      <div style="max-width:620px;margin:20px auto 0;background:linear-gradient(180deg,#ffffff 0%,#fbf8ff 100%);border-radius:22px;padding:30px;border:1px solid #e8e0f5;border-left:5px solid #7c3aed;box-shadow:0 10px 28px rgba(109,40,217,0.06)">
         <p style="margin:0 0 18px;color:#6d28d9;font-weight:700">Hi${name},</p>
         ${note}
         ${source}
-        <h1 style="font-size:30px;line-height:1.15;margin:0 0 16px;color:#6d28d9;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(article.title)}</h1>
+        <h1 style="font-size:32px;line-height:1.12;margin:0 0 16px;color:#51209a;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(article.title)}</h1>
         <p style="font-size:16px;line-height:1.7;color:#5f5673;margin:0 0 24px">${escapeHtml(article.summary)}</p>
         <a href="${escapeHtml(article.url)}" style="display:inline-block;background:#6d28d9;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:13px 18px">Read article</a>
       </div>

@@ -202,20 +202,22 @@ function renderItems(articles: Article[]): string {
       const headline = (a.edited_title || a.title || "").trim();
       const text = (a.edited_summary || a.summary || "").trim();
         return `
-        <tr><td style="padding:24px 0;${i < articles.length - 1 ? "border-bottom:1px solid #ede7f6;" : ""}">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-            <td style="width:40px;vertical-align:top;padding-top:6px">
-              <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:700;text-align:center;line-height:32px">
-                ${i + 1}
-              </div>
-            </td>
-            <td style="padding-left:14px">
-              <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#6d28d9;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
-                ${escapeHtml(headline)}
-              </h2>
-              <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</p>
-            </td>
-          </tr></table>
+        <tr><td style="padding:0 0 16px">
+          <div style="background:linear-gradient(180deg,#ffffff 0%,#fbf8ff 100%);border:1px solid #eadcff;border-radius:18px;padding:18px 18px 18px 16px;box-shadow:0 8px 24px rgba(109,40,217,0.06)">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
+              <td style="width:44px;vertical-align:top;padding-top:2px">
+                <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed 0%,#a855f7 100%);color:#ffffff;font-size:15px;font-weight:700;text-align:center;line-height:36px">
+                  ${i + 1}
+                </div>
+              </td>
+              <td style="padding-left:14px">
+                <h2 style="font-size:20px;line-height:1.32;margin:0 0 10px;color:#51209a;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
+                  ${escapeHtml(headline)}
+                </h2>
+                <p style="font-size:15px;line-height:1.78;color:#5f5673;margin:0;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</p>
+              </td>
+            </tr></table>
+          </div>
         </td></tr>`;
     })
     .join("");
@@ -224,8 +226,8 @@ function renderItems(articles: Article[]): string {
 function renderSectionBlock(title: string, subtitle: string, articles: Article[]): string {
   if (articles.length === 0) return "";
   return `
-      <div style="margin-bottom:20px;border-radius:18px;overflow:hidden;background:#ffffff;border:1px solid #e8e0f5">
-        <div style="padding:10px 28px 8px">
+      <div style="margin-bottom:22px;border-radius:22px;overflow:hidden;background:transparent">
+        <div style="padding:0">
           <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
             ${renderItems(articles)}
           </table>
@@ -265,7 +267,7 @@ function renderDigest(wrapped: Article[], sub: Subscriber): string {
 
       <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
 
-      <div style="background:#ffffff;border-radius:18px;padding:28px 30px;margin:20px 0 20px;border:1px solid #e8e0f5;border-left:4px solid #7c3aed">
+      <div style="background:linear-gradient(180deg,#ffffff 0%,#fbf8ff 100%);border-radius:22px;padding:30px 32px;margin:22px 0 22px;border:1px solid #e8e0f5;border-left:5px solid #7c3aed;box-shadow:0 10px 28px rgba(109,40,217,0.06)">
         <p style="margin:0 0 10px;color:#6d28d9;font-size:18px;line-height:1.45;font-weight:700;font-family:Roboto,Arial,sans-serif">
           ${greeting}
         </p>
