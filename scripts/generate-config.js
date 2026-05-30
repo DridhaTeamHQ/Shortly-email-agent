@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const supabaseUrl = process.env.SUPABASE_URL || "";
 const anonKey = process.env.SUPABASE_ANON_KEY || "";
 const dailyCap = process.env.DAILY_CAP || "10";
-const siteUrl = (process.env.SHORTLY_SITE_URL || "").replace(/\/+$/, "");
+const siteUrl = (process.env.SHORTLY_SITE_URL || "https://shortlyindia.com").replace(/\/+$/, "");
 const twitterUrl = process.env.SHORTLY_X_URL || "https://x.com/Shortly_news";
 const linkedinUrl = process.env.SHORTLY_LINKEDIN_URL || "https://www.linkedin.com/company/shortly-news/";
 
