@@ -591,10 +591,13 @@ function generatePreviewHtml() {
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric"
   });
-  const shareUrl = "https://shortly.news/?utm_source=email&utm_medium=share&utm_campaign=dailywrap";
+  const shareBase = (cfg.siteUrl || window.location.origin || "").replace(/\/+$/, "");
+  const shareUrl = shareBase ? `${shareBase}/?utm_source=email&utm_medium=share&utm_campaign=dailywrap` : "";
   const shareMessage = "Follow Shortly (@Shortly_news) for curated daily news that helps you catch up fast. Read the latest Daily Wrap:";
-  const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`;
-  const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
+  const twitterUrl = shareUrl
+    ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`
+    : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}`;
+  const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl || window.location.href)}`;
 
   function renderItems(articles) {
     return articles.map((a, i) => {
