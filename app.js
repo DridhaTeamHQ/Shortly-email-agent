@@ -630,7 +630,7 @@ function generatePreviewHtml() {
 
   function renderSection(title, subtitle, articles) {
     if (articles.length === 0) return "";
-    return `${renderLabelBar("Quick Hits. Daily Wrap", "#6d28d9")}<div style="margin-bottom:22px;border-radius:22px;overflow:hidden;background:transparent">
+    return `${renderLabelBar("Quick Hits. Daily Wrap", "#6d28d9")}<div style="margin-bottom:22px;border-radius:22px;background:transparent">
       <div style="padding:0">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
           ${renderItems(articles)}
