@@ -268,7 +268,7 @@ function renderDigest(wrapped: Article[], sub: Subscriber): string {
       <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
 
       <div style="background:linear-gradient(180deg,#ffffff 0%,#fbf8ff 100%);border-radius:22px;padding:30px 32px;margin:22px 0 22px;border:1px solid #e8e0f5;border-left:5px solid #7c3aed;box-shadow:0 10px 28px rgba(109,40,217,0.06)">
-        <p style="margin:0 0 10px;color:#6d28d9;font-size:18px;line-height:1.45;font-weight:700;font-family:Roboto,Arial,sans-serif">
+        <p style="margin:0 0 10px;color:#6d28d9;font-size:18px;line-height:1.45;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
           ${greeting}
         </p>
         <p style="margin:0;color:#6b6b8a;font-size:16px;line-height:1.65;font-weight:400;font-family:Roboto,Arial,sans-serif">
