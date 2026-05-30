@@ -115,21 +115,21 @@ function requiredEnv(name: string) {
 
 function renderEmail(article: ArticlePayload, subscriber: Subscriber) {
   const name = subscriber.full_name ? ` ${escapeHtml(subscriber.full_name)}` : "";
-  const source = article.source ? `<p style="color:#2acfcf;font-weight:700;margin:0 0 12px">${escapeHtml(article.source)}</p>` : "";
-  const note = article.note ? `<p style="color:#34394f;margin:0 0 18px">${escapeHtml(article.note)}</p>` : "";
+  const source = article.source ? `<p style="color:#6d28d9;font-weight:700;margin:0 0 12px">${escapeHtml(article.source)}</p>` : "";
+  const note = article.note ? `<p style="color:#5f5673;margin:0 0 18px">${escapeHtml(article.note)}</p>` : "";
 
   return `
-    <div style="margin:0;background:#f3f7fb;padding:32px;font-family:Inter,Arial,sans-serif;color:#34394f">
+    <div style="margin:0;background:#f5f3ff;padding:32px;font-family:Roboto,Arial,sans-serif;color:#2d0f57">
       <div style="max-width:640px;margin:0 auto">
         <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
       </div>
-      <div style="max-width:620px;margin:20px auto 0;background:#ffffff;border-radius:8px;padding:28px;border:1px solid #dce7ef">
-        <p style="margin:0 0 18px;color:#6a7188">Hi${name},</p>
+      <div style="max-width:620px;margin:20px auto 0;background:#ffffff;border-radius:18px;padding:28px;border:1px solid #e8e0f5;border-left:4px solid #7c3aed">
+        <p style="margin:0 0 18px;color:#6d28d9;font-weight:700">Hi${name},</p>
         ${note}
         ${source}
-        <h1 style="font-size:30px;line-height:1.15;margin:0 0 16px;color:#34394f">${escapeHtml(article.title)}</h1>
-        <p style="font-size:16px;line-height:1.7;color:#6a7188;margin:0 0 24px">${escapeHtml(article.summary)}</p>
-        <a href="${escapeHtml(article.url)}" style="display:inline-block;background:#2acfcf;color:#ffffff;text-decoration:none;font-weight:700;border-radius:8px;padding:13px 18px">Read article</a>
+        <h1 style="font-size:30px;line-height:1.15;margin:0 0 16px;color:#6d28d9;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(article.title)}</h1>
+        <p style="font-size:16px;line-height:1.7;color:#5f5673;margin:0 0 24px">${escapeHtml(article.summary)}</p>
+        <a href="${escapeHtml(article.url)}" style="display:inline-block;background:#6d28d9;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:13px 18px">Read article</a>
       </div>
     </div>
   `;

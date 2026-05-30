@@ -210,7 +210,7 @@ function renderItems(articles: Article[]): string {
               </div>
             </td>
             <td style="padding-left:14px">
-              <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#1a1a2e;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
+              <h2 style="font-size:18px;line-height:1.35;margin:0 0 10px;color:#6d28d9;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
                 ${escapeHtml(headline)}
               </h2>
               <p style="font-size:15px;line-height:1.7;color:#4a4a68;margin:0;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</p>
@@ -260,13 +260,13 @@ function renderDigest(wrapped: Article[], sub: Subscriber): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <div style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#1a1a2e">
+  <div style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#2d0f57">
     <div style="max-width:640px;margin:0 auto">
 
       <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
 
       <div style="background:#ffffff;border-radius:18px;padding:28px 30px;margin:20px 0 20px;border:1px solid #e8e0f5;border-left:4px solid #7c3aed">
-        <p style="margin:0 0 10px;color:#1a1a2e;font-size:18px;line-height:1.45;font-weight:700;font-family:Roboto,Arial,sans-serif">
+        <p style="margin:0 0 10px;color:#6d28d9;font-size:18px;line-height:1.45;font-weight:700;font-family:Roboto,Arial,sans-serif">
           ${greeting}
         </p>
         <p style="margin:0;color:#6b6b8a;font-size:16px;line-height:1.65;font-weight:400;font-family:Roboto,Arial,sans-serif">
