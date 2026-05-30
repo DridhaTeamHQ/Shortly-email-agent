@@ -1,0 +1,313 @@
+:root {
+  --bg: #f7f3ea;
+  --bg-accent: #efe2d4;
+  --panel: rgba(255, 255, 255, 0.82);
+  --text: #1b1331;
+  --muted: #675d78;
+  --line: rgba(72, 44, 108, 0.14);
+  --purple: #6d28d9;
+  --purple-deep: #2d0f57;
+  --rose: #ff8d71;
+  --shadow: 0 28px 70px rgba(56, 31, 94, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Inter, Arial, sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(255, 141, 113, 0.24), transparent 28%),
+    radial-gradient(circle at top right, rgba(109, 40, 217, 0.18), transparent 30%),
+    linear-gradient(180deg, #fdf9f2 0%, var(--bg) 52%, #f3ebdf 100%);
+}
+
+.subscribe-shell {
+  width: min(1100px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 40px 0 56px;
+}
+
+.hero-card,
+.signup-card,
+.social-card {
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.hero-card {
+  display: grid;
+  grid-template-columns: 1.2fr 0.95fr;
+  gap: 26px;
+  align-items: center;
+  border-radius: 36px;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.hero-copy {
+  padding: 18px 18px 18px 24px;
+}
+
+.eyebrow,
+.card-label {
+  margin: 0 0 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--purple);
+}
+
+.hero-copy h1,
+.signup-card h2,
+.social-card h2 {
+  margin: 0;
+  font-family: "Roboto Serif", Georgia, serif;
+  line-height: 1.06;
+}
+
+.hero-copy h1 {
+  font-size: clamp(2.5rem, 5vw, 4.4rem);
+  max-width: 10ch;
+}
+
+.hero-text,
+.signup-card p,
+.social-card p,
+.mini-note p {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.hero-text {
+  margin: 18px 0 0;
+  font-size: 1rem;
+  max-width: 54ch;
+}
+
+.hero-points {
+  list-style: none;
+  padding: 0;
+  margin: 26px 0 0;
+  display: grid;
+  gap: 12px;
+}
+
+.hero-points li {
+  position: relative;
+  padding-left: 20px;
+  font-size: 0.97rem;
+}
+
+.hero-points li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--rose), var(--purple));
+}
+
+.hero-visual {
+  position: relative;
+  min-height: 100%;
+  border-radius: 28px;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(109, 40, 217, 0.9), rgba(255, 141, 113, 0.72));
+  padding: 16px;
+}
+
+.hero-visual img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 22px;
+}
+
+.signup-grid {
+  display: grid;
+  grid-template-columns: 1fr 0.9fr;
+  gap: 24px;
+  margin-top: 26px;
+}
+
+.signup-card,
+.social-card {
+  border-radius: 30px;
+  padding: 28px;
+}
+
+.subscribe-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.subscribe-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.subscribe-form span {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.subscribe-form input {
+  width: 100%;
+  border: 1px solid rgba(109, 40, 217, 0.18);
+  border-radius: 16px;
+  padding: 14px 16px;
+  font: inherit;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+
+.subscribe-form input:focus {
+  outline: 2px solid rgba(109, 40, 217, 0.24);
+  border-color: rgba(109, 40, 217, 0.42);
+}
+
+.subscribe-form button {
+  border: 0;
+  border-radius: 16px;
+  padding: 15px 18px;
+  font: inherit;
+  font-weight: 800;
+  color: white;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--purple-deep), var(--purple));
+  box-shadow: 0 16px 28px rgba(77, 28, 156, 0.28);
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.subscribe-form button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 20px 32px rgba(77, 28, 156, 0.32);
+}
+
+.subscribe-form button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+  transform: none;
+}
+
+.subscribe-message {
+  min-height: 24px;
+  margin-top: 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.subscribe-message.success {
+  color: #0d7a48;
+}
+
+.subscribe-message.error {
+  color: #b42318;
+}
+
+.social-actions {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.social-link {
+  display: grid;
+  gap: 4px;
+  text-decoration: none;
+  color: var(--text);
+  padding: 18px 18px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(109, 40, 217, 0.16);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.74));
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.social-link:hover {
+  transform: translateY(-2px);
+  border-color: rgba(109, 40, 217, 0.3);
+  box-shadow: 0 18px 28px rgba(67, 36, 117, 0.16);
+}
+
+.social-title {
+  font-weight: 800;
+}
+
+.social-handle {
+  color: var(--muted);
+  font-size: 0.94rem;
+}
+
+.x {
+  background:
+    linear-gradient(135deg, rgba(31, 31, 31, 0.92), rgba(79, 79, 79, 0.85)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.74));
+  color: white;
+}
+
+.x .social-handle {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.linkedin {
+  background:
+    linear-gradient(135deg, rgba(12, 90, 172, 0.08), rgba(255, 255, 255, 0.92));
+}
+
+.mini-note {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.mini-note strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.96rem;
+}
+
+@media (max-width: 900px) {
+  .hero-card,
+  .signup-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-copy {
+    padding: 8px;
+  }
+}
+
+@media (max-width: 560px) {
+  .subscribe-shell {
+    width: min(100% - 20px, 1100px);
+    padding: 20px 0 34px;
+  }
+
+  .hero-card,
+  .signup-card,
+  .social-card {
+    border-radius: 24px;
+  }
+
+  .hero-card,
+  .signup-card,
+  .social-card {
+    padding: 18px;
+  }
+
+  .hero-copy h1 {
+    max-width: none;
+  }
+}

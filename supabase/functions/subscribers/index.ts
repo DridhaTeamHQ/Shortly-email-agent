@@ -24,12 +24,39 @@ Deno.serve(async (request) => {
     if (action === "add") {
       const { email, full_name } = body;
       if (!email?.trim()) return json({ error: "email is required" }, 400);
+      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedName = full_name?.trim() || null;
+      const { data: existing, error: existingError } = await supabase
+        .from("subscribers")
+        .select("id,status,full_name")
+        .eq("email", normalizedEmail)
+        .maybeSingle();
+      if (existingError) return json({ error: existingError.message }, 500);
+
+      if (existing?.id) {
+        const patch: Record<string, unknown> = {
+          status: "subscribed",
+          updated_at: new Date().toISOString()
+        };
+        if (normalizedName) patch.full_name = normalizedName;
+        const { error } = await supabase
+          .from("subscribers")
+          .update(patch)
+          .eq("id", existing.id);
+        if (error) return json({ error: error.message }, 400);
+        return json({
+          ok: true,
+          existing: true,
+          resubscribed: existing.status !== "subscribed"
+        });
+      }
+
       const { error } = await supabase
         .from("subscribers")
-        .insert({ email: email.trim(), full_name: full_name?.trim() || null });
+        .insert({ email: normalizedEmail, full_name: normalizedName });
       if (error) return json({ error: error.message }, 400);
 
-      return json({ ok: true });
+      return json({ ok: true, created: true });
     }
 
     if (action === "update") {

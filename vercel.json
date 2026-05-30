@@ -12,6 +12,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/subscribe", "destination": "/subscribe.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
