@@ -11,7 +11,12 @@
       ]
     }
   ],
+  "redirects": [
+    { "source": "/", "destination": "/subscribe.html", "permanent": false },
+    { "source": "/subscribers", "destination": "/subscribe.html", "permanent": false },
+    { "source": "/subsribers", "destination": "/subscribe.html", "permanent": false }
+  ],
   "rewrites": [
-    { "source": "/", "destination": "/index.html" }
+    { "source": "/dashboard", "destination": "/index.html" }
   ]
 }
