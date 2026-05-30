@@ -592,8 +592,8 @@ function generatePreviewHtml() {
     weekday: "long", month: "long", day: "numeric", year: "numeric"
   });
   const shareBase = (cfg.siteUrl || window.location.origin || "").replace(/\/+$/, "");
-  const shareUrl = shareBase ? `${shareBase}/?utm_source=email&utm_medium=share&utm_campaign=dailywrap` : "";
-  const shareMessage = "Follow Shortly (@Shortly_news) for curated daily news that helps you catch up fast. Read the latest Daily Wrap:";
+  const shareUrl = shareBase ? `${shareBase}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
+  const shareMessage = "Click here to subscribe to Shortly Daily Wrap:";
   const twitterUrl = shareUrl
     ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`
     : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}`;
