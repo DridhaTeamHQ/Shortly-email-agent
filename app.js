@@ -620,7 +620,7 @@ function generatePreviewHtml() {
   }
 
   function renderLabelBar(text, bg) {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 18px"><tr>
+    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 18px;padding:0 10px"><tr>
       <td style="width:220px">
         <div style="background:${bg};color:#ffffff;border:3px solid #111111;font-size:14px;font-weight:800;letter-spacing:0.02em;text-transform:uppercase;text-align:center;padding:4px 12px;font-family:Roboto,Arial,sans-serif">${text}</div>
       </td>
