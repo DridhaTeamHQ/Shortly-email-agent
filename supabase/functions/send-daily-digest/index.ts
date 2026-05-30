@@ -30,7 +30,7 @@ const BANNER_URL =
 const FOOTER_LOGO_URL =
   Deno.env.get("SHORTLY_FOOTER_LOGO_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/footer-logo.png";
-const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "https://shortlyindia.com").replace(/\/+$/, "");
+const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
 
 function escapeHtmlText(value = ""): string {
   return value
