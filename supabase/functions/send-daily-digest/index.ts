@@ -203,18 +203,18 @@ function renderItems(articles: Article[]): string {
       const text = (a.edited_summary || a.summary || "").trim();
         return `
         <tr><td style="padding:0 0 16px">
-          <div style="background:linear-gradient(180deg,#ffffff 0%,#fbf8ff 100%);border:1px solid #eadcff;border-radius:18px;padding:18px 18px 18px 16px;box-shadow:0 8px 24px rgba(109,40,217,0.06)">
+          <div style="background:#ffffff;border:3px solid #111111;border-radius:12px;padding:18px 18px 18px 16px">
             <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
               <td style="width:44px;vertical-align:top;padding-top:2px">
-                <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#7c3aed 0%,#a855f7 100%);color:#ffffff;font-size:15px;font-weight:700;text-align:center;line-height:36px">
+                <div style="width:36px;height:36px;border-radius:50%;background:#efe7ff;color:#6d28d9;border:2px solid #6d28d9;font-size:15px;font-weight:700;text-align:center;line-height:32px">
                   ${i + 1}
                 </div>
               </td>
               <td style="padding-left:14px">
-                <h2 style="font-size:20px;line-height:1.32;margin:0 0 10px;color:#51209a;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
+                <h2 style="font-size:18px;line-height:1.28;margin:0 0 10px;color:#191919;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
                   ${escapeHtml(headline)}
                 </h2>
-                <p style="font-size:15px;line-height:1.78;color:#5f5673;margin:0;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</p>
+                <p style="font-size:15px;line-height:1.72;color:#2f2f39;margin:0;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</p>
               </td>
             </tr></table>
           </div>
@@ -223,9 +223,19 @@ function renderItems(articles: Article[]): string {
     .join("");
 }
 
+function renderLabelBar(text: string, bg: string): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 18px"><tr>
+      <td style="width:220px">
+        <div style="background:${bg};color:#ffffff;border:3px solid #111111;font-size:14px;font-weight:800;letter-spacing:0.02em;text-transform:uppercase;text-align:center;padding:4px 12px;font-family:Roboto,Arial,sans-serif">${text}</div>
+      </td>
+      <td style="border-bottom:3px solid #111111">&nbsp;</td>
+    </tr></table>`;
+}
+
 function renderSectionBlock(title: string, subtitle: string, articles: Article[]): string {
   if (articles.length === 0) return "";
   return `
+      ${renderLabelBar("Quick Hits. Daily Wrap", "#6d28d9")}
       <div style="margin-bottom:22px;border-radius:22px;overflow:hidden;background:transparent">
         <div style="padding:0">
           <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
@@ -262,16 +272,17 @@ function renderDigest(wrapped: Article[], sub: Subscriber): string {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <div style="margin:0;background:#f5f3ff;padding:0;font-family:Roboto,Arial,sans-serif;color:#2d0f57">
+  <div style="margin:0;background:#fcfbf7;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
     <div style="max-width:640px;margin:0 auto">
 
       <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
 
-      <div style="background:linear-gradient(180deg,#ffffff 0%,#fbf8ff 100%);border-radius:22px;padding:30px 32px;margin:22px 0 22px;border:1px solid #e8e0f5;border-left:5px solid #7c3aed;box-shadow:0 10px 28px rgba(109,40,217,0.06)">
-        <p style="margin:0 0 10px;color:#6d28d9;font-size:18px;line-height:1.45;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
+      ${renderLabelBar("From the Shortly Team", "#0f9d69")}
+      <div style="background:#ffffff;border-radius:12px;padding:26px 28px;margin:0 0 24px;border:3px solid #111111">
+        <p style="margin:0 0 12px;color:#191919;font-size:18px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
           ${greeting}
         </p>
-        <p style="margin:0;color:#6b6b8a;font-size:16px;line-height:1.65;font-weight:400;font-family:Roboto,Arial,sans-serif">
+        <p style="margin:0;color:#2f2f39;font-size:16px;line-height:1.7;font-weight:400;font-family:Roboto,Arial,sans-serif">
           Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!
         </p>
       </div>
