@@ -121,7 +121,11 @@ async function bootAuth() {
   const token = tokenFromUrl || storedToken;
 
   if (!token) {
-    setAuthGate("Open this dashboard from Shortly Agents to continue.", false);
+    unlockDashboardUi();
+    if (!dashboardBooted) {
+      dashboardBooted = true;
+      await reload();
+    }
     return;
   }
 
@@ -134,7 +138,12 @@ async function bootAuth() {
     }
   } catch (error) {
     localStorage.removeItem(AGENT_TOKEN_KEY);
-    setAuthGate(error instanceof Error ? error.message : "Invalid token.", false);
+    unlockDashboardUi();
+    if (!dashboardBooted) {
+      dashboardBooted = true;
+      await reload();
+    }
+    toast(error instanceof Error ? error.message : "Invalid shared token. Opened dashboard normally.");
   }
 }
 
