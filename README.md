@@ -65,7 +65,9 @@ pending  ->  summarized  ->  approved  ->  sent
 - It accepts the token either:
   - in the URL as `?token=...`
   - or via `window.postMessage({ type: "shortly-agent-token", token })`
-- The token is verified by the `verify-agent-token` Edge Function against `SHORTLY_AGENT_SHARED_TOKEN`.
+- The token is verified by the `verify-agent-token` Edge Function using `SHORTLY_AGENT_AUTH_SECRET`.
+- The accepted token format is `base64url(payload).base64url(hmac_sha256(payload, secret))`.
+- `SHORTLY_AGENT_SHARED_TOKEN` is still supported as an optional legacy fallback.
 - After successful verification, the dashboard stores the token locally and reuses the session on later visits.
 
 ## SES notes
