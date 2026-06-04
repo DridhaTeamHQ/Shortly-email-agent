@@ -7,6 +7,7 @@ const dailyCap = process.env.DAILY_CAP || "10";
 const siteUrl = (process.env.SHORTLY_SITE_URL || "").replace(/\/+$/, "");
 const twitterUrl = process.env.SHORTLY_X_URL || "https://x.com/Shortly_news";
 const linkedinUrl = process.env.SHORTLY_LINKEDIN_URL || "https://www.linkedin.com/company/shortly-news/";
+const agentAppUrl = (process.env.SHORTLY_AGENT_APP_URL || "https://shortlyagents.vercel.app").replace(/\/+$/, "");
 
 // Extract project ref from URL: https://<ref>.supabase.co
 const ref = supabaseUrl.match(/https:\/\/(.+?)\.supabase\.co/)?.[1] || "";
@@ -27,9 +28,11 @@ window.SHORTLY = {
   subscribers: "${functionsBase}/subscribers",
   scrape:      "${functionsBase}/scrape-news",
   summarize:   "${functionsBase}/summarize-articles",
+  verifyToken: "${functionsBase}/verify-agent-token",
   siteUrl:     "${siteUrl}",
   twitterUrl:  "${twitterUrl}",
   linkedinUrl: "${linkedinUrl}",
+  agentAppUrl: "${agentAppUrl}",
   anonKey:     "${anonKey}",
   dailyCap:    ${parseInt(dailyCap, 10)},
   reviewer:    "qa"

@@ -33,6 +33,7 @@ pending  ->  summarized  ->  approved  ->  sent
    ```bash
    supabase secrets set SUPABASE_URL="..." SUPABASE_SERVICE_ROLE_KEY="..." \
      AWS_REGION="ap-south-1" AWS_ACCESS_KEY_ID="..." AWS_SECRET_ACCESS_KEY="..." \
+     SHORTLY_AGENT_SHARED_TOKEN="YOUR_SHARED_LOGIN_TOKEN" \
      FROM_EMAIL="Shortly Dailywrap <dailywrap@shortlyindia.com>" \
      OPENAI_API_KEY="..." OPENAI_MODEL="gpt-4o"
    ```
@@ -57,6 +58,15 @@ pending  ->  summarized  ->  approved  ->  sent
      window.SHORTLY_REVIEWER           = "qa-username";
    </script>
    ```
+
+## Shared login with Shortly Agents
+
+- The dashboard now expects a shared token before it unlocks.
+- It accepts the token either:
+  - in the URL as `?token=...`
+  - or via `window.postMessage({ type: "shortly-agent-token", token })`
+- The token is verified by the `verify-agent-token` Edge Function against `SHORTLY_AGENT_SHARED_TOKEN`.
+- After successful verification, the dashboard stores the token locally and reuses the session on later visits.
 
 ## SES notes
 

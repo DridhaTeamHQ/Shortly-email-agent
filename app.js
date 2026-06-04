@@ -2,6 +2,8 @@
 
 const cfg = window.SHORTLY;
 const DAILY_CAP = cfg.dailyCap ?? 10;
+const AGENT_TOKEN_KEY = "shortly-agent-shared-token";
+let dashboardBooted = false;
 
 // ---------- helpers ----------
 const $ = (sel) => document.querySelector(sel);
@@ -37,6 +39,103 @@ async function api(method, path, body) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
   return data;
+}
+
+function ensureAuthGate() {
+  let gate = $("#authGate");
+  if (gate) return gate;
+
+  gate = document.createElement("div");
+  gate.id = "authGate";
+  gate.style.cssText = [
+    "position:fixed",
+    "inset:0",
+    "z-index:9999",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "padding:24px",
+    "background:rgba(252,251,247,0.96)"
+  ].join(";");
+  gate.innerHTML = `
+    <div style="max-width:520px;width:100%;background:#ffffff;border:2px solid #111111;border-radius:16px;padding:28px 26px;box-shadow:0 18px 48px rgba(0,0,0,0.08);font-family:Inter,Arial,sans-serif">
+      <p id="authGateTitle" style="margin:0 0 10px;font-size:24px;line-height:1.2;font-weight:800;color:#191919">Email Agent Login Required</p>
+      <p id="authGateText" style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#2f2f39">Open this dashboard from Shortly Agents to continue.</p>
+      <a id="authGateLink" href="${esc(cfg.agentAppUrl || "https://shortlyagents.vercel.app")}" style="display:inline-block;background:#6d28d9;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:11px 16px">Open Shortly Agents</a>
+    </div>`;
+  document.body.appendChild(gate);
+  return gate;
+}
+
+function setAuthGate(message, busy = false) {
+  const gate = ensureAuthGate();
+  $("#authGateText").textContent = message;
+  const link = $("#authGateLink");
+  link.style.display = busy ? "none" : "";
+  gate.style.display = "flex";
+}
+
+function unlockDashboardUi() {
+  ensureAuthGate().style.display = "none";
+  $(".app").style.display = "";
+}
+
+async function verifyAgentToken(token) {
+  if (!cfg.verifyToken) throw new Error("Missing verifyToken endpoint");
+  return api("POST", cfg.verifyToken, { token });
+}
+
+async function unlockWithToken(token) {
+  setAuthGate("Verifying access token...", true);
+  await verifyAgentToken(token);
+  localStorage.setItem(AGENT_TOKEN_KEY, token);
+  unlockDashboardUi();
+  if (!dashboardBooted) {
+    dashboardBooted = true;
+    await reload();
+  }
+}
+
+function listenForSharedToken() {
+  window.addEventListener("message", async (event) => {
+    const allowedOrigin = cfg.agentAppUrl ? new URL(cfg.agentAppUrl).origin : null;
+    if (allowedOrigin && event.origin !== allowedOrigin) return;
+    const token = event.data?.token;
+    if (event.data?.type !== "shortly-agent-token" || typeof token !== "string" || !token.trim()) return;
+    try {
+      await unlockWithToken(token.trim());
+    } catch (error) {
+      setAuthGate(error instanceof Error ? error.message : "Invalid token.", false);
+    }
+  });
+}
+
+async function bootAuth() {
+  $(".app").style.display = "none";
+  ensureAuthGate();
+  listenForSharedToken();
+
+  const url = new URL(window.location.href);
+  const tokenFromUrl = url.searchParams.get("token") || url.searchParams.get("shared_token");
+  const storedToken = localStorage.getItem(AGENT_TOKEN_KEY);
+  const token = tokenFromUrl || storedToken;
+
+  if (!token) {
+    setAuthGate("Open this dashboard from Shortly Agents to continue.", false);
+    return;
+  }
+
+  try {
+    await unlockWithToken(token);
+    if (tokenFromUrl) {
+      url.searchParams.delete("token");
+      url.searchParams.delete("shared_token");
+      window.history.replaceState({}, "", url.toString());
+    }
+  } catch (error) {
+    localStorage.removeItem(AGENT_TOKEN_KEY);
+    setAuthGate(error instanceof Error ? error.message : "Invalid token.", false);
+  }
 }
 
 const todayUtc = () => new Date().toISOString().slice(0, 10);
@@ -973,4 +1072,4 @@ document.addEventListener("keydown", (e) => {
 });
 
 // Initial load
-reload();
+bootAuth();
