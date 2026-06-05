@@ -197,6 +197,11 @@ function filteredArticles(statusFilter) {
   if (state.filterSection) {
     items = items.filter((a) => (a.section || "wrapped") === state.filterSection);
   }
+  // Review queue auto-sorts best-first by the AI approve-likelihood score (nulls last).
+  // Other tabs keep server order (rank_score, scraped_at).
+  if (statusFilter === "summarized") {
+    items = items.slice().sort((a, b) => (b.suggestion_score ?? -1) - (a.suggestion_score ?? -1));
+  }
   return items;
 }
 
@@ -321,6 +326,21 @@ function cardHtml(a, mode) {
   }
 
   const sectionTag = `<span class="tag section-${sec}">${sec}</span>`;
+
+  // AI approve-likelihood badge (advisory; populated by the RAG layer)
+  let scoreBadge = "";
+  if (a.suggestion_score != null) {
+    const s = Math.round(a.suggestion_score);
+    const bucket = s >= 66 ? "high" : s >= 33 ? "mid" : "low";
+    const neighbors = (a.suggestion_meta && a.suggestion_meta.neighbors) || [];
+    const tip = neighbors.length
+      ? "Similar past decisions:\n" + neighbors.slice(0, 5)
+          .map((n) => `${n.status === "rejected" ? "rejected" : "approved"}: ${n.title}`)
+          .join("\n")
+      : "AI approve-likelihood";
+    scoreBadge = `<span class="tag suggest-${bucket}" title="${esc(tip)}">★ ${s}</span>`;
+  }
+
   const readonly = mode === "rejected" ? "readonly" : "";
   const headlineReadonly = mode === "rejected" ? "readonly" : "";
 
@@ -333,7 +353,7 @@ function cardHtml(a, mode) {
       <header>
         ${checkbox}
           <div class="card-head">
-            <div class="chips">${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
+            <div class="chips">${scoreBadge}${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
             <input class="headline-input" data-role="headline" type="text" value="${esc(headline)}" ${headlineReadonly} />
             <div class="meta">
               ${date} &middot; ${time}
@@ -438,10 +458,15 @@ function renderAnalytics() {
     ? Math.round((totalSent / (totalSent + totalFailed)) * 100)
     : 0;
 
+  // Learning memory = articles the AI has embedded + scored (the RAG corpus signal).
+  const learned = state.articles.filter((a) => a.suggestion_score != null).length;
+
   $("#statDigests").textContent = totalDigests;
   $("#statArticles").textContent = totalArticles;
   $("#statSubscribers").textContent = subs;
   $("#statDeliveryRate").textContent = deliveryRate + "%";
+  const learningEl = $("#statLearning");
+  if (learningEl) learningEl.textContent = learned;
 
   // Recent digests chart (last 10)
   const recent = state.digests.slice(0, 10);

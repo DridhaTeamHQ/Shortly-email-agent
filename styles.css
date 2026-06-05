@@ -244,6 +244,11 @@ a:hover { text-decoration: underline; }
 .tag.section-wrapped { background: #fef3c7; color: #92400e; }
 .tag.section-ahead   { background: #dbeafe; color: #1e40af; }
 
+/* AI approve-likelihood badge (advisory) */
+.tag.suggest-high { background: #dcfce7; color: #15803d; cursor: help; }
+.tag.suggest-mid  { background: #fef9c3; color: #854d0e; cursor: help; }
+.tag.suggest-low  { background: #fee2e2; color: #b91c1c; cursor: help; }
+
 /* Section Picker */
 .section-picker {
   display: flex; align-items: center; gap: 6px; margin-right: auto;

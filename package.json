@@ -7,7 +7,11 @@
     "dev": "node scripts/static-server.mjs",
     "check": "node scripts/check-files.mjs",
     "seed": "node scripts/seed.mjs",
-    "reset": "node -e \"require('node:fs').rmSync('.devdata',{recursive:true,force:true});console.log('cleared .devdata');\""
+    "reset": "node -e \"require('node:fs').rmSync('.devdata',{recursive:true,force:true});console.log('cleared .devdata');\"",
+    "backfill": "node scripts/backfill-embeddings.mjs",
+    "export-training": "node scripts/export-training-data.mjs",
+    "train-model": "node scripts/train-model.mjs",
+    "eval-model": "node scripts/eval-model.mjs"
   },
   "dependencies": {
     "nodemailer": "^8.0.7"

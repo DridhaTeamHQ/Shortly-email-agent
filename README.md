@@ -25,6 +25,34 @@ pending  ->  summarized  ->  approved  ->  sent
                        \->  rejected
 ```
 
+## Self-learning layer (RAG + optional fine-tuning)
+
+The system learns from QA editorial decisions (approve/reject, headline & summary edits) and
+feeds them back so summaries match house style and the queue surfaces the most likely keepers.
+
+**Phase 1 — RAG (always on, no model training).** `summarize-articles` embeds each article
+(`text-embedding-3-small`), retrieves the nearest *editor-rewritten* past examples via the
+`match_articles` RPC and injects them as few-shot guidance, then computes an advisory
+`suggestion_score` (0-100) from labelled neighbours. The dashboard shows a score badge and
+auto-sorts the review queue best-first (humans still approve every article). Cold start is a
+no-op: empty corpus → behaves exactly as before.
+
+Setup:
+1. Apply `supabase/migrations/20260605_add_rag_layer.sql` (pgvector, `embedding`,
+   `suggestion_score/meta`, `prominence`, HNSW index, `match_articles` RPC, `app_config`).
+2. `supabase secrets set OPENAI_EMBED_MODEL="text-embedding-3-small"`.
+3. One-time backfill so day 1 isn't empty: `npm run backfill`.
+4. Redeploy `summarize-articles` and `list-articles`.
+
+**Phase 2 — periodic fine-tuning (gated, manual).** Offline scripts, run when the corpus is
+rich enough:
+- `npm run export-training` — JSONL from editor-validated examples (refuses below 100).
+- `npm run train-model -- training/shortly-YYYYMMDD.jsonl` — fine-tunes `gpt-4o-2024-08-06`,
+  saves the result to `app_config.OPENAI_MODEL_CANDIDATE` (never the live model).
+- `npm run eval-model` — base vs candidate side-by-side. Promote only if it wins, by setting
+  `app_config.OPENAI_MODEL` to the candidate id (the function reads that at runtime; delete the
+  row to roll back instantly — no redeploy).
+
 ## Setup
 
 1. Copy `.env.example` to `.env` and fill in real values.

@@ -1,5 +1,13 @@
 // summarize-articles: take recent `pending` articles, summarize with GPT-4o,
 // promote top 50 of the day to `summarized` (ready for QA review).
+//
+// Self-learning (RAG) additions:
+//  - Embed each article's raw input (title + excerpt) BEFORE summarizing.
+//  - Retrieve the nearest editor-rewritten past examples and inject them as few-shot
+//    guidance so the new summary already matches house style.
+//  - Score each article's approve-likelihood from labelled neighbours (advisory).
+//  - Persist embedding + suggestion_score + suggestion_meta on the row.
+// All RAG steps are best-effort: any failure falls back to today's behaviour.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
@@ -54,15 +62,50 @@ type Article = {
   scraped_at: string;
 };
 
+type Neighbor = {
+  id: string;
+  title: string;
+  edited_title: string | null;
+  summary: string | null;
+  edited_summary: string | null;
+  section: string | null;
+  status: string;
+  similarity: number;
+};
+
+type SummaryResult = {
+  id: string;
+  summary: string | null;
+  section: string;
+  prominence: number;
+  embedding: string | null;
+  suggestion_score: number | null;
+  suggestion_meta: unknown | null;
+  error?: string;
+};
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const supabaseUrl = requiredEnv("SUPABASE_URL");
   const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
   const openAiKey = requiredEnv("OPENAI_API_KEY");
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
+  const embedModel = Deno.env.get("OPENAI_EMBED_MODEL") ?? "text-embedding-3-small";
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+  // Model is config-aware: a promoted fine-tune is stored in app_config.OPENAI_MODEL.
+  let model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
+  try {
+    const { data: cfg } = await supabase
+      .from("app_config")
+      .select("value")
+      .eq("key", "OPENAI_MODEL")
+      .maybeSingle();
+    if (cfg?.value) model = cfg.value;
+  } catch {
+    // app_config may not exist yet; keep env/default.
+  }
 
   // Pull recent pending articles — only last 10 hours for freshness
   const since = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
@@ -82,17 +125,66 @@ Deno.serve(async (request) => {
 
   // Summarize in parallel (capped) to keep within edge time budget
   const CONCURRENCY = 6;
-  const results: Array<{ id: string; summary: string | null; section: string; prominence: number; error?: string }> = [];
+  const results: SummaryResult[] = [];
+  let scoredCount = 0;
+  let fewShotCount = 0;
 
   for (let i = 0; i < articles.length; i += CONCURRENCY) {
     const batch = articles.slice(i, i + CONCURRENCY);
     const settled = await Promise.all(
-      batch.map(async (a) => {
+      batch.map(async (a): Promise<SummaryResult> => {
+        // --- RAG: embed raw input first (best-effort) ---
+        let vecLiteral: string | null = null;
+        let examples: Neighbor[] = [];
         try {
-          const result = await summarize(openAiKey, model, a);
-          return { id: a.id, summary: result.summary, section: result.section, prominence: result.prominence };
+          const embedInput = `${a.title}\n${(a.raw_content ?? "").slice(0, 2000)}`.trim();
+          const vec = await embed(openAiKey, embedModel, embedInput);
+          vecLiteral = JSON.stringify(vec);
+          examples = await matchArticles(supabase, vecLiteral, 4, true, a.id);
+          if (examples.length > 0) fewShotCount++;
+        } catch {
+          vecLiteral = null;
+          examples = [];
+        }
+
+        try {
+          const result = await summarize(openAiKey, model, a, examples);
+
+          // --- RAG: advisory score from labelled neighbours (best-effort) ---
+          let suggestion_score: number | null = null;
+          let suggestion_meta: unknown | null = null;
+          if (vecLiteral) {
+            try {
+              const neighbors = await matchArticles(supabase, vecLiteral, 8, false, a.id);
+              const scored = scoreFromNeighbors(neighbors);
+              suggestion_score = scored.score;
+              suggestion_meta = scored.meta;
+              if (suggestion_score != null) scoredCount++;
+            } catch {
+              // ignore scoring failure
+            }
+          }
+
+          return {
+            id: a.id,
+            summary: result.summary,
+            section: result.section,
+            prominence: result.prominence,
+            embedding: vecLiteral,
+            suggestion_score,
+            suggestion_meta
+          };
         } catch (e) {
-          return { id: a.id, summary: null, section: "wrapped", prominence: 2, error: String(e) };
+          return {
+            id: a.id,
+            summary: null,
+            section: "wrapped",
+            prominence: 2,
+            embedding: vecLiteral,
+            suggestion_score: null,
+            suggestion_meta: null,
+            error: String(e)
+          };
         }
       })
     );
@@ -117,20 +209,28 @@ Deno.serve(async (request) => {
         prominence: r.prominence,
         rank_score: score,
         status: "summarized",
-        summarized_at: new Date().toISOString()
+        summarized_at: new Date().toISOString(),
+        embedding: r.embedding,
+        suggestion_score: r.suggestion_score,
+        suggestion_meta: r.suggestion_meta
       };
     });
 
   // Update in chunks
   for (const row of updates) {
-    await supabase.from("articles").update({
+    const patch: Record<string, unknown> = {
       summary: row.summary,
       section: row.section,
       prominence: row.prominence,
       rank_score: row.rank_score,
       status: row.status,
-      summarized_at: row.summarized_at
-    }).eq("id", row.id);
+      summarized_at: row.summarized_at,
+      suggestion_score: row.suggestion_score,
+      suggestion_meta: row.suggestion_meta
+    };
+    // Only write embedding when we actually computed one (don't null out on failure).
+    if (row.embedding) patch.embedding = row.embedding;
+    await supabase.from("articles").update(patch).eq("id", row.id);
   }
 
   // Topic-diverse top 50 — bonus on rank for the best per source
@@ -160,12 +260,101 @@ Deno.serve(async (request) => {
   return json({
     summarized: updates.length,
     top_50: topIds.length,
+    scored: scoredCount,
+    few_shot_used: fewShotCount,
+    model,
     failed: failed.length,
     failures: failed.slice(0, 5)
   });
 });
 
-async function summarize(apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string; prominence: number }> {
+// --- OpenAI embeddings ---
+async function embed(apiKey: string, model: string, text: string): Promise<number[]> {
+  const response = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, input: text })
+  });
+  if (!response.ok) {
+    const t = await response.text().catch(() => "");
+    throw new Error(`OpenAI embed ${response.status}: ${t.slice(0, 200)}`);
+  }
+  const body = await response.json();
+  const vec = body?.data?.[0]?.embedding;
+  if (!Array.isArray(vec)) throw new Error("empty embedding");
+  return vec;
+}
+
+// --- Vector search over reviewed articles via the match_articles RPC ---
+async function matchArticles(
+  supabase: ReturnType<typeof createClient>,
+  vecLiteral: string | null,
+  k: number,
+  wantEdited: boolean,
+  excludeId: string | null
+): Promise<Neighbor[]> {
+  if (!vecLiteral) return [];
+  try {
+    const { data, error } = await supabase.rpc("match_articles", {
+      query_embedding: vecLiteral,
+      match_count: k,
+      want_edited: wantEdited,
+      exclude_id: excludeId
+    });
+    if (error) return [];
+    return (data ?? []) as Neighbor[];
+  } catch {
+    return [];
+  }
+}
+
+// --- Advisory approve-likelihood from labelled neighbours ---
+function scoreFromNeighbors(neighbors: Neighbor[]): { score: number | null; meta: unknown | null } {
+  if (!neighbors || neighbors.length === 0) return { score: null, meta: null };
+  let weighted = 0;
+  let absSum = 0;
+  const metaNeighbors = neighbors.map((n) => {
+    const sim = Number(n.similarity) || 0;
+    const label = n.status === "rejected" ? -1 : 1; // approved/sent => +1
+    weighted += sim * label;
+    absSum += Math.abs(sim);
+    return {
+      id: n.id,
+      title: n.edited_title || n.title,
+      status: n.status,
+      similarity: Math.round(sim * 100) / 100
+    };
+  });
+  if (absSum === 0) return { score: null, meta: null };
+  const score = Math.max(0, Math.min(100, Math.round(50 + 50 * (weighted / absSum))));
+  return { score, meta: { neighbors: metaNeighbors, k: neighbors.length, version: 1 } };
+}
+
+// --- Few-shot block built from editor-rewritten neighbours ---
+function buildFewShot(examples: Neighbor[]): string | null {
+  if (!examples || examples.length === 0) return null;
+  const blocks = examples.slice(0, 4).map((e) => {
+    const lines: string[] = [];
+    if (e.edited_title && e.edited_title !== e.title) {
+      lines.push(`Headline rewrite:\n  BEFORE: ${e.title}\n  AFTER:  ${e.edited_title}`);
+    }
+    if (e.edited_summary && e.edited_summary !== e.summary) {
+      lines.push(`Summary rewrite:\n  BEFORE: ${e.summary ?? ""}\n  AFTER:  ${e.edited_summary}`);
+    }
+    if (lines.length === 0) {
+      lines.push(`Kept as-is: ${e.edited_title || e.title}`);
+    }
+    return lines.join("\n");
+  });
+  return `EDITORIAL STYLE MEMORY — the team recently reviewed similar stories and rewrote them as below. Match this house style: tone, length, phrasing, and what to cut. Do not copy the content; learn the style.\n\n${blocks.join("\n---\n")}`;
+}
+
+async function summarize(
+  apiKey: string,
+  model: string,
+  article: Article,
+  examples: Neighbor[] = []
+): Promise<{ summary: string; section: string; prominence: number }> {
   const userPrompt = [
     `TITLE: ${article.title}`,
     article.source ? `SOURCE: ${article.source}` : null,
@@ -174,6 +363,13 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
   ]
     .filter(Boolean)
     .join("\n\n");
+
+  const messages: Array<{ role: string; content: string }> = [
+    { role: "system", content: SYSTEM_PROMPT }
+  ];
+  const fewShot = buildFewShot(examples);
+  if (fewShot) messages.push({ role: "system", content: fewShot });
+  messages.push({ role: "user", content: userPrompt });
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -185,10 +381,7 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
       model,
       temperature: 0.3,
       max_tokens: 350,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userPrompt }
-      ]
+      messages
     })
   });
 
