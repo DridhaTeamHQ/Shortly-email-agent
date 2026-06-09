@@ -64,15 +64,20 @@ Deno.serve(async (request) => {
     if (action === "import") {
       const rows = Array.isArray(body.subscribers) ? body.subscribers : [];
       const updatedAt = new Date().toISOString();
-      const normalizedRows = rows
-        .map((row) => ({
+      const normalizedByEmail = new Map<string, Record<string, string | null>>();
+      for (const row of rows) {
+        const normalized = {
           email: row?.email?.trim()?.toLowerCase() || "",
           full_name: row?.full_name?.trim() || null,
           phone_number: row?.phone_number?.trim() || null,
           status: "subscribed",
           updated_at: updatedAt
-        }))
-        .filter((row) => row.email);
+        };
+        if (normalized.email) {
+          normalizedByEmail.set(normalized.email, normalized);
+        }
+      }
+      const normalizedRows = Array.from(normalizedByEmail.values());
 
       if (normalizedRows.length === 0) {
         return json({ error: "No valid subscribers found in CSV" }, 400);
@@ -81,7 +86,7 @@ Deno.serve(async (request) => {
       const { error } = await supabase
         .from("subscribers")
         .upsert(normalizedRows, { onConflict: "email" });
-      if (error) return json({ error: error.message }, 400);
+      if (error) return json({ error: error.message, code: error.code, details: error.details }, 400);
 
       return json({ ok: true, imported: normalizedRows.length });
     }
