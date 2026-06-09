@@ -19,10 +19,17 @@ function esc(s = "") {
 }
 
 function toast(msg) {
-  const t = $("#toast");
+  const container = $("#toastContainer");
+  if (!container) return;
+  const t = document.createElement("div");
+  t.className = "toast";
   t.textContent = msg;
-  t.classList.add("show");
-  setTimeout(() => t.classList.remove("show"), 2800);
+  container.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("show"));
+  setTimeout(() => {
+    t.classList.remove("show");
+    setTimeout(() => t.remove(), 220);
+  }, 2800);
 }
 
 async function api(method, path, body) {
@@ -450,6 +457,41 @@ function parseSubscriberCsv(text) {
       };
     })
     .filter((row) => row.email);
+}
+
+async function parseSubscriberFile(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".csv")) {
+    return parseSubscriberCsv(await file.text());
+  }
+
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+    if (!window.XLSX) {
+      throw new Error("Excel reader failed to load. Refresh and try again.");
+    }
+    const buffer = await file.arrayBuffer();
+    const workbook = window.XLSX.read(buffer, { type: "array" });
+    const firstSheet = workbook.SheetNames[0];
+    if (!firstSheet) return [];
+    const rows = window.XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: "" });
+    return rows
+      .map((row) => {
+        const normalized = Object.fromEntries(
+          Object.entries(row).map(([key, value]) => [
+            String(key).toLowerCase().replace(/\s+/g, "_"),
+            String(value ?? "").trim()
+          ])
+        );
+        return {
+          email: normalized.email || normalized["e-mail"] || "",
+          full_name: normalized.name || normalized.full_name || "",
+          phone_number: normalized.phone || normalized.phone_number || normalized.phone_no || normalized.mobile || normalized.mobile_number || ""
+        };
+      })
+      .filter((row) => row.email);
+  }
+
+  throw new Error("Unsupported file type. Use CSV, XLSX, or XLS.");
 }
 
 function renderHistory() {
@@ -1032,14 +1074,13 @@ $("#subForm").addEventListener("submit", async (e) => {
 $("#importCsvBtn").addEventListener("click", async () => {
   const file = $("#subCsvFile").files?.[0];
   if (!file) {
-    toast("Choose a CSV file first.");
+    toast("Choose a CSV, XLSX, or XLS file first.");
     return;
   }
   try {
-    const text = await file.text();
-    const subscribers = parseSubscriberCsv(text);
+    const subscribers = await parseSubscriberFile(file);
     if (!subscribers.length) {
-      toast("No valid CSV rows found.");
+      toast("No valid rows found.");
       return;
     }
     const res = await api("POST", cfg.subscribers, { action: "import", subscribers });

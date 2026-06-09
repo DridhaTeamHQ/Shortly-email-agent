@@ -23,6 +23,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
     <script src="./config.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   </head>
   <body>
     <div class="app">
@@ -166,9 +167,9 @@
             <button class="btn-primary" type="submit">Add subscriber</button>
           </form>
           <div class="sub-form sub-import-row">
-            <input id="subCsvFile" type="file" accept=".csv,text/csv" />
-            <button id="importCsvBtn" class="btn-ghost" type="button">Upload CSV</button>
-            <span class="muted">Accepted columns: name, email, phone number</span>
+            <input id="subCsvFile" type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            <button id="importCsvBtn" class="btn-ghost" type="button">Upload File</button>
+            <span class="muted">Accepted columns: name, email, phone number. Supported files: CSV, XLSX, XLS.</span>
           </div>
           <div class="subscriber-bulk-bar" id="subscriberBulkBar">
             <label class="subscriber-select-all">
