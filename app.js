@@ -382,6 +382,7 @@ function renderSubscribers() {
         <td>${s.status === "subscribed" ? `<input type="checkbox" class="sub-check" data-id="${s.id}" ${state.selectedSubscribers.has(s.id) ? "checked" : ""}>` : ""}</td>
         <td>${esc(s.email)}</td>
         <td>${esc(s.full_name || "")}</td>
+        <td>${esc(s.phone_number || "")}</td>
         <td><span class="dot ${s.status}"></span>${esc(s.status)}</td>
         <td class="row-actions">
           ${s.status === "subscribed"
@@ -392,13 +393,63 @@ function renderSubscribers() {
       </tr>`
     )
     .join("");
-  $("#subRows").innerHTML = rows || `<tr><td colspan="5" class="muted" style="padding:18px">No subscribers yet.</td></tr>`;
+  $("#subRows").innerHTML = rows || `<tr><td colspan="6" class="muted" style="padding:18px">No subscribers yet.</td></tr>`;
   const selectAll = $("#subSelectAll");
   if (selectAll) {
     selectAll.checked = allChecked;
     selectAll.indeterminate = !allChecked && selectedSubscriberCount() > 0;
   }
   updateSubscriberSelectionUi();
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === "\"") {
+      if (inQuotes && line[i + 1] === "\"") {
+        current += "\"";
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === "," && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  values.push(current.trim());
+  return values;
+}
+
+function parseSubscriberCsv(text) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase().replace(/\s+/g, "_"));
+  const emailIndex = headers.findIndex((header) => ["email", "e-mail"].includes(header));
+  const nameIndex = headers.findIndex((header) => ["name", "full_name", "full_name_(optional)", "full_name_optional"].includes(header));
+  const phoneIndex = headers.findIndex((header) => ["phone", "phone_number", "phone_no", "mobile", "mobile_number"].includes(header));
+  if (emailIndex === -1) return [];
+  return lines
+    .slice(1)
+    .map((line) => {
+      const cols = parseCsvLine(line);
+      return {
+        email: cols[emailIndex] || "",
+        full_name: nameIndex >= 0 ? cols[nameIndex] || "" : "",
+        phone_number: phoneIndex >= 0 ? cols[phoneIndex] || "" : ""
+      };
+    })
+    .filter((row) => row.email);
 }
 
 function renderHistory() {
@@ -964,15 +1015,39 @@ $("#subForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const email = $("#subEmail").value.trim();
   const full_name = $("#subName").value.trim();
+  const phone_number = $("#subPhone").value.trim();
   if (!email) return;
   try {
-    await api("POST", cfg.subscribers, { action: "add", email, full_name });
+    await api("POST", cfg.subscribers, { action: "add", email, full_name, phone_number });
     $("#subEmail").value = "";
     $("#subName").value = "";
+    $("#subPhone").value = "";
     await reload();
     toast("Subscriber added.");
   } catch (e) {
     toast(`Failed: ${e.message}`);
+  }
+});
+
+$("#importCsvBtn").addEventListener("click", async () => {
+  const file = $("#subCsvFile").files?.[0];
+  if (!file) {
+    toast("Choose a CSV file first.");
+    return;
+  }
+  try {
+    const text = await file.text();
+    const subscribers = parseSubscriberCsv(text);
+    if (!subscribers.length) {
+      toast("No valid CSV rows found.");
+      return;
+    }
+    const res = await api("POST", cfg.subscribers, { action: "import", subscribers });
+    $("#subCsvFile").value = "";
+    await reload();
+    toast(`Imported ${res.imported ?? subscribers.length} subscribers.`);
+  } catch (e) {
+    toast(`Import failed: ${e.message}`);
   }
 });
 

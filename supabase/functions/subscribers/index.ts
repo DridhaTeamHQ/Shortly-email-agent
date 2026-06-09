@@ -11,7 +11,7 @@ Deno.serve(async (request) => {
   if (request.method === "GET") {
     const { data, error } = await supabase
       .from("subscribers")
-      .select("id,email,full_name,status,created_at")
+      .select("id,email,full_name,phone_number,status,created_at")
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);
     return json({ subscribers: data });
@@ -22,13 +22,14 @@ Deno.serve(async (request) => {
     const { action } = body;
 
     if (action === "add") {
-      const { email, full_name } = body;
+      const { email, full_name, phone_number } = body;
       if (!email?.trim()) return json({ error: "email is required" }, 400);
       const normalizedEmail = email.trim().toLowerCase();
       const normalizedName = full_name?.trim() || null;
+      const normalizedPhone = phone_number?.trim() || null;
       const { data: existing, error: existingError } = await supabase
         .from("subscribers")
-        .select("id,status,full_name")
+        .select("id,status,full_name,phone_number")
         .eq("email", normalizedEmail)
         .maybeSingle();
       if (existingError) return json({ error: existingError.message }, 500);
@@ -39,6 +40,7 @@ Deno.serve(async (request) => {
           updated_at: new Date().toISOString()
         };
         if (normalizedName) patch.full_name = normalizedName;
+        if (normalizedPhone) patch.phone_number = normalizedPhone;
         const { error } = await supabase
           .from("subscribers")
           .update(patch)
@@ -53,10 +55,35 @@ Deno.serve(async (request) => {
 
       const { error } = await supabase
         .from("subscribers")
-        .insert({ email: normalizedEmail, full_name: normalizedName });
+        .insert({ email: normalizedEmail, full_name: normalizedName, phone_number: normalizedPhone });
       if (error) return json({ error: error.message }, 400);
 
       return json({ ok: true, created: true });
+    }
+
+    if (action === "import") {
+      const rows = Array.isArray(body.subscribers) ? body.subscribers : [];
+      const updatedAt = new Date().toISOString();
+      const normalizedRows = rows
+        .map((row) => ({
+          email: row?.email?.trim()?.toLowerCase() || "",
+          full_name: row?.full_name?.trim() || null,
+          phone_number: row?.phone_number?.trim() || null,
+          status: "subscribed",
+          updated_at: updatedAt
+        }))
+        .filter((row) => row.email);
+
+      if (normalizedRows.length === 0) {
+        return json({ error: "No valid subscribers found in CSV" }, 400);
+      }
+
+      const { error } = await supabase
+        .from("subscribers")
+        .upsert(normalizedRows, { onConflict: "email" });
+      if (error) return json({ error: error.message }, 400);
+
+      return json({ ok: true, imported: normalizedRows.length });
     }
 
     if (action === "update") {

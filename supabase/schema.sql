@@ -5,6 +5,7 @@ create table if not exists public.subscribers (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
   full_name text,
+  phone_number text,
   status text not null default 'subscribed' check (status in ('subscribed', 'unsubscribed', 'bounced')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

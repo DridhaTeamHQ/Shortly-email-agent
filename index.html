@@ -162,8 +162,14 @@
           <form id="subForm" class="sub-form">
             <input id="subEmail" type="email" placeholder="email@example.com" required />
             <input id="subName" type="text" placeholder="Full name (optional)" />
+            <input id="subPhone" type="text" placeholder="Phone number (optional)" />
             <button class="btn-primary" type="submit">Add subscriber</button>
           </form>
+          <div class="sub-form sub-import-row">
+            <input id="subCsvFile" type="file" accept=".csv,text/csv" />
+            <button id="importCsvBtn" class="btn-ghost" type="button">Upload CSV</button>
+            <span class="muted">Accepted columns: name, email, phone number</span>
+          </div>
           <div class="subscriber-bulk-bar" id="subscriberBulkBar">
             <label class="subscriber-select-all">
               <input type="checkbox" id="subSelectAll" />
@@ -174,7 +180,7 @@
           </div>
           <div class="table-wrap">
             <table class="data-table">
-              <thead><tr><th></th><th>Email</th><th>Name</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th></th><th>Email</th><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead>
               <tbody id="subRows"></tbody>
             </table>
           </div>

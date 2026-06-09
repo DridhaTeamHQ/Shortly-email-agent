@@ -288,6 +288,7 @@ a:hover { text-decoration: underline; }
 /* ── Subscribers ── */
 .sub-form { display: flex; gap: 10px; margin-bottom: 16px; }
 .sub-form input { flex: 1; }
+.sub-import-row { align-items: center; }
 .subscriber-bulk-bar {
   display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
   padding: 10px 12px; background: var(--soft); border: 1px solid var(--line);
