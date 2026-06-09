@@ -441,10 +441,11 @@ function parseSubscriberCsv(text) {
     .map((line) => line.trim())
     .filter(Boolean);
   if (lines.length < 2) return [];
-  const headers = parseCsvLine(lines[0]).map((header) => header.toLowerCase().replace(/\s+/g, "_"));
+  const normalizeHeader = (header) => header.toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "_");
+  const headers = parseCsvLine(lines[0]).map((header) => normalizeHeader(header));
   const emailIndex = headers.findIndex((header) => ["email", "e-mail"].includes(header));
   const nameIndex = headers.findIndex((header) => ["name", "full_name", "full_name_(optional)", "full_name_optional"].includes(header));
-  const phoneIndex = headers.findIndex((header) => ["phone", "phone_number", "phone_no", "mobile", "mobile_number"].includes(header));
+  const phoneIndex = headers.findIndex((header) => ["phone", "phone_number", "phone_no", "mobileno", "mobile", "mobile_number"].includes(header));
   if (emailIndex === -1) return [];
   return lines
     .slice(1)
@@ -460,6 +461,7 @@ function parseSubscriberCsv(text) {
 }
 
 async function parseSubscriberFile(file) {
+  const normalizeHeader = (header) => String(header).toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "_");
   const name = file.name.toLowerCase();
   if (name.endsWith(".csv")) {
     return parseSubscriberCsv(await file.text());
@@ -478,14 +480,14 @@ async function parseSubscriberFile(file) {
       .map((row) => {
         const normalized = Object.fromEntries(
           Object.entries(row).map(([key, value]) => [
-            String(key).toLowerCase().replace(/\s+/g, "_"),
+            normalizeHeader(key),
             String(value ?? "").trim()
           ])
         );
         return {
           email: normalized.email || normalized["e-mail"] || "",
           full_name: normalized.name || normalized.full_name || "",
-          phone_number: normalized.phone || normalized.phone_number || normalized.phone_no || normalized.mobile || normalized.mobile_number || ""
+          phone_number: normalized.phone || normalized.phone_number || normalized.phone_no || normalized.mobileno || normalized.mobile || normalized.mobile_number || ""
         };
       })
       .filter((row) => row.email);
