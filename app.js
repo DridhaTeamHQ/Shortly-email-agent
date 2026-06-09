@@ -1062,7 +1062,7 @@ $("#sendDigest").addEventListener("click", async () => {
     : "";
   if (!confirm(`Send digest to ${subCount} subscribers?${fallbackMsg}`)) return;
   try {
-    const res = await api("POST", cfg.digest, selectedIds.length ? { subscriber_ids: selectedIds } : {});
+    const res = await api("POST", cfg.digest, selectedIds.length ? { subscriber_ids: selectedIds, manual: true } : { manual: true });
     const autoMsg = res.autoSelected ? " (with auto-selected articles)" : "";
     state.selectedSubscribers.clear();
     toast(`Sent to ${res.sent ?? 0} subscribers${autoMsg}.`);

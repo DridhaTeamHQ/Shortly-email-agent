@@ -31,6 +31,7 @@ const FOOTER_LOGO_URL =
   Deno.env.get("SHORTLY_FOOTER_LOGO_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/footer-logo.png";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
+const AUTO_DIGEST_ENABLED = (Deno.env.get("SHORTLY_AUTO_DIGEST_ENABLED") ?? "false").toLowerCase() === "true";
 
 function escapeHtmlText(value = ""): string {
   return value
@@ -61,11 +62,17 @@ Deno.serve(async (request) => {
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
   let subscriberIds: string[] = [];
+  let isManual = false;
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     subscriberIds = Array.isArray(body?.subscriber_ids)
       ? body.subscriber_ids.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
       : [];
+    isManual = body?.manual === true;
+  }
+
+  if (!isManual && !AUTO_DIGEST_ENABLED) {
+    return json({ error: "Automatic digest sending is turned off for now." }, 403);
   }
 
   // 1. Try approved articles first
