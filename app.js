@@ -1172,17 +1172,28 @@ $("#previewModal").addEventListener("click", (e) => {
 
 // Send digest
 $("#sendDigest").addEventListener("click", async () => {
-  const approved = approvedTodayCount();
   const selectedIds = [...state.selectedSubscribers];
+  const approvedArticles = state.articles.filter(isApprovedToday);
+  const selectedArticleIds = approvedArticles
+    .filter((article) => state.selected.has(article.id))
+    .map((article) => article.id);
+  const articleIds = selectedArticleIds.length
+    ? selectedArticleIds
+    : approvedArticles.slice(0, DAILY_CAP).map((article) => article.id);
   const subCount = selectedIds.length || state.subscribers.filter((s) => s.status === "subscribed").length;
-  const fallbackMsg = approved < DAILY_CAP
-    ? `\n\nOnly ${approved}/${DAILY_CAP} approved — the rest will be auto-selected by rank.`
-    : "";
-  if (!confirm(`Send digest to ${subCount} subscribers?${fallbackMsg}`)) return;
+  const sendMsg = selectedArticleIds.length
+    ? `\n\nSending ${selectedArticleIds.length} selected article${selectedArticleIds.length === 1 ? "" : "s"}.`
+    : `\n\nSending ${articleIds.length} approved article${articleIds.length === 1 ? "" : "s"}.`;
+  if (!confirm(`Send digest to ${subCount} subscribers?${sendMsg}`)) return;
   try {
-    const res = await api("POST", cfg.digest, selectedIds.length ? { subscriber_ids: selectedIds, manual: true } : { manual: true });
+    const res = await api("POST", cfg.digest, {
+      manual: true,
+      article_ids: articleIds,
+      ...(selectedIds.length ? { subscriber_ids: selectedIds } : {})
+    });
     const autoMsg = res.autoSelected ? " (with auto-selected articles)" : "";
     state.selectedSubscribers.clear();
+    state.selected.clear();
     toast(`Sent to ${res.sent ?? 0} subscribers${autoMsg}.`);
     await reload();
     showSection("review");

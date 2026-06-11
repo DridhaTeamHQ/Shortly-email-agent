@@ -62,11 +62,15 @@ Deno.serve(async (request) => {
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
   let subscriberIds: string[] = [];
+  let articleIds: string[] = [];
   let isManual = false;
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     subscriberIds = Array.isArray(body?.subscriber_ids)
       ? body.subscriber_ids.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
+      : [];
+    articleIds = Array.isArray(body?.article_ids)
+      ? body.article_ids.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
       : [];
     isManual = body?.manual === true;
   }
@@ -75,21 +79,34 @@ Deno.serve(async (request) => {
     return json({ error: "Automatic digest sending is turned off for now." }, 403);
   }
 
-  // 1. Try approved articles first
-  const { data: approved, error: approvedError } = await supabase
-    .from("articles")
-    .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
-    .eq("status", "approved")
-    .order("rank_score", { ascending: false })
-    .order("scraped_at", { ascending: false })
-    .limit(20);
-
-  if (approvedError) return json({ error: approvedError.message }, 500);
-  let articles = (approved ?? []) as Article[];
+  let articles: Article[] = [];
   let autoSelected = false;
 
+  if (articleIds.length > 0) {
+    const { data: selectedArticles, error: selectedError } = await supabase
+      .from("articles")
+      .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
+      .in("id", articleIds);
+
+    if (selectedError) return json({ error: selectedError.message }, 500);
+    const byId = new Map(((selectedArticles ?? []) as Article[]).map((article) => [article.id, article]));
+    articles = articleIds.map((id) => byId.get(id)).filter((article): article is Article => Boolean(article));
+  } else {
+    // 1. Try approved articles first
+    const { data: approved, error: approvedError } = await supabase
+      .from("articles")
+      .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
+      .eq("status", "approved")
+      .order("rank_score", { ascending: false })
+      .order("scraped_at", { ascending: false })
+      .limit(20);
+
+    if (approvedError) return json({ error: approvedError.message }, 500);
+    articles = (approved ?? []) as Article[];
+  }
+
   // 2. FALLBACK: If QA didn't approve enough, auto-select from summarized
-  if (articles.length < TOTAL_ARTICLES) {
+  if (articleIds.length === 0 && articles.length < TOTAL_ARTICLES) {
     const need = TOTAL_ARTICLES - articles.length;
     const usedIds = articles.map((a) => a.id);
 
@@ -115,7 +132,7 @@ Deno.serve(async (request) => {
     }
   }
 
-  if (articles.length === 0) return json({ error: "No articles available to send" }, 400);
+  if (articles.length === 0) return json({ error: "No selected articles available to send" }, 400);
 
   // Cap at 10 and keep a single wrapped section
   const wrapped = normalizeWrapped(articles);
