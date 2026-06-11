@@ -304,8 +304,8 @@ function cardHtml(a, mode) {
       </select>
     </div>` : "";
 
-  // Bulk checkbox (only in review mode)
-  const checkbox = mode === "review" ? `<input type="checkbox" class="card-check" data-id="${a.id}" ${checked}>` : "";
+  const canSelect = mode === "review" || mode === "approved";
+  const checkbox = canSelect ? `<input type="checkbox" class="card-check" data-id="${a.id}" ${checked}>` : "";
 
   let actions = "";
   if (mode === "review") {
@@ -667,7 +667,8 @@ async function handleSubscriberAction(row, action) {
 // ---------- bulk actions ----------
 function updateBulkBar() {
   const bar = $("#bulkBar");
-  const count = state.selected.size;
+  const selectedReviewCards = [...document.querySelectorAll("#reviewList .card-check:checked")];
+  const count = selectedReviewCards.length;
   if (count > 0) {
     bar.classList.add("show");
     $("#bulkCount").textContent = `${count} selected`;
@@ -677,8 +678,10 @@ function updateBulkBar() {
 }
 
 async function bulkAction(action) {
-  if (state.selected.size === 0) return;
-  const ids = [...state.selected];
+  const ids = [...document.querySelectorAll("#reviewList .card-check:checked")]
+    .map((check) => check.dataset.id)
+    .filter(Boolean);
+  if (ids.length === 0) return;
   toast(`Processing ${ids.length} articles...`);
   try {
     const payloads = ids.map((id) => {
