@@ -105,22 +105,35 @@ Deno.serve(async (request) => {
     articles = (approved ?? []) as Article[];
   }
 
-  // 2. FALLBACK: If QA didn't approve enough, auto-select from summarized
-  if (articleIds.length === 0 && articles.length < TOTAL_ARTICLES) {
+  // 2. FALLBACK: Fill remaining slots with approved/summarized articles.
+  if (articles.length < TOTAL_ARTICLES) {
     const need = TOTAL_ARTICLES - articles.length;
     const usedIds = articles.map((a) => a.id);
 
-    const { data: fallback } = await supabase
+    const { data: approvedFill } = await supabase
+      .from("articles")
+      .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
+      .eq("status", "approved")
+      .order("rank_score", { ascending: false })
+      .order("scraped_at", { ascending: false })
+      .limit(need + 10);
+
+    const approvedExtras = ((approvedFill ?? []) as Article[]).filter((a) => !usedIds.includes(a.id));
+    articles = [...articles, ...approvedExtras].slice(0, TOTAL_ARTICLES);
+    const usedAfterApproved = articles.map((a) => a.id);
+    const stillNeed = TOTAL_ARTICLES - articles.length;
+
+    const { data: fallback } = stillNeed > 0 ? await supabase
       .from("articles")
       .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
       .eq("status", "summarized")
       .order("rank_score", { ascending: false })
       .order("scraped_at", { ascending: false })
-      .limit(need + 10); // grab extra for finance guarantee
+      .limit(stillNeed + 10) : { data: [] };
 
-    const extras = ((fallback ?? []) as Article[]).filter((a) => !usedIds.includes(a.id));
+    const extras = ((fallback ?? []) as Article[]).filter((a) => !usedAfterApproved.includes(a.id));
     articles = [...articles, ...extras].slice(0, TOTAL_ARTICLES);
-    autoSelected = extras.length > 0;
+    autoSelected = approvedExtras.length > 0 || extras.length > 0;
 
     // Auto-approve the fallback articles
     if (extras.length > 0) {
