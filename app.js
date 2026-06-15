@@ -1140,6 +1140,62 @@ $("#fetchToday").addEventListener("click", async () => {
   }
 });
 
+$("#buildCorporateCase").addEventListener("click", async () => {
+  const btn = $("#buildCorporateCase");
+  const btnText = $("#corporateCaseBtnText");
+  const resultBox = $("#corporateCaseResult");
+  btn.disabled = true;
+  btnText.textContent = "Researching...";
+  resultBox.classList.add("hidden");
+  try {
+    if (!cfg.corporateCase) throw new Error("Missing corporate case endpoint");
+    const response = await api("POST", cfg.corporateCase, {});
+    const item = response.case;
+    const checklist = (item.editor_checklist || []).map((entry) => "- " + entry).join("\n");
+    const inferences = (item.inference_notes || []).map((entry) => "- " + entry).join("\n") || "- None flagged";
+    resultBox.textContent = [
+      item.headline,
+      item.source + " | " + item.source_url,
+      "Company: " + (item.company || "Not identified") + " | Type: " + item.case_type,
+      "",
+      "SUMMARY",
+      item.summary,
+      "",
+      "DETAIL",
+      item.detail,
+      "",
+      "COMPARISON / ANALOGY",
+      item.comparison_or_analogy || "Not provided",
+      "",
+      "BULL CASE",
+      item.bull_case || "Not provided",
+      "",
+      "BEAR CASE",
+      item.bear_case || "Not provided",
+      "",
+      "OPEN QUESTION",
+      item.open_question || "Not provided",
+      "",
+      "INFERENCES TO VERIFY",
+      inferences,
+      "",
+      "EDITOR CHECKLIST",
+      checklist,
+      "",
+      "Scanned " + (response.scanned || 0) + " candidates."
+    ].join("\n");
+    resultBox.classList.remove("hidden");
+    toast("Corporate case draft created.");
+  } catch (e) {
+    resultBox.textContent = "Error: " + e.message;
+    resultBox.classList.remove("hidden");
+    toast("Failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btnText.textContent = "Build case study";
+  }
+});
+
 // Scraper form
 $("#scrapeForm").addEventListener("submit", async (e) => {
   e.preventDefault();

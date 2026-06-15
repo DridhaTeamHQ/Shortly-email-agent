@@ -7,6 +7,8 @@ const requiredFiles = [
   "scripts/static-server.mjs",
   "supabase/schema.sql",
   "supabase/functions/send-article/index.ts",
+  "supabase/functions/corporate-case-agent/index.ts",
+  "supabase/functions/_shared/corporate-case-sources.ts",
   "src/scraper-adapter.ts",
   "README.md"
 ];

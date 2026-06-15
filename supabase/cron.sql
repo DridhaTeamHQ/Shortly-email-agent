@@ -53,7 +53,8 @@ where jobname in (
   'shortly-send',
   'shortly-scrape-8am-ist',
   'shortly-summarize-815am-ist',
-  'shortly-send-digest-9am-ist'
+  'shortly-send-digest-9am-ist',
+  'shortly-corporate-case-weekdays'
 );
 
 -- 02:30 UTC (08:00 IST): scrape sources.
@@ -76,4 +77,11 @@ select cron.schedule(
   'shortly-send-digest-9am-ist',
   '30 3 * * *',
   $$select public.invoke_edge('send-daily-digest', '{"manual": true}'::jsonb, 300000);$$
+);
+
+-- 04:30 UTC (10:00 IST), Monday-Friday: draft one Corporate Case.
+select cron.schedule(
+  'shortly-corporate-case-weekdays',
+  '30 4 * * 1-5',
+  $$select public.invoke_edge('corporate-case-agent', '{}'::jsonb, 300000);$$
 );
