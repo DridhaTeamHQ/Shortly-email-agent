@@ -9,6 +9,8 @@ const requiredFiles = [
   "supabase/functions/send-article/index.ts",
   "supabase/functions/corporate-case-agent/index.ts",
   "supabase/functions/_shared/corporate-case-sources.ts",
+  "supabase/functions/editorial-topic-agent/index.ts",
+  "supabase/functions/_shared/editorial-topics.ts",
   "src/scraper-adapter.ts",
   "README.md"
 ];

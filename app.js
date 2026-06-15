@@ -1196,6 +1196,58 @@ $("#buildCorporateCase").addEventListener("click", async () => {
   }
 });
 
+$("#buildEditorialTopic").addEventListener("click", async () => {
+  const btn = $("#buildEditorialTopic");
+  const btnText = $("#editorialTopicBtnText");
+  const resultBox = $("#editorialTopicResult");
+  const topic = $("#editorialTopicSelect").value;
+  btn.disabled = true;
+  btnText.textContent = "Researching...";
+  resultBox.classList.add("hidden");
+  try {
+    if (!cfg.editorialTopics) throw new Error("Missing editorial topics endpoint");
+    const response = await api("POST", cfg.editorialTopics, { topic });
+    const draft = response.draft;
+    const content = draft.content || {};
+    const lines = [draft.topic_name, draft.headline, ""];
+
+    if (draft.format === "hybrid") {
+      lines.push("FIVE BRIEFS");
+      (content.briefs || []).forEach((brief, index) => {
+        lines.push(
+          "",
+          `${index + 1}. ${brief.headline}`,
+          brief.what_happened || "",
+          brief.why_it_matters || "",
+          `Source: ${brief.source_url || "Not supplied"}`
+        );
+      });
+      lines.push("", "FEATURE / TAKE", content.feature?.headline || draft.headline);
+    }
+
+    lines.push("", "SUMMARY", draft.summary, "", "DETAIL", draft.detail);
+    const sources = (draft.source_links || []).map((item) => `- ${item.source}: ${item.url}`).join("\n");
+    const inferences = (draft.inference_notes || []).map((item) => `- ${item}`).join("\n") || "- None flagged";
+    const checklist = (draft.editor_checklist || []).map((item) => `- ${item}`).join("\n");
+    lines.push(
+      "", "SOURCES", sources,
+      "", "INFERENCES TO VERIFY", inferences,
+      "", "EDITOR CHECKLIST", checklist,
+      "", `Scanned ${response.scanned || 0} candidates; used ${response.sourcesUsed || 0} sources.`
+    );
+    resultBox.textContent = lines.join("\n");
+    resultBox.classList.remove("hidden");
+    toast(`${draft.topic_name} draft created.`);
+  } catch (e) {
+    resultBox.textContent = "Error: " + e.message;
+    resultBox.classList.remove("hidden");
+    toast("Failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btnText.textContent = "Build topic draft";
+  }
+});
+
 // Scraper form
 $("#scrapeForm").addEventListener("submit", async (e) => {
   e.preventDefault();

@@ -16,6 +16,7 @@ Automated daily news digest with a QA-in-the-loop.
   - `review-article` - accepts `approve | reject | edit` actions from the dashboard.
   - `send-daily-digest` - picks top 10 approved articles, renders one polished HTML email, fans out via Amazon SES (or Brevo fallback), logs deliveries, marks `sent`.
   - `corporate-case-agent` - selects one source-backed Indian company case from the last five days and drafts the 400-600 word Corporate Case format for editor review.
+  - `editorial-topic-agent` - builds Real Estate, Policy Partner, Money Matters, and Wellness drafts with topic-specific sources, formats, safety rules, and editor checklists.
   - `send-article` - legacy single-article send (still works for manual one-offs).
 - `src/scraper-adapter.ts` - adapter for external scrapers that already produce a finished payload.
 
@@ -44,7 +45,7 @@ pending  ->  summarized  ->  approved  ->  sent
    ```
 5. Deploy functions:
    ```bash
-   supabase functions deploy scrape-news summarize-articles list-articles review-article send-daily-digest send-article corporate-case-agent
+   supabase functions deploy scrape-news summarize-articles list-articles review-article send-daily-digest send-article corporate-case-agent editorial-topic-agent
    ```
 6. Edit `supabase/cron.sql` - replace `<PROJECT_REF>` and `<SERVICE_ROLE_KEY>` - then run it in the SQL editor.
 7. In `index.html` (or your hosting layer), inject the endpoints before `app.js`:
@@ -57,6 +58,7 @@ pending  ->  summarized  ->  approved  ->  sent
      window.SHORTLY_SUMMARIZE_ENDPOINT = "https://YOUR_PROJECT.functions.supabase.co/summarize-articles";
      window.SHORTLY_EMAIL_ENDPOINT     = "https://YOUR_PROJECT.functions.supabase.co/send-article";
      window.SHORTLY_CORPORATE_CASE_ENDPOINT = "https://YOUR_PROJECT.functions.supabase.co/corporate-case-agent";
+     window.SHORTLY_EDITORIAL_TOPICS_ENDPOINT = "https://YOUR_PROJECT.functions.supabase.co/editorial-topic-agent";
      window.SHORTLY_REVIEWER           = "qa-username";
    </script>
    ```
@@ -103,3 +105,5 @@ Top of the panel has Run scrape, Summarize, and Send buttons for manual runs.
 Configured in `supabase/functions/_shared/sources.ts`.
 
 Corporate Case sources are configured separately in `supabase/functions/_shared/corporate-case-sources.ts`: The Ken, Inc42, Moneycontrol business reporting, and ET Prime. The weekday cron runs at 10:00 IST and stores each generated draft in `corporate_cases` for editor review.
+
+The additional editorial topics are configured in `supabase/functions/_shared/editorial-topics.ts`. Real Estate and Money Matters use the five-brief-plus-feature hybrid; Policy Partner and The Wellness Daily use the 100-word summary plus 300-500-word detail structure. They run Monday-Saturday on staggered schedules and store drafts in `editorial_drafts`.

@@ -54,7 +54,11 @@ where jobname in (
   'shortly-scrape-8am-ist',
   'shortly-summarize-815am-ist',
   'shortly-send-digest-9am-ist',
-  'shortly-corporate-case-weekdays'
+  'shortly-corporate-case-weekdays',
+  'shortly-real-estate-mon-sat',
+  'shortly-policy-partner-mon-sat',
+  'shortly-money-matters-mon-sat',
+  'shortly-wellness-daily-mon-sat'
 );
 
 -- 02:30 UTC (08:00 IST): scrape sources.
@@ -84,4 +88,29 @@ select cron.schedule(
   'shortly-corporate-case-weekdays',
   '30 4 * * 1-5',
   $$select public.invoke_edge('corporate-case-agent', '{}'::jsonb, 300000);$$
+);
+
+-- Stagger topic agents to avoid overlapping long OpenAI/source-fetch runs.
+select cron.schedule(
+  'shortly-real-estate-mon-sat',
+  '40 4 * * 1-6',
+  $$select public.invoke_edge('editorial-topic-agent', '{"topic":"real-estate"}'::jsonb, 300000);$$
+);
+
+select cron.schedule(
+  'shortly-policy-partner-mon-sat',
+  '50 4 * * 1-6',
+  $$select public.invoke_edge('editorial-topic-agent', '{"topic":"policy-partner"}'::jsonb, 300000);$$
+);
+
+select cron.schedule(
+  'shortly-money-matters-mon-sat',
+  '0 5 * * 1-6',
+  $$select public.invoke_edge('editorial-topic-agent', '{"topic":"money-matters"}'::jsonb, 300000);$$
+);
+
+select cron.schedule(
+  'shortly-wellness-daily-mon-sat',
+  '10 5 * * 1-6',
+  $$select public.invoke_edge('editorial-topic-agent', '{"topic":"wellness-daily"}'::jsonb, 300000);$$
 );

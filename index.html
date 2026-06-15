@@ -215,6 +215,27 @@
 
           <div class="nav-divider" style="margin:24px 0"></div>
 
+          <div class="fetch-today-card">
+            <div class="fetch-today-info">
+              <h3 style="margin:0 0 4px">Build editorial topic</h3>
+              <p class="muted" style="margin:0;font-size:13px">Generate Real Estate, Policy Partner, Money Matters, or Wellness using each topic's locked sources, format, voice, and safety rules.</p>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <select id="editorialTopicSelect" aria-label="Editorial topic">
+                <option value="real-estate">Industry: Real Estate</option>
+                <option value="policy-partner">Policy Partner</option>
+                <option value="money-matters">Money Matters</option>
+                <option value="wellness-daily">The Wellness Daily</option>
+              </select>
+              <button class="btn-primary btn-fetch" id="buildEditorialTopic">
+                <span id="editorialTopicBtnText">Build topic draft</span>
+              </button>
+            </div>
+          </div>
+          <pre id="editorialTopicResult" class="code-card hidden"></pre>
+
+          <div class="nav-divider" style="margin:24px 0"></div>
+
           <p class="muted" style="margin:0 0 12px">
             Or submit one article manually. The server will summarize it with GPT-4o and add it to the review queue.
           </p>
