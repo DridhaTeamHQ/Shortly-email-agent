@@ -76,7 +76,7 @@ Deno.serve(async (request) => {
     .gte("scraped_at", since)
     .order("rank_score", { ascending: false })
     .order("scraped_at", { ascending: false })
-    .limit(120);
+    .limit(50);
 
   if (error) return json({ error: error.message }, 500);
 
@@ -84,7 +84,7 @@ Deno.serve(async (request) => {
   if (articles.length === 0) return json({ summarized: 0, message: "No pending articles" });
 
   // Summarize in parallel (capped) to keep within edge time budget
-  const CONCURRENCY = 6;
+  const CONCURRENCY = 2;
   const results: Array<{ id: string; summary: string | null; section: string; prominence: number; error?: string }> = [];
 
   for (let i = 0; i < articles.length; i += CONCURRENCY) {
@@ -172,13 +172,17 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
   const cleanedExcerpt = cleanArticleText(article.raw_content || "");
   let excerpt = cleanedExcerpt;
 
-  if (needsFullArticleFetch(article.raw_content || "")) {
+  if (cleanedExcerpt.length < 180 && needsFullArticleFetch(article.raw_content || "")) {
     try {
       const readable = await fetchReadableArticleText(article.url);
       if (readable.length > excerpt.length) excerpt = readable;
     } catch {
       // Keep the cleaned RSS excerpt if page extraction fails.
     }
+  }
+
+  if (excerpt.length > 2200) {
+    excerpt = `${excerpt.slice(0, 2200)}...`;
   }
 
   const userPrompt = [
@@ -199,7 +203,7 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
     body: JSON.stringify({
       model,
       temperature: 0.3,
-      max_tokens: 350,
+      max_tokens: 220,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt }

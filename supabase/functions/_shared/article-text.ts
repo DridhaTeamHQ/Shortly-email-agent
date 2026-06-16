@@ -1,6 +1,3 @@
-import { Readability } from "npm:@mozilla/readability@0.6.0";
-import { parseHTML } from "npm:linkedom@0.18.12";
-
 const INLINE_NOISE_PATTERNS = [
   /follow us on [^.?!]*/gi,
   /join (our|the) (telegram|whatsapp|facebook|instagram|x|twitter|linkedin) [^.?!]*/gi,
@@ -94,8 +91,8 @@ export async function fetchReadableArticleText(url: string): Promise<string> {
   if (!response.ok) throw new Error(`Article HTTP ${response.status}`);
 
   const html = await response.text();
-  const { document } = parseHTML(html);
-  const parsed = new Readability(document as unknown as Document).parse();
-  const text = parsed?.textContent?.trim() || "";
-  return cleanArticleText(text).slice(0, 12000);
+  const articleMatch = html.match(/<article[\s\S]*?>([\s\S]*?)<\/article>/i);
+  const bodyMatch = html.match(/<body[\s\S]*?>([\s\S]*?)<\/body>/i);
+  const primary = articleMatch?.[1] || bodyMatch?.[1] || html;
+  return cleanArticleText(primary).slice(0, 12000);
 }
