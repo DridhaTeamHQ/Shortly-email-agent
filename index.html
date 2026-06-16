@@ -102,7 +102,22 @@
 
         <!-- APPROVED -->
         <section class="section" data-section="approved">
-          <p class="muted" style="margin:0 0 12px;font-size:13px">Drag cards to reorder within the digest.</p>
+          <div class="topic-workbench approved-workbench">
+            <div class="topic-tabs" id="approvedTopicTabs">
+              <button class="topic-tab active" data-topic="daily-wrap">Daily Wrap</button>
+              <button class="topic-tab" data-topic="corporate-case">Corporate Case</button>
+              <button class="topic-tab" data-topic="real-estate">Real Estate</button>
+              <button class="topic-tab" data-topic="policy-partner">Policy Partner</button>
+              <button class="topic-tab" data-topic="money-matters">Money Matters</button>
+              <button class="topic-tab" data-topic="wellness-daily">Wellness Daily</button>
+              <button class="topic-tab" data-topic="all-topics">All Topics</button>
+            </div>
+            <div class="approved-send-actions">
+              <button class="btn-ghost" id="sendAllTopics" disabled>Send all topics</button>
+              <button class="btn-primary" id="sendApprovedTopic" disabled>Send Daily Wrap</button>
+            </div>
+          </div>
+          <p class="muted" style="margin:0 0 12px;font-size:13px">Pick a category to review approved items. Daily Wrap cards can still be dragged to reorder.</p>
           <div class="list" id="approvedList"><div class="skeleton skeleton-card"></div></div>
         </section>
 

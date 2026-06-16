@@ -24,6 +24,7 @@ window.SHORTLY = {
   list:        "${functionsBase}/list-articles",
   review:      "${functionsBase}/review-article",
   digest:      "${functionsBase}/send-daily-digest",
+  topicDigest: "${functionsBase}/send-topic-digest",
   submit:      "${functionsBase}/send-article",
   subscribers: "${functionsBase}/subscribers",
   scrape:      "${functionsBase}/scrape-news",

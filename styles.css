@@ -193,6 +193,14 @@ a:hover { text-decoration: underline; }
 .topic-tab:hover { background: var(--soft); color: var(--ink); }
 .topic-tab.active { background: var(--purple); color: #fff; border-color: var(--purple); }
 .topic-draft-card textarea { min-height: 132px; }
+.approved-workbench { align-items: flex-start; }
+.approved-send-actions {
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
+}
+.approved-group-title {
+  margin: 12px 0 2px; font-size: 13px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
 
 /* ── Article Card ── */
 .card {

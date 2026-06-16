@@ -43,6 +43,7 @@ function toast(msg) {
 }
 
 function topicLabel(slug) {
+  if (slug === "all-topics") return "All Topics";
   return NEWSLETTER_TOPICS.find((topic) => topic.slug === slug)?.label || slug;
 }
 
@@ -199,6 +200,7 @@ const state = {
   editorialDrafts: [],
   section: "review",
   activeTopicDraft: "corporate-case",
+  approvedTopic: "daily-wrap",
   search: "",
   filterTopic: "",
   filterSection: "",
@@ -258,6 +260,12 @@ function dailyWrapSubscriberCount() {
   ).length;
 }
 
+function topicSubscriberCount(topicSlug) {
+  const subscribed = state.subscribers.filter((s) => s.status === "subscribed");
+  if (topicSlug === "all-topics") return subscribed.length;
+  return subscribed.filter((s) => normalizeTopicList(s.topics).includes(topicSlug)).length;
+}
+
 function updateSubscriberSelectionUi() {
   const count = selectedSubscriberCount();
   const bar = $("#subscriberBulkBar");
@@ -307,7 +315,7 @@ function refreshChrome() {
 
   const titles = {
     review: ["Review queue", `Wrapped: ${counts.wrapped}/${DAILY_CAP} | ${pending} pending`],
-    approved: ["Approved", `${counts.wrapped} Wrapped article${counts.wrapped === 1 ? "" : "s"} ready`],
+    approved: ["Approved", `${topicLabel(state.approvedTopic)} approved items ready`],
     topics: ["Topic Articles", `${topicLabel(state.activeTopicDraft)} drafts in article-card format`],
     rejected: ["Rejected", `${rejected} articles removed from queue`],
     history: ["Digest History", "All past digests and delivery stats"],
@@ -408,11 +416,44 @@ function renderReview() {
 }
 
 function renderApproved() {
-  const items = state.articles.filter(isApprovedToday);
+  const topic = state.approvedTopic;
+  const tabs = $("#approvedTopicTabs");
+  if (tabs) {
+    tabs.querySelectorAll(".topic-tab").forEach((tab) => {
+      tab.classList.toggle("active", tab.dataset.topic === topic);
+    });
+  }
+
+  const dailyItems = topic === "daily-wrap" || topic === "all-topics"
+    ? state.articles.filter(isApprovedToday)
+    : [];
+  const topicItems = topic === "daily-wrap"
+    ? []
+    : topicDraftCards(topic, "approved");
+  const topicCount = dailyItems.length + topicItems.length;
+
+  const sendTopic = $("#sendApprovedTopic");
+  if (sendTopic) {
+    sendTopic.textContent = `Send ${topicLabel(topic)}`;
+    sendTopic.disabled = topicCount === 0 || topicSubscriberCount(topic) === 0 || (!cfg.topicDigest && topic !== "daily-wrap");
+  }
+
+  const allTopicCount = state.articles.filter(isApprovedToday).length + topicDraftCards("all-topics", "approved").length;
+  const sendAll = $("#sendAllTopics");
+  if (sendAll) {
+    sendAll.disabled = allTopicCount === 0 || topicSubscriberCount("all-topics") === 0 || !cfg.topicDigest;
+  }
+
   const node = $("#approvedList");
-  node.innerHTML = items.length
-    ? items.map((a) => cardHtml(a, "approved")).join("")
-    : `<p class="muted">Nothing approved yet today.</p>`;
+  const dailyHtml = dailyItems.length
+    ? `${topic === "all-topics" ? `<h3 class="approved-group-title">Daily Wrap</h3>` : ""}${dailyItems.map((a) => cardHtml(a, "approved")).join("")}`
+    : "";
+  const topicHtml = topicItems.length
+    ? `${topic === "all-topics" ? `<h3 class="approved-group-title">Topic Articles</h3>` : ""}${topicItems.map(topicDraftCardHtml).join("")}`
+    : "";
+  node.innerHTML = dailyHtml || topicHtml
+    ? `${dailyHtml}${topicHtml}`
+    : `<p class="muted">No approved ${esc(topicLabel(topic))} items yet.</p>`;
   attachDragListeners();
 }
 
@@ -424,24 +465,27 @@ function renderRejected() {
     : `<p class="muted">No rejected articles.</p>`;
 }
 
-function topicDraftCards() {
-  if (state.activeTopicDraft === "corporate-case") {
-    return state.corporateCases.map((item) => ({
-      kind: "corporate",
-      id: item.id,
-      cardType: "single",
-      topic: "Corporate Case",
-      status: item.status || "draft",
-      source: item.source,
-      sourceUrl: item.source_url,
-      headline: item.headline,
-      body: `${item.summary || ""}\n\n${item.detail || ""}`.trim(),
-      generatedAt: item.generated_at
-    }));
+function topicDraftCards(topicSlug = state.activeTopicDraft, statusFilter = "") {
+  const byStatus = (item) => !statusFilter || (item.status || "draft") === statusFilter;
+  const corporateCards = state.corporateCases.filter(byStatus).map((item) => ({
+    kind: "corporate",
+    id: item.id,
+    cardType: "single",
+    topic: "Corporate Case",
+    status: item.status || "draft",
+    source: item.source,
+    sourceUrl: item.source_url,
+    headline: item.headline,
+    body: `${item.summary || ""}\n\n${item.detail || ""}`.trim(),
+    generatedAt: item.generated_at
+  }));
+
+  if (topicSlug === "corporate-case" || topicSlug === "all-topics") {
+    if (topicSlug === "corporate-case") return corporateCards;
   }
 
-  return state.editorialDrafts
-    .filter((draft) => draft.topic_slug === state.activeTopicDraft)
+  const editorialCards = state.editorialDrafts
+    .filter((draft) => (topicSlug === "all-topics" || draft.topic_slug === topicSlug) && byStatus(draft))
     .flatMap((draft) => {
       const content = draft.content || {};
       if (draft.format === "hybrid") {
@@ -485,8 +529,14 @@ function topicDraftCards() {
         headline: draft.headline,
         body: `${draft.summary || ""}\n\n${draft.detail || ""}`.trim(),
         generatedAt: draft.generated_at
-      }];
+        }];
     });
+
+  if (topicSlug === "all-topics") {
+    return [...corporateCards, ...editorialCards];
+  }
+
+  return editorialCards;
 }
 
 function sourceNameForUrl(draft, url) {
@@ -500,6 +550,14 @@ function topicDraftCardHtml(card) {
   const words = card.body.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.ceil(words / 200));
   const cardId = `${card.kind}:${card.id}:${card.cardType}:${card.briefIndex ?? ""}`;
+  const draftActions = card.status === "approved"
+    ? `
+        <button class="btn-save" data-action="update">Save</button>
+        <button class="btn-reject" data-action="reject">Reject draft</button>`
+    : `
+        <button class="btn-save" data-action="update">Save</button>
+        <button class="btn-reject" data-action="reject">Reject draft</button>
+        <button class="btn-approve" data-action="approve">Approve draft</button>`;
   return `
     <article class="card topic-draft-card" data-kind="${esc(card.kind)}" data-id="${esc(card.id)}" data-card-type="${esc(card.cardType)}" data-brief-index="${card.briefIndex ?? ""}">
       <header>
@@ -521,9 +579,7 @@ function topicDraftCardHtml(card) {
       </header>
       <textarea data-role="summary" rows="${card.cardType === "brief" ? 4 : 8}">${esc(card.body)}</textarea>
       <div class="actions">
-        <button class="btn-save" data-action="update">Save</button>
-        <button class="btn-reject" data-action="reject">Reject draft</button>
-        <button class="btn-approve" data-action="approve">Approve draft</button>
+        ${draftActions}
       </div>
     </article>`;
 }
@@ -1259,8 +1315,20 @@ $("#bulkClear").addEventListener("click", () => {
     const btn = e.target.closest("button[data-action]");
     if (!btn) return;
     const card = btn.closest(".card");
+    if (card?.classList.contains("topic-draft-card")) {
+      handleTopicDraftAction(card, btn.dataset.action);
+      return;
+    }
     handleArticleAction(card, btn.dataset.action);
   });
+});
+
+$("#approvedTopicTabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".topic-tab");
+  if (!tab) return;
+  state.approvedTopic = tab.dataset.topic;
+  refreshChrome();
+  renderApproved();
 });
 
 $("#topicTabs").addEventListener("click", (e) => {
@@ -1456,8 +1524,7 @@ $("#previewModal").addEventListener("click", (e) => {
   if (e.target === e.currentTarget) $("#previewModal").classList.remove("show");
 });
 
-// Send digest
-$("#sendDigest").addEventListener("click", async () => {
+async function sendDailyDigest() {
   const selectedIds = [...state.selectedSubscribers];
   const approvedArticles = state.articles.filter(isApprovedToday);
   const selectedArticleIds = approvedArticles
@@ -1483,7 +1550,47 @@ $("#sendDigest").addEventListener("click", async () => {
   } catch (e) {
     toast(`Failed: ${e.message}`);
   }
-});
+}
+
+async function sendTopicDigest(topicSlug) {
+  if (topicSlug === "daily-wrap") {
+    await sendDailyDigest();
+    return;
+  }
+  if (!cfg.topicDigest) {
+    toast("Topic digest endpoint is missing.");
+    return;
+  }
+  const selectedIds = [...state.selectedSubscribers];
+  const subCount = selectedIds.length || topicSubscriberCount(topicSlug);
+  const topicItems = topicDraftCards(topicSlug, "approved").length;
+  const dailyItems = topicSlug === "all-topics" ? state.articles.filter(isApprovedToday).length : 0;
+  const itemCount = topicItems + dailyItems;
+  if (itemCount === 0) {
+    toast(`No approved ${topicLabel(topicSlug)} items to send.`);
+    return;
+  }
+  if (!confirm(`Send ${topicLabel(topicSlug)} email with ${itemCount} item${itemCount === 1 ? "" : "s"} to ${subCount} subscribers?`)) return;
+
+  try {
+    const res = await api("POST", cfg.topicDigest, {
+      manual: true,
+      topic: topicSlug,
+      ...(selectedIds.length ? { subscriber_ids: selectedIds } : {})
+    });
+    state.selectedSubscribers.clear();
+    toast(`Sent ${topicLabel(topicSlug)} to ${res.sent ?? 0} subscribers.`);
+    await reload();
+    showSection("approved");
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  }
+}
+
+// Send digest
+$("#sendDigest").addEventListener("click", sendDailyDigest);
+$("#sendApprovedTopic").addEventListener("click", () => sendTopicDigest(state.approvedTopic));
+$("#sendAllTopics").addEventListener("click", () => sendTopicDigest("all-topics"));
 
 // Keyboard shortcut: Escape closes modal
 document.addEventListener("keydown", (e) => {
