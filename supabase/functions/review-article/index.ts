@@ -6,6 +6,14 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 
 type Action = "approve" | "reject" | "edit" | "reorder";
 
+function utcDayWindow() {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -54,6 +62,19 @@ Deno.serve(async (request) => {
       return json({ error: "rank_score is required for reorder" }, 400);
     }
   } else if (action === "approve") {
+    const { start, end } = utcDayWindow();
+    const { count, error: countError } = await supabase
+      .from("articles")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "approved")
+      .gte("reviewed_at", start)
+      .lt("reviewed_at", end);
+
+    if (countError) return json({ error: countError.message }, 500);
+    if ((count ?? 0) >= 10) {
+      return json({ error: "Daily approval limit reached. Remove one approved article before approving another." }, 409);
+    }
+
     patch.status = "approved";
     if (edited_title?.trim()) patch.edited_title = edited_title.trim();
     if (edited_summary?.trim()) patch.edited_summary = edited_summary.trim();

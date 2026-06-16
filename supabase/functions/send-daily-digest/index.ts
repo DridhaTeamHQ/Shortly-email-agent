@@ -33,6 +33,14 @@ const FOOTER_LOGO_URL =
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
 const AUTO_DIGEST_ENABLED = (Deno.env.get("SHORTLY_AUTO_DIGEST_ENABLED") ?? "false").toLowerCase() === "true";
 
+function utcDayWindow() {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 function escapeHtmlText(value = ""): string {
   return value
     .replaceAll("&", "&amp;")
@@ -61,6 +69,7 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
+  const { start: todayStart, end: todayEnd } = utcDayWindow();
   let subscriberIds: string[] = [];
   let articleIds: string[] = [];
   let isManual = false;
@@ -97,6 +106,8 @@ Deno.serve(async (request) => {
       .from("articles")
       .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
       .eq("status", "approved")
+      .gte("reviewed_at", todayStart)
+      .lt("reviewed_at", todayEnd)
       .order("rank_score", { ascending: false })
       .order("scraped_at", { ascending: false })
       .limit(20);
@@ -114,6 +125,8 @@ Deno.serve(async (request) => {
       .from("articles")
       .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
       .eq("status", "approved")
+      .gte("reviewed_at", todayStart)
+      .lt("reviewed_at", todayEnd)
       .order("rank_score", { ascending: false })
       .order("scraped_at", { ascending: false })
       .limit(need + 10);
