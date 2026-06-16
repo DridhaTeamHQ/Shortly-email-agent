@@ -3,6 +3,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
+import { cleanArticleText, fetchReadableArticleText, needsFullArticleFetch } from "../_shared/article-text.ts";
 
 const SYSTEM_PROMPT = `You are a senior editor for a respected daily news briefing read by busy professionals.
 
@@ -18,6 +19,8 @@ STRICT RULES:
 - No hedging: cut "could", "may", "appears to" unless central to the story.
 - No editorializing, no opinions, no marketing language, no emoji, no quotes.
 - Preserve specific numbers, percentages, dates, currencies, and proper names.
+- Ignore page furniture: phone numbers, helplines, contact info, app prompts, newsletters, social prompts, copyright lines, and subscription banners are not part of the news story.
+- If the excerpt is noisy or incomplete, extract the core news event only. Never repeat raw phone numbers unless they are central to the story itself.
 
 Also classify the article into one of two newsletter sections:
 
@@ -166,11 +169,23 @@ Deno.serve(async (request) => {
 });
 
 async function summarize(apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string; prominence: number }> {
+  const cleanedExcerpt = cleanArticleText(article.raw_content || "");
+  let excerpt = cleanedExcerpt;
+
+  if (needsFullArticleFetch(article.raw_content || "")) {
+    try {
+      const readable = await fetchReadableArticleText(article.url);
+      if (readable.length > excerpt.length) excerpt = readable;
+    } catch {
+      // Keep the cleaned RSS excerpt if page extraction fails.
+    }
+  }
+
   const userPrompt = [
     `TITLE: ${article.title}`,
     article.source ? `SOURCE: ${article.source}` : null,
     `URL: ${article.url}`,
-    article.raw_content ? `EXCERPT:\n${article.raw_content}` : null
+    excerpt ? `EXCERPT:\n${excerpt}` : null
   ]
     .filter(Boolean)
     .join("\n\n");

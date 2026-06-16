@@ -3,6 +3,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
+import { cleanArticleText } from "../_shared/article-text.ts";
 import { SOURCES } from "../_shared/sources.ts";
 import { parseFeed } from "../_shared/rss.ts";
 
@@ -26,10 +27,11 @@ Deno.serve(async (request) => {
         const xml = await response.text();
         const items = parseFeed(xml);
         for (const item of items) {
+          const cleanedDescription = cleanArticleText(item.description ?? "");
           scraped.push({
             title: item.title.slice(0, 500),
             url: item.url,
-            raw_content: item.description?.slice(0, 4000) ?? "",
+            raw_content: cleanedDescription.slice(0, 4000),
             source: src.name,
             topic: src.topic ?? null,
             rank_score: src.weight,
