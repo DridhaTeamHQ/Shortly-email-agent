@@ -20,7 +20,7 @@ type Article = {
   rank_score: number;
 };
 
-type Subscriber = { id: string; email: string; full_name: string | null };
+type Subscriber = { id: string; email: string; full_name: string | null; topics?: string[] | null };
 
 const TOTAL_ARTICLES = 10;
 const FINANCE_TOPICS = ["business", "india business", "finance", "economy", "markets"];
@@ -154,10 +154,12 @@ Deno.serve(async (request) => {
   // 3. Subscribers
   let subQuery = supabase
     .from("subscribers")
-    .select("id,email,full_name")
+    .select("id,email,full_name,topics")
     .eq("status", "subscribed");
   if (subscriberIds.length > 0) {
     subQuery = subQuery.in("id", subscriberIds);
+  } else {
+    subQuery = subQuery.contains("topics", ["daily-wrap"]);
   }
   const { data: subs, error: subError } = await subQuery;
   if (subError) return json({ error: subError.message }, 500);

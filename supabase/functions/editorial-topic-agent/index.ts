@@ -33,6 +33,61 @@ async function handleRequest(request: Request): Promise<Response> {
 
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
   const body = await request.json().catch(() => ({}));
+
+  if (["update", "approve", "reject"].includes(String(body.action ?? ""))) {
+    const id = String(body.id ?? "");
+    if (!id) return json({ error: "id is required" }, 400);
+    const { data: current, error: currentError } = await supabase
+      .from("editorial_drafts")
+      .select("*")
+      .eq("id", id)
+      .single();
+    if (currentError) return json({ error: currentError.message }, 500);
+
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (body.action === "approve") patch.status = "approved";
+    if (body.action === "reject") patch.status = "rejected";
+    if (body.action === "update") {
+      const content = { ...(current.content ?? {}) };
+      const cardType = String(body.card_type ?? "single");
+      if (current.format === "hybrid" && cardType === "brief") {
+        const index = Number(body.brief_index);
+        const briefs = Array.isArray(content.briefs) ? [...content.briefs] : [];
+        if (!Number.isInteger(index) || !briefs[index]) return json({ error: "valid brief_index is required" }, 400);
+        briefs[index] = {
+          ...briefs[index],
+          headline: String(body.headline ?? briefs[index].headline ?? "").trim(),
+          what_happened: String(body.what_happened ?? briefs[index].what_happened ?? "").trim(),
+          why_it_matters: String(body.why_it_matters ?? briefs[index].why_it_matters ?? "").trim()
+        };
+        content.briefs = briefs;
+        patch.briefing_items = briefs;
+      } else {
+        const target = current.format === "hybrid"
+          ? { ...(content.feature ?? {}) }
+          : content;
+        target.headline = String(body.headline ?? target.headline ?? current.headline ?? "").trim();
+        target.summary = String(body.summary ?? target.summary ?? current.summary ?? "").trim();
+        target.detail = String(body.detail ?? target.detail ?? current.detail ?? "").trim();
+        if (current.format === "hybrid") content.feature = target;
+        else Object.assign(content, target);
+        patch.headline = target.headline;
+        patch.summary = target.summary;
+        patch.detail = target.detail;
+      }
+      patch.content = content;
+    }
+
+    const { data, error } = await supabase
+      .from("editorial_drafts")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) return json({ error: error.message }, 500);
+    return json({ draft: data });
+  }
+
   const topic = getEditorialTopic(String(body.topic ?? ""));
   if (!topic) return json({ error: "Unknown topic", allowed: Object.keys(EDITORIAL_TOPICS) }, 400);
 

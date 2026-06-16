@@ -46,6 +46,28 @@ Deno.serve(async (request) => {
   }
 
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  const body = await request.json().catch(() => ({}));
+
+  if (["update", "approve", "reject"].includes(String(body.action ?? ""))) {
+    const id = String(body.id ?? "");
+    if (!id) return json({ error: "id is required" }, 400);
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (body.action === "approve") patch.status = "approved";
+    if (body.action === "reject") patch.status = "rejected";
+    if (body.action === "update") {
+      if ("headline" in body) patch.headline = String(body.headline ?? "").trim();
+      if ("summary" in body) patch.summary = String(body.summary ?? "").trim();
+      if ("detail" in body) patch.detail = String(body.detail ?? "").trim();
+    }
+    const { data, error } = await supabase
+      .from("corporate_cases")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) return json({ error: error.message }, 500);
+    return json({ case: data });
+  }
 
   const openAiKey = requiredEnv("OPENAI_API_KEY");
   const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";

@@ -1,6 +1,33 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 
+const VALID_TOPICS = new Set([
+  "daily-wrap",
+  "corporate-case",
+  "real-estate",
+  "policy-partner",
+  "money-matters",
+  "wellness-daily"
+]);
+
+function normalizeTopics(value: unknown): string[] {
+  const source = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[;,|]/) : [];
+  const topics = source
+    .map((item) => String(item).trim().toLowerCase())
+    .map((item) => item.replace(/[\s_]+/g, "-"))
+    .map((item) => {
+      if (["daily", "daily-wrap", "shortly", "shortly-daily-wrap"].includes(item)) return "daily-wrap";
+      if (["corporate", "corporate-case", "case-study"].includes(item)) return "corporate-case";
+      if (["real-estate", "realestate", "property"].includes(item)) return "real-estate";
+      if (["policy", "policy-partner"].includes(item)) return "policy-partner";
+      if (["money", "money-matters", "finance"].includes(item)) return "money-matters";
+      if (["wellness", "wellness-daily", "health"].includes(item)) return "wellness-daily";
+      return item;
+    })
+    .filter((item) => VALID_TOPICS.has(item));
+  return [...new Set(topics.length ? topics : ["daily-wrap"])];
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -11,7 +38,7 @@ Deno.serve(async (request) => {
   if (request.method === "GET") {
     const { data, error } = await supabase
       .from("subscribers")
-      .select("id,email,full_name,phone_number,status,created_at")
+      .select("id,email,full_name,phone_number,topics,status,created_at")
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);
     return json({ subscribers: data });
@@ -27,9 +54,10 @@ Deno.serve(async (request) => {
       const normalizedEmail = email.trim().toLowerCase();
       const normalizedName = full_name?.trim() || null;
       const normalizedPhone = phone_number?.trim() || null;
+      const normalizedTopics = normalizeTopics(body.topics);
       const { data: existing, error: existingError } = await supabase
         .from("subscribers")
-        .select("id,status,full_name,phone_number")
+        .select("id,status,full_name,phone_number,topics")
         .eq("email", normalizedEmail)
         .maybeSingle();
       if (existingError) return json({ error: existingError.message }, 500);
@@ -41,6 +69,7 @@ Deno.serve(async (request) => {
         };
         if (normalizedName) patch.full_name = normalizedName;
         if (normalizedPhone) patch.phone_number = normalizedPhone;
+        patch.topics = normalizedTopics;
         const { error } = await supabase
           .from("subscribers")
           .update(patch)
@@ -55,7 +84,7 @@ Deno.serve(async (request) => {
 
       const { error } = await supabase
         .from("subscribers")
-        .insert({ email: normalizedEmail, full_name: normalizedName, phone_number: normalizedPhone });
+        .insert({ email: normalizedEmail, full_name: normalizedName, phone_number: normalizedPhone, topics: normalizedTopics });
       if (error) return json({ error: error.message }, 400);
 
       return json({ ok: true, created: true });
@@ -70,6 +99,7 @@ Deno.serve(async (request) => {
           email: row?.email?.trim()?.toLowerCase() || "",
           full_name: row?.full_name?.trim() || null,
           phone_number: row?.phone_number?.trim() || null,
+          topics: normalizeTopics(row?.topics),
           status: "subscribed",
           updated_at: updatedAt
         };
@@ -94,9 +124,12 @@ Deno.serve(async (request) => {
     if (action === "update") {
       const { id, status } = body;
       if (!id) return json({ error: "id is required" }, 400);
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (status) patch.status = status;
+      if ("topics" in body) patch.topics = normalizeTopics(body.topics);
       const { error } = await supabase
         .from("subscribers")
-        .update({ status, updated_at: new Date().toISOString() })
+        .update(patch)
         .eq("id", id);
       if (error) return json({ error: error.message }, 500);
       return json({ ok: true });

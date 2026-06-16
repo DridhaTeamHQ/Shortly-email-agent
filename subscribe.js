@@ -6,6 +6,7 @@ const button = document.querySelector("#subscribeButton");
 const message = document.querySelector("#subscribeMessage");
 const xLink = document.querySelector("#xLink");
 const linkedinLink = document.querySelector("#linkedinLink");
+const topicInputs = [...document.querySelectorAll('input[name="topics"]')];
 
 if (cfg.twitterUrl && xLink) {
   xLink.href = cfg.twitterUrl;
@@ -54,7 +55,8 @@ form?.addEventListener("submit", async (event) => {
     const data = await api(cfg.subscribers, {
       action: "add",
       email: emailInput.value.trim(),
-      full_name: nameInput.value.trim()
+      full_name: nameInput.value.trim(),
+      topics: topicInputs.filter((input) => input.checked).map((input) => input.value)
     });
 
     form.reset();

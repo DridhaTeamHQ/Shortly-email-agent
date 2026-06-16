@@ -5,6 +5,16 @@ const DAILY_CAP = cfg.dailyCap ?? 10;
 const AGENT_TOKEN_KEY = "shortly-agent-shared-token";
 let dashboardBooted = false;
 
+const NEWSLETTER_TOPICS = [
+  { slug: "daily-wrap", label: "Daily Wrap" },
+  { slug: "corporate-case", label: "Corporate Case" },
+  { slug: "real-estate", label: "Real Estate" },
+  { slug: "policy-partner", label: "Policy Partner" },
+  { slug: "money-matters", label: "Money Matters" },
+  { slug: "wellness-daily", label: "Wellness Daily" }
+];
+const TOPIC_DRAFT_TABS = NEWSLETTER_TOPICS.filter((topic) => topic.slug !== "daily-wrap");
+
 // ---------- helpers ----------
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -30,6 +40,28 @@ function toast(msg) {
     t.classList.remove("show");
     setTimeout(() => t.remove(), 220);
   }, 2800);
+}
+
+function topicLabel(slug) {
+  return NEWSLETTER_TOPICS.find((topic) => topic.slug === slug)?.label || slug;
+}
+
+function normalizeTopicSlug(value = "") {
+  const slug = String(value).trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (["daily", "shortly", "shortly-daily-wrap"].includes(slug)) return "daily-wrap";
+  if (["corporate", "case-study"].includes(slug)) return "corporate-case";
+  if (["realestate", "property"].includes(slug)) return "real-estate";
+  if (slug === "policy") return "policy-partner";
+  if (["money", "finance"].includes(slug)) return "money-matters";
+  if (["wellness", "health"].includes(slug)) return "wellness-daily";
+  return slug;
+}
+
+function normalizeTopicList(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(/[;,|]/);
+  const allowed = new Set(NEWSLETTER_TOPICS.map((topic) => topic.slug));
+  const topics = raw.map(normalizeTopicSlug).filter((slug) => allowed.has(slug));
+  return [...new Set(topics.length ? topics : ["daily-wrap"])];
 }
 
 async function api(method, path, body) {
@@ -163,7 +195,10 @@ const state = {
   articles: [],
   subscribers: [],
   digests: [],
+  corporateCases: [],
+  editorialDrafts: [],
   section: "review",
+  activeTopicDraft: "corporate-case",
   search: "",
   filterTopic: "",
   filterSection: "",
@@ -217,6 +252,12 @@ function selectedSubscriberCount() {
   return state.subscribers.filter((s) => s.status === "subscribed" && state.selectedSubscribers.has(s.id)).length;
 }
 
+function dailyWrapSubscriberCount() {
+  return state.subscribers.filter((s) =>
+    s.status === "subscribed" && normalizeTopicList(s.topics).includes("daily-wrap")
+  ).length;
+}
+
 function updateSubscriberSelectionUi() {
   const count = selectedSubscriberCount();
   const bar = $("#subscriberBulkBar");
@@ -225,7 +266,7 @@ function updateSubscriberSelectionUi() {
   if (label) {
     label.textContent = count > 0
       ? `${count} recipient${count === 1 ? "" : "s"} selected`
-      : "All subscribed recipients will receive the digest";
+      : "All Daily Wrap subscribers will receive the digest";
   }
   if (bar) {
     bar.classList.toggle("show", count > 0);
@@ -245,18 +286,21 @@ function refreshChrome() {
   const pending = state.articles.filter((a) => a.status === "summarized").length;
   const rejected = state.articles.filter((a) => a.status === "rejected").length;
   const subs = state.subscribers.filter((s) => s.status === "subscribed").length;
+  const dailyWrapSubs = dailyWrapSubscriberCount();
+  const topicDrafts = state.corporateCases.length + state.editorialDrafts.length;
 
   $("#badgeReview").textContent = pending;
   $("#badgeApproved").textContent = `${approved}/${DAILY_CAP}`;
   $("#badgeRejected").textContent = rejected;
   $("#badgeSubs").textContent = subs;
+  $("#badgeTopics").textContent = topicDrafts;
 
   const send = $("#sendDigest");
   const selectedSubs = selectedSubscriberCount();
   send.textContent = selectedSubs > 0
     ? `Send (${counts.wrapped}) to ${selectedSubs}`
     : `Send (${counts.wrapped})`;
-  send.disabled = approved === 0 || subs === 0;
+  send.disabled = approved === 0 || dailyWrapSubs === 0;
 
   const preview = $("#previewDigest");
   preview.style.display = approved > 0 ? "" : "none";
@@ -264,6 +308,7 @@ function refreshChrome() {
   const titles = {
     review: ["Review queue", `Wrapped: ${counts.wrapped}/${DAILY_CAP} | ${pending} pending`],
     approved: ["Approved", `${counts.wrapped} Wrapped article${counts.wrapped === 1 ? "" : "s"} ready`],
+    topics: ["Topic Articles", `${topicLabel(state.activeTopicDraft)} drafts in article-card format`],
     rejected: ["Rejected", `${rejected} articles removed from queue`],
     history: ["Digest History", "All past digests and delivery stats"],
     analytics: ["Analytics", "Overview of your newsletter performance"],
@@ -379,6 +424,144 @@ function renderRejected() {
     : `<p class="muted">No rejected articles.</p>`;
 }
 
+function topicDraftCards() {
+  if (state.activeTopicDraft === "corporate-case") {
+    return state.corporateCases.map((item) => ({
+      kind: "corporate",
+      id: item.id,
+      cardType: "single",
+      topic: "Corporate Case",
+      status: item.status || "draft",
+      source: item.source,
+      sourceUrl: item.source_url,
+      headline: item.headline,
+      body: `${item.summary || ""}\n\n${item.detail || ""}`.trim(),
+      generatedAt: item.generated_at
+    }));
+  }
+
+  return state.editorialDrafts
+    .filter((draft) => draft.topic_slug === state.activeTopicDraft)
+    .flatMap((draft) => {
+      const content = draft.content || {};
+      if (draft.format === "hybrid") {
+        const briefs = (content.briefs || []).map((brief, index) => ({
+          kind: "editorial",
+          id: draft.id,
+          cardType: "brief",
+          briefIndex: index,
+          topic: draft.topic_name,
+          status: draft.status || "draft",
+          source: sourceNameForUrl(draft, brief.source_url),
+          sourceUrl: brief.source_url || draft.primary_source_url,
+          headline: brief.headline || `Brief ${index + 1}`,
+          body: `${brief.what_happened || ""}\n\n${brief.why_it_matters || ""}`.trim(),
+          generatedAt: draft.generated_at,
+          label: `Brief ${index + 1}`
+        }));
+        const feature = {
+          kind: "editorial",
+          id: draft.id,
+          cardType: "feature",
+          topic: draft.topic_name,
+          status: draft.status || "draft",
+          source: sourceNameForUrl(draft, content.feature?.source_url || draft.primary_source_url),
+          sourceUrl: content.feature?.source_url || draft.primary_source_url,
+          headline: content.feature?.headline || draft.headline,
+          body: `${content.feature?.summary || draft.summary || ""}\n\n${content.feature?.detail || draft.detail || ""}`.trim(),
+          generatedAt: draft.generated_at,
+          label: draft.topic_slug === "money-matters" ? "Take" : "Feature"
+        };
+        return [...briefs, feature];
+      }
+      return [{
+        kind: "editorial",
+        id: draft.id,
+        cardType: "single",
+        topic: draft.topic_name,
+        status: draft.status || "draft",
+        source: sourceNameForUrl(draft, draft.primary_source_url),
+        sourceUrl: draft.primary_source_url,
+        headline: draft.headline,
+        body: `${draft.summary || ""}\n\n${draft.detail || ""}`.trim(),
+        generatedAt: draft.generated_at
+      }];
+    });
+}
+
+function sourceNameForUrl(draft, url) {
+  return (draft.source_links || []).find((item) => item.url === url)?.source || "Source";
+}
+
+function topicDraftCardHtml(card) {
+  const date = card.generatedAt
+    ? new Date(card.generatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    : "";
+  const words = card.body.split(/\s+/).filter(Boolean).length;
+  const readTime = Math.max(1, Math.ceil(words / 200));
+  const cardId = `${card.kind}:${card.id}:${card.cardType}:${card.briefIndex ?? ""}`;
+  return `
+    <article class="card topic-draft-card" data-kind="${esc(card.kind)}" data-id="${esc(card.id)}" data-card-type="${esc(card.cardType)}" data-brief-index="${card.briefIndex ?? ""}">
+      <header>
+        <div class="card-head">
+          <div class="chips">
+            <span class="source-pill">${esc(card.source || "Shortly")}</span>
+            <span class="topic-chip">${esc(card.topic)}</span>
+            ${card.label ? `<span class="tag section-ahead">${esc(card.label)}</span>` : ""}
+            <span class="tag ${esc(card.status)}">${esc(card.status)}</span>
+          </div>
+          <input class="headline-input" data-role="headline" type="text" value="${esc(card.headline || "")}" />
+          <div class="meta">
+            ${esc(date)}
+            ${card.sourceUrl ? `&middot; <a href="${esc(card.sourceUrl)}" target="_blank" rel="noreferrer">Source</a>` : ""}
+            &middot; ${readTime} min read
+            &middot; <span>${esc(cardId)}</span>
+          </div>
+        </div>
+      </header>
+      <textarea data-role="summary" rows="${card.cardType === "brief" ? 4 : 8}">${esc(card.body)}</textarea>
+      <div class="actions">
+        <button class="btn-save" data-action="update">Save</button>
+        <button class="btn-reject" data-action="reject">Reject draft</button>
+        <button class="btn-approve" data-action="approve">Approve draft</button>
+      </div>
+    </article>`;
+}
+
+function renderTopicDrafts() {
+  const tabs = $("#topicTabs");
+  if (tabs) {
+    tabs.querySelectorAll(".topic-tab").forEach((tab) => {
+      tab.classList.toggle("active", tab.dataset.topic === state.activeTopicDraft);
+    });
+  }
+  const list = $("#topicDraftList");
+  const cards = topicDraftCards();
+  const label = topicLabel(state.activeTopicDraft);
+  $("#topicDraftHint").textContent = state.activeTopicDraft === "corporate-case"
+    ? "Corporate Case drafts are shown as article-style cards with summary and detail together."
+    : `${label} drafts use article-style cards. Hybrid topics split five briefs and the feature/take into separate cards.`;
+  list.innerHTML = cards.length
+    ? cards.map(topicDraftCardHtml).join("")
+    : `<p class="muted">No ${esc(label)} drafts yet. Use "Build selected topic" to create one.</p>`;
+}
+
+function renderSubscriberTopicPicker() {
+  const node = $("#subTopicPicker");
+  if (!node) return;
+  node.innerHTML = NEWSLETTER_TOPICS.map((topic, index) => `
+    <label class="topic-option">
+      <input type="checkbox" value="${esc(topic.slug)}" ${index === 0 ? "checked" : ""}>
+      <span>${esc(topic.label)}</span>
+    </label>
+  `).join("");
+}
+
+function selectedSubscriberTopics() {
+  const checked = [...document.querySelectorAll("#subTopicPicker input:checked")].map((input) => input.value);
+  return normalizeTopicList(checked);
+}
+
 function renderSubscribers() {
   const subscribed = state.subscribers.filter((s) => s.status === "subscribed");
   const allChecked = subscribed.length > 0 && subscribed.every((s) => state.selectedSubscribers.has(s.id));
@@ -390,6 +573,7 @@ function renderSubscribers() {
         <td>${esc(s.email)}</td>
         <td>${esc(s.full_name || "")}</td>
         <td>${esc(s.phone_number || "")}</td>
+        <td class="topic-cell">${normalizeTopicList(s.topics).map((topic) => `<span class="topic-chip">${esc(topicLabel(topic))}</span>`).join("")}</td>
         <td><span class="dot ${s.status}"></span>${esc(s.status)}</td>
         <td class="row-actions">
           ${s.status === "subscribed"
@@ -400,7 +584,7 @@ function renderSubscribers() {
       </tr>`
     )
     .join("");
-  $("#subRows").innerHTML = rows || `<tr><td colspan="6" class="muted" style="padding:18px">No subscribers yet.</td></tr>`;
+  $("#subRows").innerHTML = rows || `<tr><td colspan="7" class="muted" style="padding:18px">No subscribers yet.</td></tr>`;
   const selectAll = $("#subSelectAll");
   if (selectAll) {
     selectAll.checked = allChecked;
@@ -446,6 +630,7 @@ function parseSubscriberCsv(text) {
   const emailIndex = headers.findIndex((header) => ["email", "e-mail"].includes(header));
   const nameIndex = headers.findIndex((header) => ["name", "full_name", "full_name_(optional)", "full_name_optional"].includes(header));
   const phoneIndex = headers.findIndex((header) => ["phone", "phone_number", "phone_no", "mobileno", "mobile", "mobile_number"].includes(header));
+  const topicsIndex = headers.findIndex((header) => ["topic", "topics", "category", "categories", "newsletter", "newsletters"].includes(header));
   if (emailIndex === -1) return [];
   return lines
     .slice(1)
@@ -454,7 +639,8 @@ function parseSubscriberCsv(text) {
       return {
         email: cols[emailIndex] || "",
         full_name: nameIndex >= 0 ? cols[nameIndex] || "" : "",
-        phone_number: phoneIndex >= 0 ? cols[phoneIndex] || "" : ""
+        phone_number: phoneIndex >= 0 ? cols[phoneIndex] || "" : "",
+        topics: normalizeTopicList(topicsIndex >= 0 ? cols[topicsIndex] || "" : "")
       };
     })
     .filter((row) => row.email);
@@ -487,7 +673,8 @@ async function parseSubscriberFile(file) {
         return {
           email: normalized.email || normalized["e-mail"] || "",
           full_name: normalized.name || normalized.full_name || "",
-          phone_number: normalized.phone || normalized.phone_number || normalized.phone_no || normalized.mobileno || normalized.mobile || normalized.mobile_number || ""
+          phone_number: normalized.phone || normalized.phone_number || normalized.phone_no || normalized.mobileno || normalized.mobile || normalized.mobile_number || "",
+          topics: normalizeTopicList(normalized.topic || normalized.topics || normalized.category || normalized.categories || normalized.newsletter || normalized.newsletters || "")
         };
       })
       .filter((row) => row.email);
@@ -558,6 +745,7 @@ function renderAll() {
   populateTopicFilter();
   renderReview();
   renderApproved();
+  renderTopicDrafts();
   renderRejected();
   renderSubscribers();
   renderHistory();
@@ -621,9 +809,18 @@ async function loadDigests() {
   }
 }
 
+async function loadTopicDrafts() {
+  const [corporate, editorial] = await Promise.allSettled([
+    cfg.corporateCase ? api("GET", cfg.corporateCase) : Promise.resolve({ cases: [] }),
+    cfg.editorialTopics ? api("GET", cfg.editorialTopics) : Promise.resolve({ drafts: [] })
+  ]);
+  state.corporateCases = corporate.status === "fulfilled" ? corporate.value.cases || [] : [];
+  state.editorialDrafts = editorial.status === "fulfilled" ? editorial.value.drafts || [] : [];
+}
+
 async function reload() {
   try {
-    await Promise.all([loadArticles(), loadSubscribers(), loadDigests()]);
+    await Promise.all([loadArticles(), loadSubscribers(), loadDigests(), loadTopicDrafts()]);
     renderAll();
   } catch (e) {
     toast(`Load failed: ${e.message}`);
@@ -644,6 +841,49 @@ async function handleArticleAction(card, action) {
     state.selected.delete(id);
     await reload();
     toast(action === "edit" ? "Summary saved." : `Article ${action}d.`);
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  }
+}
+
+function splitTopicBody(value) {
+  const parts = String(value || "").split(/\n\s*\n/);
+  return [parts.shift()?.trim() || "", parts.join("\n\n").trim()];
+}
+
+async function handleTopicDraftAction(card, action) {
+  const kind = card.dataset.kind;
+  const endpoint = kind === "corporate" ? cfg.corporateCase : cfg.editorialTopics;
+  if (!endpoint) return toast(`Missing ${kind} endpoint`);
+  const id = card.dataset.id;
+  const cardType = card.dataset.cardType;
+  const headline = card.querySelector('[data-role="headline"]')?.value.trim() || "";
+  const body = card.querySelector('[data-role="summary"]')?.value.trim() || "";
+  const payload = { action, id };
+
+  if (action === "update") {
+    if (kind === "corporate") {
+      const [summary, detail] = splitTopicBody(body);
+      Object.assign(payload, { headline, summary, detail });
+    } else if (cardType === "brief") {
+      const [what_happened, why_it_matters] = splitTopicBody(body);
+      Object.assign(payload, {
+        card_type: "brief",
+        brief_index: Number(card.dataset.briefIndex),
+        headline,
+        what_happened,
+        why_it_matters
+      });
+    } else {
+      const [summary, detail] = splitTopicBody(body);
+      Object.assign(payload, { card_type: cardType, headline, summary, detail });
+    }
+  }
+
+  try {
+    await api("POST", endpoint, payload);
+    await reload();
+    toast(action === "update" ? "Topic draft saved." : `Topic draft ${action}d.`);
   } catch (e) {
     toast(`Failed: ${e.message}`);
   }
@@ -1023,6 +1263,22 @@ $("#bulkClear").addEventListener("click", () => {
   });
 });
 
+$("#topicTabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".topic-tab");
+  if (!tab) return;
+  state.activeTopicDraft = tab.dataset.topic;
+  refreshChrome();
+  renderTopicDrafts();
+});
+
+$("#topicDraftList").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const card = btn.closest(".topic-draft-card");
+  if (!card) return;
+  handleTopicDraftAction(card, btn.dataset.action);
+});
+
 // Subscriber actions
 $("#subRows").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-action]");
@@ -1063,12 +1319,14 @@ $("#subForm").addEventListener("submit", async (e) => {
   const email = $("#subEmail").value.trim();
   const full_name = $("#subName").value.trim();
   const phone_number = $("#subPhone").value.trim();
+  const topics = selectedSubscriberTopics();
   if (!email) return;
   try {
-    await api("POST", cfg.subscribers, { action: "add", email, full_name, phone_number });
+    await api("POST", cfg.subscribers, { action: "add", email, full_name, phone_number, topics });
     $("#subEmail").value = "";
     $("#subName").value = "";
     $("#subPhone").value = "";
+    renderSubscriberTopicPicker();
     await reload();
     toast("Subscriber added.");
   } catch (e) {
@@ -1140,111 +1398,28 @@ $("#fetchToday").addEventListener("click", async () => {
   }
 });
 
-$("#buildCorporateCase").addEventListener("click", async () => {
-  const btn = $("#buildCorporateCase");
-  const btnText = $("#corporateCaseBtnText");
-  const resultBox = $("#corporateCaseResult");
+$("#buildActiveTopic").addEventListener("click", async () => {
+  const btn = $("#buildActiveTopic");
+  const btnText = $("#buildActiveTopicText");
+  const topic = state.activeTopicDraft;
   btn.disabled = true;
   btnText.textContent = "Researching...";
-  resultBox.classList.add("hidden");
   try {
-    if (!cfg.corporateCase) throw new Error("Missing corporate case endpoint");
-    const response = await api("POST", cfg.corporateCase, {});
-    const item = response.case;
-    const checklist = (item.editor_checklist || []).map((entry) => "- " + entry).join("\n");
-    const inferences = (item.inference_notes || []).map((entry) => "- " + entry).join("\n") || "- None flagged";
-    resultBox.textContent = [
-      item.headline,
-      item.source + " | " + item.source_url,
-      "Company: " + (item.company || "Not identified") + " | Type: " + item.case_type,
-      "",
-      "SUMMARY",
-      item.summary,
-      "",
-      "DETAIL",
-      item.detail,
-      "",
-      "COMPARISON / ANALOGY",
-      item.comparison_or_analogy || "Not provided",
-      "",
-      "BULL CASE",
-      item.bull_case || "Not provided",
-      "",
-      "BEAR CASE",
-      item.bear_case || "Not provided",
-      "",
-      "OPEN QUESTION",
-      item.open_question || "Not provided",
-      "",
-      "INFERENCES TO VERIFY",
-      inferences,
-      "",
-      "EDITOR CHECKLIST",
-      checklist,
-      "",
-      "Scanned " + (response.scanned || 0) + " candidates."
-    ].join("\n");
-    resultBox.classList.remove("hidden");
-    toast("Corporate case draft created.");
-  } catch (e) {
-    resultBox.textContent = "Error: " + e.message;
-    resultBox.classList.remove("hidden");
-    toast("Failed: " + e.message);
-  } finally {
-    btn.disabled = false;
-    btnText.textContent = "Build case study";
-  }
-});
-
-$("#buildEditorialTopic").addEventListener("click", async () => {
-  const btn = $("#buildEditorialTopic");
-  const btnText = $("#editorialTopicBtnText");
-  const resultBox = $("#editorialTopicResult");
-  const topic = $("#editorialTopicSelect").value;
-  btn.disabled = true;
-  btnText.textContent = "Researching...";
-  resultBox.classList.add("hidden");
-  try {
-    if (!cfg.editorialTopics) throw new Error("Missing editorial topics endpoint");
-    const response = await api("POST", cfg.editorialTopics, { topic });
-    const draft = response.draft;
-    const content = draft.content || {};
-    const lines = [draft.topic_name, draft.headline, ""];
-
-    if (draft.format === "hybrid") {
-      lines.push("FIVE BRIEFS");
-      (content.briefs || []).forEach((brief, index) => {
-        lines.push(
-          "",
-          `${index + 1}. ${brief.headline}`,
-          brief.what_happened || "",
-          brief.why_it_matters || "",
-          `Source: ${brief.source_url || "Not supplied"}`
-        );
-      });
-      lines.push("", "FEATURE / TAKE", content.feature?.headline || draft.headline);
+    if (topic === "corporate-case") {
+      if (!cfg.corporateCase) throw new Error("Missing corporate case endpoint");
+      await api("POST", cfg.corporateCase, {});
+    } else {
+      if (!cfg.editorialTopics) throw new Error("Missing editorial topics endpoint");
+      await api("POST", cfg.editorialTopics, { topic });
     }
-
-    lines.push("", "SUMMARY", draft.summary, "", "DETAIL", draft.detail);
-    const sources = (draft.source_links || []).map((item) => `- ${item.source}: ${item.url}`).join("\n");
-    const inferences = (draft.inference_notes || []).map((item) => `- ${item}`).join("\n") || "- None flagged";
-    const checklist = (draft.editor_checklist || []).map((item) => `- ${item}`).join("\n");
-    lines.push(
-      "", "SOURCES", sources,
-      "", "INFERENCES TO VERIFY", inferences,
-      "", "EDITOR CHECKLIST", checklist,
-      "", `Scanned ${response.scanned || 0} candidates; used ${response.sourcesUsed || 0} sources.`
-    );
-    resultBox.textContent = lines.join("\n");
-    resultBox.classList.remove("hidden");
-    toast(`${draft.topic_name} draft created.`);
+    await reload();
+    showSection("topics");
+    toast(`${topicLabel(topic)} draft created.`);
   } catch (e) {
-    resultBox.textContent = "Error: " + e.message;
-    resultBox.classList.remove("hidden");
     toast("Failed: " + e.message);
   } finally {
     btn.disabled = false;
-    btnText.textContent = "Build topic draft";
+    btnText.textContent = "Build selected topic";
   }
 });
 
@@ -1288,7 +1463,7 @@ $("#sendDigest").addEventListener("click", async () => {
   const selectedArticleIds = approvedArticles
     .filter((article) => state.selected.has(article.id))
     .map((article) => article.id);
-  const subCount = selectedIds.length || state.subscribers.filter((s) => s.status === "subscribed").length;
+  const subCount = selectedIds.length || dailyWrapSubscriberCount();
   const sendMsg = selectedArticleIds.length
     ? `\n\nSending ${selectedArticleIds.length} selected article${selectedArticleIds.length === 1 ? "" : "s"} first, then filling the remaining slots.`
     : `\n\nNo articles selected, so the digest will use approved articles and fill remaining slots automatically.`;
@@ -1318,4 +1493,5 @@ document.addEventListener("keydown", (e) => {
 });
 
 // Initial load
+renderSubscriberTopicPicker();
 bootAuth();

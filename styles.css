@@ -178,6 +178,22 @@ a:hover { text-decoration: underline; }
 .section.active { display: block; }
 .list { display: grid; gap: 10px; }
 
+.topic-workbench {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.topic-tabs {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.topic-tab {
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  border-radius: 999px; padding: 8px 12px; font-weight: 700; cursor: pointer;
+  font-size: 12px;
+}
+.topic-tab:hover { background: var(--soft); color: var(--ink); }
+.topic-tab.active { background: var(--purple); color: #fff; border-color: var(--purple); }
+.topic-draft-card textarea { min-height: 132px; }
+
 /* ── Article Card ── */
 .card {
   background: var(--surface);
@@ -289,6 +305,19 @@ a:hover { text-decoration: underline; }
 .sub-form { display: flex; gap: 10px; margin-bottom: 16px; }
 .sub-form input { flex: 1; }
 .sub-import-row { align-items: center; }
+.topic-picker {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  flex: 1 1 100%; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--surface);
+}
+.topic-option {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 9px; border-radius: 999px; background: var(--soft);
+  font-size: 12px; font-weight: 700; color: var(--ink);
+}
+.topic-option input { width: 14px; height: 14px; accent-color: var(--purple); }
+.topic-cell { min-width: 180px; }
+.topic-cell .topic-chip { display: inline-block; margin: 2px 4px 2px 0; }
 .subscriber-bulk-bar {
   display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
   padding: 10px 12px; background: var(--soft); border: 1px solid var(--line);
