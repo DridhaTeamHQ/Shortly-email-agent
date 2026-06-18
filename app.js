@@ -162,8 +162,15 @@ const state = {
   filterSection: "",
   selected: new Set(),
   selectedSubscribers: new Set(),
-  dragId: null
+  dragId: null,
+  ai: null
 };
+
+// Newsletter categories (kept in sync with supabase/functions/_shared/sources.ts)
+const AI_CATEGORIES = [
+  "Tech & AI", "Jobs & Careers", "Health & Wellness", "Money & Finance",
+  "Climate & Sustainability", "Culture & Cinema", "Automobile & EV"
+];
 
 // ---------- computed ----------
 function approvedTodayCount() {
@@ -265,6 +272,7 @@ function refreshChrome() {
     rejected: ["Rejected", `${rejected} articles removed from queue`],
     history: ["Digest History", "All past digests and delivery stats"],
     analytics: ["Analytics", "Overview of your newsletter performance"],
+    ai: ["AI Brain", "What the AI has learned, and how to steer it"],
     subscribers: ["Subscribers", `${subs} active subscriber${subs === 1 ? "" : "s"}`],
     scraper: ["Scraper", "Submit articles for summarization"]
   };
@@ -483,6 +491,107 @@ function renderAnalytics() {
   $("#analyticsRows").innerHTML = rows;
 }
 
+// ---------- AI Brain ----------
+// Client-side fallback insights computed from loaded articles (used if no endpoint).
+function computeAiClientSide() {
+  const arts = state.articles;
+  const reviewed = arts.filter((a) => ["approved", "sent", "rejected"].includes(a.status));
+  const isAppr = (a) => a.status === "approved" || a.status === "sent";
+  const ch = (x, y) => (x || "").trim() !== "" && (x || "").trim() !== (y || "").trim();
+  const byTopic = {};
+  reviewed.forEach((a) => {
+    const k = (a.topic || "").trim() || "(uncategorised)";
+    byTopic[k] = byTopic[k] || { approved: 0, rejected: 0 };
+    if (isAppr(a)) byTopic[k].approved++; else if (a.status === "rejected") byTopic[k].rejected++;
+  });
+  const patterns = Object.entries(byTopic).map(([key, v]) => ({
+    key, approved: v.approved, rejected: v.rejected,
+    rate: Math.round((v.approved / Math.max(1, v.approved + v.rejected)) * 100)
+  })).sort((a, b) => (b.approved + b.rejected) - (a.approved + a.rejected));
+  const activity = reviewed.filter((a) => a.reviewed_at)
+    .sort((a, b) => new Date(b.reviewed_at) - new Date(a.reviewed_at)).slice(0, 25)
+    .map((a) => ({ when: a.reviewed_at, who: a.reviewed_by || "system",
+      action: a.status === "rejected" ? "rejected" : (a.status === "sent" ? "sent" : "approved"),
+      title: (a.edited_title || a.title) }));
+  return {
+    model: "gpt-4o",
+    memory: {
+      embedded: arts.filter((a) => a.suggestion_score != null).length,
+      reviewed: reviewed.length,
+      rewrites: reviewed.filter((a) => ch(a.edited_title, a.title) || ch(a.edited_summary, a.summary)).length,
+      rewriteGoal: 100,
+      pending: arts.filter((a) => a.status === "summarized").length
+    },
+    patterns, accuracy: null, activity, config: { guidance: "", category_prefs: {} }
+  };
+}
+
+async function loadAiInsights() {
+  if (cfg.aiInsights) {
+    try { state.ai = await api("GET", cfg.aiInsights); return; } catch (e) { /* fall through */ }
+  }
+  state.ai = computeAiClientSide();
+}
+
+function renderAi() {
+  const ai = state.ai;
+  if (!ai) return;
+  const m = ai.memory || {};
+  $("#aiEmbedded").textContent = m.embedded ?? 0;
+  $("#aiReviewed").textContent = m.reviewed ?? 0;
+  $("#aiRewrites").textContent = `${m.rewrites ?? 0} / ${m.rewriteGoal ?? 100}`;
+  $("#aiModel").textContent = ai.model || "gpt-4o";
+
+  const acc = ai.accuracy;
+  $("#aiAccuracy").textContent = acc
+    ? `Score accuracy: of ${acc.scored} scored & reviewed, ${acc.highApprovedPct}% of high-score were approved and ${acc.lowRejectedPct}% of low-score were rejected.`
+    : "Score accuracy will appear once enough scored articles have been reviewed.";
+
+  $("#aiPatterns").innerHTML = (ai.patterns || []).length
+    ? ai.patterns.map((p) => `<tr><td>${esc(p.key)}</td><td>${p.approved}</td><td>${p.rejected}</td><td>${p.rate}%</td></tr>`).join("")
+    : `<tr><td colspan="4" class="muted" style="padding:20px;text-align:center">No reviewed data yet.</td></tr>`;
+
+  $("#aiActivity").innerHTML = (ai.activity || []).length
+    ? ai.activity.map((a) => {
+        const when = new Date(a.when).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        return `<tr><td>${esc(when)}</td><td>${esc(a.who)}</td><td>${esc(a.action)}</td><td>${esc(a.title)}</td></tr>`;
+      }).join("")
+    : `<tr><td colspan="4" class="muted" style="padding:20px;text-align:center">No activity yet.</td></tr>`;
+
+  // Inputs
+  const cfgAi = ai.config || { guidance: "", category_prefs: {} };
+  const guidanceEl = $("#aiGuidance");
+  if (guidanceEl && document.activeElement !== guidanceEl) guidanceEl.value = cfgAi.guidance || "";
+  const prefs = cfgAi.category_prefs || {};
+  $("#aiCategoryPrefs").innerHTML = AI_CATEGORIES.map((c) => {
+    const v = prefs[c] || "normal";
+    const opt = (val, label) => `<option value="${val}" ${v === val ? "selected" : ""}>${label}</option>`;
+    return `<div class="ai-pref-row"><span>${esc(c)}</span>
+      <select data-cat="${esc(c)}">${opt("boost", "Boost")}${opt("normal", "Normal")}${opt("suppress", "Suppress")}</select></div>`;
+  }).join("");
+}
+
+async function saveAiConfig() {
+  const guidance = $("#aiGuidance").value.trim();
+  const category_prefs = {};
+  document.querySelectorAll("#aiCategoryPrefs select[data-cat]").forEach((s) => {
+    if (s.value !== "normal") category_prefs[s.dataset.cat] = s.value;
+  });
+  if (!cfg.aiInsights) {
+    $("#aiSaveHint").textContent = "Preview mode — connect the backend to persist.";
+    if (state.ai) state.ai.config = { guidance, category_prefs };
+    toast("Saved (preview only).");
+    return;
+  }
+  try {
+    await api("POST", cfg.aiInsights, { action: "save_config", guidance, category_prefs });
+    $("#aiSaveHint").textContent = "Saved. Applies on the next summarize run.";
+    toast("AI guidance saved.");
+  } catch (e) {
+    toast(`Save failed: ${e.message}`);
+  }
+}
+
 function renderAll() {
   refreshChrome();
   populateTopicFilter();
@@ -492,6 +601,7 @@ function renderAll() {
   renderSubscribers();
   renderHistory();
   renderAnalytics();
+  renderAi();
   updateBulkBar();
 }
 
@@ -553,7 +663,7 @@ async function loadDigests() {
 
 async function reload() {
   try {
-    await Promise.all([loadArticles(), loadSubscribers(), loadDigests()]);
+    await Promise.all([loadArticles(), loadSubscribers(), loadDigests(), loadAiInsights()]);
     renderAll();
   } catch (e) {
     toast(`Load failed: ${e.message}`);
@@ -905,6 +1015,7 @@ $$(".nav-item").forEach((btn) =>
 
 // Theme toggle
 $("#themeToggle").addEventListener("click", toggleTheme);
+$("#aiSaveConfig")?.addEventListener("click", saveAiConfig);
 
 // Search & filter
 $("#searchArticles").addEventListener("input", (e) => {

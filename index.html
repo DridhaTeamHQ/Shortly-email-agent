@@ -46,6 +46,9 @@
           <button class="nav-item" data-section="analytics">
             <span>Analytics</span>
           </button>
+          <button class="nav-item" data-section="ai">
+            <span>AI Brain</span>
+          </button>
           <div class="nav-divider"></div>
           <button class="nav-item" data-section="subscribers">
             <span>Subscribers</span><span class="badge" id="badgeSubs">0</span>
@@ -157,6 +160,50 @@
                 <tr><th>Date</th><th>Sent</th><th>Failed</th><th>Rate</th></tr>
               </thead>
               <tbody id="analyticsRows"><tr><td colspan="4" class="muted" style="padding:20px;text-align:center">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- AI BRAIN -->
+        <section class="section" data-section="ai">
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-value" id="aiEmbedded">-</div><div class="stat-label">Learning memory (embedded)</div></div>
+            <div class="stat-card"><div class="stat-value" id="aiReviewed">-</div><div class="stat-label">Reviewed examples</div></div>
+            <div class="stat-card"><div class="stat-value" id="aiRewrites">-</div><div class="stat-label">Editor rewrites</div></div>
+            <div class="stat-card"><div class="stat-value" id="aiModel">-</div><div class="stat-label">Active model</div></div>
+          </div>
+
+          <p class="muted" id="aiAccuracy" style="margin:4px 0 16px"></p>
+
+          <h3 style="margin:0 0 12px">What the AI has learned — selection patterns</h3>
+          <div class="table-wrap">
+            <table class="history-table">
+              <thead><tr><th>Category / Topic</th><th>Approved</th><th>Rejected</th><th>Approve rate</th></tr></thead>
+              <tbody id="aiPatterns"><tr><td colspan="4" class="muted" style="padding:20px;text-align:center">Loading...</td></tr></tbody>
+            </table>
+          </div>
+
+          <h3 style="margin:24px 0 12px">Steer the AI &mdash; your input</h3>
+          <div class="ai-input-card">
+            <label class="ai-field">
+              <span>Editorial guidance <small class="muted">(injected into every summary the AI writes)</small></span>
+              <textarea id="aiGuidance" rows="4" placeholder="e.g. Prefer Indian policy, business and tech. Avoid foreign celebrity and sports gossip. Lead with the key number; keep summaries near 280 characters."></textarea>
+            </label>
+            <div class="ai-field">
+              <span>Category preferences <small class="muted">(boost = rank higher, suppress = rank lower)</small></span>
+              <div id="aiCategoryPrefs" class="ai-prefs"></div>
+            </div>
+            <div class="ai-actions">
+              <button class="btn-primary" id="aiSaveConfig" type="button">Save guidance</button>
+              <span class="muted" id="aiSaveHint"></span>
+            </div>
+          </div>
+
+          <h3 style="margin:24px 0 12px">Recent activity &mdash; what's being done</h3>
+          <div class="table-wrap">
+            <table class="history-table">
+              <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Article</th></tr></thead>
+              <tbody id="aiActivity"><tr><td colspan="4" class="muted" style="padding:20px;text-align:center">Loading...</td></tr></tbody>
             </table>
           </div>
         </section>

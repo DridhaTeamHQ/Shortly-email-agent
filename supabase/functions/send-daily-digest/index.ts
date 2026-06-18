@@ -23,7 +23,7 @@ type Article = {
 type Subscriber = { id: string; email: string; full_name: string | null };
 
 const TOTAL_ARTICLES = 10;
-const FINANCE_TOPICS = ["business", "india business", "finance", "economy", "markets"];
+const FINANCE_TOPICS = ["business", "india business", "finance", "economy", "markets", "money & finance"];
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";

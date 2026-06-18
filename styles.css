@@ -249,6 +249,24 @@ a:hover { text-decoration: underline; }
 .tag.suggest-mid  { background: #fef9c3; color: #854d0e; cursor: help; }
 .tag.suggest-low  { background: #fee2e2; color: #b91c1c; cursor: help; }
 
+/* AI Brain section */
+.ai-input-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px 20px;
+  display: grid;
+  gap: 16px;
+}
+.ai-field { display: grid; gap: 8px; }
+.ai-field > span { font-weight: 600; font-size: 13px; }
+.ai-field textarea { width: 100%; }
+.ai-prefs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.ai-pref-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.ai-pref-row span { font-size: 13px; }
+.ai-pref-row select { width: auto; padding: 5px 8px; }
+.ai-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
 /* Section Picker */
 .section-picker {
   display: flex; align-items: center; gap: 6px; margin-right: auto;

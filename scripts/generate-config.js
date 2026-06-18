@@ -28,6 +28,7 @@ window.SHORTLY = {
   subscribers: "${functionsBase}/subscribers",
   scrape:      "${functionsBase}/scrape-news",
   summarize:   "${functionsBase}/summarize-articles",
+  aiInsights:  "${functionsBase}/ai-insights",
   verifyToken: "${functionsBase}/verify-agent-token",
   siteUrl:     "${siteUrl}",
   twitterUrl:  "${twitterUrl}",

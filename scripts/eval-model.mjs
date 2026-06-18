@@ -29,7 +29,7 @@ async function scoreModel(label, model, rows) {
       const out = await chat(e.OPENAI_API_KEY, model, buildUserPrompt(a));
       const wc = wordCount(out.summary);
       if (out.section === finalSection) sectionHits++;
-      if (wc >= 50 && wc <= 100) lenOk++;
+      if (wc >= 40 && wc <= 60) lenOk++;
       const sim = overlap(out.summary, finalSummary);
       simSum += sim; n++;
       if (samples.length < 3) samples.push({ title: a.title, out: out.summary, target: finalSummary });

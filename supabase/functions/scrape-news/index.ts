@@ -16,15 +16,24 @@ Deno.serve(async (request) => {
   const scraped: Array<Record<string, unknown>> = [];
   const errors: Array<{ source: string; error: string }> = [];
 
+  // Cap items per feed so one large feed can't flood the pending pool,
+  // and time out slow feeds so one hang can't stall the whole scrape.
+  const PER_FEED = 8;
+  const FETCH_TIMEOUT_MS = 10000;
+
   await Promise.all(
     SOURCES.map(async (src) => {
       try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
         const response = await fetch(src.url, {
-          headers: { "User-Agent": "ShortlyDigestBot/1.0 (+https://shortly.example)" }
-        });
+          headers: { "User-Agent": "ShortlyDigestBot/1.0 (+https://shortlyindia.com)" },
+          redirect: "follow",
+          signal: controller.signal
+        }).finally(() => clearTimeout(timer));
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const xml = await response.text();
-        const items = parseFeed(xml);
+        const items = parseFeed(xml).slice(0, PER_FEED);
         for (const item of items) {
           scraped.push({
             title: item.title.slice(0, 500),

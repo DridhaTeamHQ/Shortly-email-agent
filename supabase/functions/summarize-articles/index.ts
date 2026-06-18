@@ -14,11 +14,11 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 
 const SYSTEM_PROMPT = `You are a senior editor for a respected daily news briefing read by busy professionals.
 
-Write EXACTLY 3 sentences. 60-90 words total. Active voice.
+Write 2-3 sentences, about 300 characters total (roughly 45-55 words). Hard limit: 330 characters. Active voice.
 
 Sentence 1: Lead with the news — who did what, with key numbers, dates, and named entities.
 Sentence 2: The critical context — what led to this, or the key detail that makes it significant.
-Sentence 3: The immediate consequence, reaction, or "why it matters" — concrete, not abstract.
+Sentence 3 (optional, only if within the character budget): The immediate consequence, reaction, or "why it matters" — concrete, not abstract.
 
 STRICT RULES:
 - Active voice always. ("Apple unveiled..." not "Apple's plan was unveiled...")
@@ -47,6 +47,11 @@ Also rate the article's prominence on a scale of 1-5:
 2 = STANDARD: Regular news, single-outlet story
 1 = LOW: Niche or soft feature
 
+GROUNDING (accuracy over completeness — this matters most):
+- Use ONLY facts stated in the EXCERPT. Do not add information from prior knowledge.
+- NEVER invent or guess dates, names, scores, places, or numbers. If a specific value is not in the excerpt, omit it rather than inventing one.
+- The article was PUBLISHED on the date provided. Resolve relative references ("today", "by December", "on Monday") against that date, and never output a year earlier than the publish year unless the excerpt explicitly states it.
+
 Return a valid JSON object with exactly three keys:
 {"summary": "Your 3-sentence summary here.", "section": "wrapped", "prominence": 4}
 
@@ -58,6 +63,7 @@ type Article = {
   url: string;
   raw_content: string | null;
   source: string | null;
+  topic: string | null;
   rank_score: number | null;
   scraped_at: string;
 };
@@ -94,24 +100,37 @@ Deno.serve(async (request) => {
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-  // Model is config-aware: a promoted fine-tune is stored in app_config.OPENAI_MODEL.
+  // Config-aware: model, human editorial guidance, and per-category preferences
+  // all come from app_config (set via the AI Brain dashboard).
   let model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
+  let guidance = "";
+  let categoryPrefs: Record<string, string> = {};
   try {
-    const { data: cfg } = await supabase
+    const { data: cfgRows } = await supabase
       .from("app_config")
-      .select("value")
-      .eq("key", "OPENAI_MODEL")
-      .maybeSingle();
-    if (cfg?.value) model = cfg.value;
+      .select("key,value")
+      .in("key", ["OPENAI_MODEL", "EDITORIAL_GUIDANCE", "CATEGORY_PREFS"]);
+    for (const row of cfgRows ?? []) {
+      if (row.key === "OPENAI_MODEL" && row.value) model = row.value;
+      else if (row.key === "EDITORIAL_GUIDANCE" && row.value) guidance = row.value;
+      else if (row.key === "CATEGORY_PREFS" && row.value) {
+        try { categoryPrefs = JSON.parse(row.value); } catch { /* ignore */ }
+      }
+    }
   } catch {
-    // app_config may not exist yet; keep env/default.
+    // app_config may not exist yet; keep env/defaults.
   }
+  // boost = +0.15 rank, suppress = -0.25 rank (applied after base scoring)
+  const prefDelta = (topic: string | null): number => {
+    const p = categoryPrefs[(topic ?? "").trim()];
+    return p === "boost" ? 0.15 : p === "suppress" ? -0.25 : 0;
+  };
 
   // Pull recent pending articles — only last 10 hours for freshness
   const since = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
   const { data: pending, error } = await supabase
     .from("articles")
-    .select("id,title,url,raw_content,source,rank_score,scraped_at")
+    .select("id,title,url,raw_content,source,topic,rank_score,scraped_at")
     .eq("status", "pending")
     .gte("scraped_at", since)
     .order("rank_score", { ascending: false })
@@ -148,7 +167,7 @@ Deno.serve(async (request) => {
         }
 
         try {
-          const result = await summarize(openAiKey, model, a, examples);
+          const result = await summarize(openAiKey, model, a, examples, guidance);
 
           // --- RAG: advisory score from labelled neighbours (best-effort) ---
           let suggestion_score: number | null = null;
@@ -199,9 +218,10 @@ Deno.serve(async (request) => {
       const a = articles.find((x) => x.id === r.id)!;
       const ageHours = (now - new Date(a.scraped_at).getTime()) / 3_600_000;
       const freshness = Math.max(0, 1 - ageHours / 10);
-      // Score = 40% source weight + 30% prominence + 30% freshness
+      // Score = 40% source weight + 30% prominence + 30% freshness, then the
+      // human's per-category preference (boost/suppress) nudges it.
       const prominenceNorm = (r.prominence ?? 2) / 5;
-      const score = Number(a.rank_score ?? 0) * 0.4 + prominenceNorm * 0.3 + freshness * 0.3;
+      const score = Number(a.rank_score ?? 0) * 0.4 + prominenceNorm * 0.3 + freshness * 0.3 + prefDelta(a.topic);
       return {
         id: a.id,
         summary: r.summary!,
@@ -353,9 +373,11 @@ async function summarize(
   apiKey: string,
   model: string,
   article: Article,
-  examples: Neighbor[] = []
+  examples: Neighbor[] = [],
+  guidance = ""
 ): Promise<{ summary: string; section: string; prominence: number }> {
   const userPrompt = [
+    `PUBLISHED: ${(article.scraped_at ?? "").slice(0, 10) || "unknown"}`,
     `TITLE: ${article.title}`,
     article.source ? `SOURCE: ${article.source}` : null,
     `URL: ${article.url}`,
@@ -367,6 +389,10 @@ async function summarize(
   const messages: Array<{ role: string; content: string }> = [
     { role: "system", content: SYSTEM_PROMPT }
   ];
+  // Human editorial guidance from the AI Brain dashboard (highest-priority steer).
+  if (guidance.trim()) {
+    messages.push({ role: "system", content: `EDITOR GUIDANCE (follow this closely):\n${guidance.trim()}` });
+  }
   const fewShot = buildFewShot(examples);
   if (fewShot) messages.push({ role: "system", content: fewShot });
   messages.push({ role: "user", content: userPrompt });

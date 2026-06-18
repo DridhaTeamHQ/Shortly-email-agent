@@ -5,6 +5,8 @@
   "scripts": {
     "build": "node scripts/generate-config.js",
     "dev": "node scripts/static-server.mjs",
+    "preview": "node scripts/preview-server.mjs",
+    "gen-preview": "node scripts/gen-preview-data.mjs",
     "check": "node scripts/check-files.mjs",
     "seed": "node scripts/seed.mjs",
     "reset": "node -e \"require('node:fs').rmSync('.devdata',{recursive:true,force:true});console.log('cleared .devdata');\"",
