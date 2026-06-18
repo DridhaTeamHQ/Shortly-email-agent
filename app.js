@@ -14,6 +14,27 @@ const NEWSLETTER_TOPICS = [
   { slug: "wellness-daily", label: "Wellness Daily" }
 ];
 const TOPIC_DRAFT_TABS = NEWSLETTER_TOPICS.filter((topic) => topic.slug !== "daily-wrap");
+const DIGEST_FORMATS = {
+  "daily-wrap-10": {
+    label: "Daily Wrap 10",
+    dailyLimit: 10,
+    caseLimit: 0,
+    hint: "Pick up to 10 approved daily articles. If you leave some slots open, Shortly fills them with the top-ranked approved stories.",
+  },
+  "category-5-case-1": {
+    label: "Category 5 + Case Study 1",
+    dailyLimit: 5,
+    caseLimit: 1,
+    needsCategory: true,
+    hint: "Pick 5 approved daily articles from one category and 1 approved case study. Shortly fills missing slots from the same category.",
+  },
+  "case-study-only": {
+    label: "Case Study Only",
+    dailyLimit: 0,
+    caseLimit: 1,
+    hint: "Pick one approved corporate case study, or leave it open and Shortly will send the latest approved case study.",
+  }
+};
 
 // ---------- helpers ----------
 const $ = (sel) => document.querySelector(sel);
@@ -45,6 +66,18 @@ function toast(msg) {
 function topicLabel(slug) {
   if (slug === "all-topics") return "All Topics";
   return NEWSLETTER_TOPICS.find((topic) => topic.slug === slug)?.label || slug;
+}
+
+function digestFormatConfig() {
+  return DIGEST_FORMATS[state.digestFormat] || DIGEST_FORMATS["daily-wrap-10"];
+}
+
+function dailyDigestKey(id) {
+  return `daily:${id}`;
+}
+
+function corporateDigestKey(id) {
+  return `corporate:${id}`;
 }
 
 function normalizeTopicSlug(value = "") {
@@ -201,10 +234,16 @@ const state = {
   section: "review",
   activeTopicDraft: "corporate-case",
   approvedTopic: "daily-wrap",
+  digestFormat: "daily-wrap-10",
+  digestCategory: "",
   search: "",
   filterTopic: "",
   filterSection: "",
   selected: new Set(),
+  digestSelections: {
+    daily: new Set(),
+    corporate: new Set()
+  },
   selectedSubscribers: new Set(),
   dragId: null
 };
@@ -250,6 +289,126 @@ function uniqueTopics() {
   return [...topics].sort();
 }
 
+function approvedDailyTopics() {
+  const topics = new Set();
+  state.articles
+    .filter((a) => isApprovedToday(a) || a.status === "summarized")
+    .forEach((a) => {
+    if (a.topic) topics.add(a.topic);
+  });
+  return [...topics].sort();
+}
+
+function sortedApprovedDailyArticles(category = "") {
+  return state.articles
+    .filter((a) => isApprovedToday(a) && (!category || a.topic === category))
+    .sort((a, b) =>
+      (Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0)) ||
+      (new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime())
+    );
+}
+
+function sortedSummarizedDailyArticles(category = "") {
+  return state.articles
+    .filter((a) => a.status === "summarized" && (!category || a.topic === category))
+    .sort((a, b) =>
+      (Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0)) ||
+      (new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime())
+    );
+}
+
+function sortedApprovedCorporateCases() {
+  return [...state.corporateCases]
+    .filter((item) => (item.status || "draft") === "approved")
+    .sort((a, b) => new Date(b.generated_at || 0).getTime() - new Date(a.generated_at || 0).getTime());
+}
+
+function selectedDigestDailyArticles() {
+  const lookup = new Map(state.articles.map((article) => [article.id, article]));
+  return [...state.digestSelections.daily]
+    .map((id) => lookup.get(id))
+    .filter((article) => article && isApprovedToday(article));
+}
+
+function selectedDigestCorporateCases() {
+  const lookup = new Map(state.corporateCases.map((item) => [item.id, item]));
+  return [...state.digestSelections.corporate]
+    .map((id) => lookup.get(id))
+    .filter((item) => item && (item.status || "draft") === "approved");
+}
+
+function trimSelectionSet(set, limit) {
+  if (limit < 0) return;
+  while (set.size > limit) {
+    const first = set.values().next().value;
+    if (!first) break;
+    set.delete(first);
+  }
+}
+
+function syncDigestSelections() {
+  const validDaily = new Set(sortedApprovedDailyArticles().map((article) => article.id));
+  const validCorporate = new Set(sortedApprovedCorporateCases().map((item) => item.id));
+  for (const id of [...state.digestSelections.daily]) {
+    if (!validDaily.has(id)) state.digestSelections.daily.delete(id);
+  }
+  for (const id of [...state.digestSelections.corporate]) {
+    if (!validCorporate.has(id)) state.digestSelections.corporate.delete(id);
+  }
+
+  const format = digestFormatConfig();
+  if (format.needsCategory && state.digestCategory) {
+    for (const article of selectedDigestDailyArticles()) {
+      if (article.topic !== state.digestCategory) state.digestSelections.daily.delete(article.id);
+    }
+  }
+  if (!format.dailyLimit) state.digestSelections.daily.clear();
+  if (!format.caseLimit) state.digestSelections.corporate.clear();
+  trimSelectionSet(state.digestSelections.daily, format.dailyLimit || 0);
+  trimSelectionSet(state.digestSelections.corporate, format.caseLimit || 0);
+}
+
+function resolveDigestComposition() {
+  const format = digestFormatConfig();
+  const category = format.needsCategory ? state.digestCategory : "";
+  const selectedDaily = selectedDigestDailyArticles()
+    .filter((article) => !category || article.topic === category)
+    .slice(0, format.dailyLimit || 0);
+  const selectedCorporate = selectedDigestCorporateCases().slice(0, format.caseLimit || 0);
+
+  const pickedDailyIds = new Set(selectedDaily.map((article) => article.id));
+  const pickedCorporateIds = new Set(selectedCorporate.map((item) => item.id));
+
+  const approvedAutoDaily = sortedApprovedDailyArticles(category)
+    .filter((article) => !pickedDailyIds.has(article.id))
+    .slice(0, Math.max(0, (format.dailyLimit || 0) - selectedDaily.length));
+  const autoDailyIds = new Set([...pickedDailyIds, ...approvedAutoDaily.map((article) => article.id)]);
+  const summarizedAutoDaily = sortedSummarizedDailyArticles(category)
+    .filter((article) => !autoDailyIds.has(article.id))
+    .slice(0, Math.max(0, (format.dailyLimit || 0) - selectedDaily.length - approvedAutoDaily.length));
+  const autoCorporate = sortedApprovedCorporateCases()
+    .filter((item) => !pickedCorporateIds.has(item.id))
+    .slice(0, Math.max(0, (format.caseLimit || 0) - selectedCorporate.length));
+
+  const dailyArticles = [...selectedDaily, ...approvedAutoDaily, ...summarizedAutoDaily];
+  const corporateCases = [...selectedCorporate, ...autoCorporate];
+
+  return {
+    format: state.digestFormat,
+    formatLabel: format.label,
+    category,
+    dailyLimit: format.dailyLimit || 0,
+    caseLimit: format.caseLimit || 0,
+    dailySelected: selectedDaily.length,
+    caseSelected: selectedCorporate.length,
+    dailyAutoFilled: approvedAutoDaily.length + summarizedAutoDaily.length,
+    caseAutoFilled: autoCorporate.length,
+    dailyArticles,
+    corporateCases,
+    isReady: dailyArticles.length >= (format.dailyLimit || 0) && corporateCases.length >= (format.caseLimit || 0),
+  };
+}
+
 function selectedSubscriberCount() {
   return state.subscribers.filter((s) => s.status === "subscribed" && state.selectedSubscribers.has(s.id)).length;
 }
@@ -266,15 +425,26 @@ function topicSubscriberCount(topicSlug) {
   return subscribed.filter((s) => normalizeTopicList(s.topics).includes(topicSlug)).length;
 }
 
+function defaultDigestAudienceCount() {
+  if (state.digestFormat === "case-study-only") {
+    const corporateAudience = topicSubscriberCount("corporate-case");
+    return corporateAudience > 0 ? corporateAudience : state.subscribers.filter((s) => s.status === "subscribed").length;
+  }
+  return dailyWrapSubscriberCount();
+}
+
 function updateSubscriberSelectionUi() {
   const count = selectedSubscriberCount();
   const bar = $("#subscriberBulkBar");
   const label = $("#subscriberBulkCount");
   const selectAll = $("#subSelectAll");
   if (label) {
+    const defaultAudienceLabel = state.section === "approved" && state.digestFormat === "case-study-only"
+      ? "All Corporate Case subscribers will receive this digest"
+      : "All Daily Wrap subscribers will receive the digest";
     label.textContent = count > 0
       ? `${count} recipient${count === 1 ? "" : "s"} selected`
-      : "All Daily Wrap subscribers will receive the digest";
+      : defaultAudienceLabel;
   }
   if (bar) {
     bar.classList.toggle("show", count > 0);
@@ -305,13 +475,23 @@ function refreshChrome() {
 
   const send = $("#sendDigest");
   const selectedSubs = selectedSubscriberCount();
-  send.textContent = selectedSubs > 0
-    ? `Send (${counts.wrapped}) to ${selectedSubs}`
-    : `Send (${counts.wrapped})`;
-  send.disabled = approved === 0 || dailyWrapSubs === 0;
+  const digestPlan = resolveDigestComposition();
+  if (state.section === "approved") {
+    send.textContent = selectedSubs > 0
+      ? `Send ${digestPlan.formatLabel} to ${selectedSubs}`
+      : `Send ${digestPlan.formatLabel}`;
+    send.disabled = !digestPlan.isReady || (selectedSubs === 0 && defaultDigestAudienceCount() === 0) || !cfg.curatedDigest;
+  } else {
+    send.textContent = selectedSubs > 0
+      ? `Send (${counts.wrapped}) to ${selectedSubs}`
+      : `Send (${counts.wrapped})`;
+    send.disabled = approved === 0 || dailyWrapSubs === 0;
+  }
 
   const preview = $("#previewDigest");
-  preview.style.display = approved > 0 ? "" : "none";
+  preview.style.display = state.section === "approved"
+    ? (digestPlan.dailyArticles.length > 0 || digestPlan.corporateCases.length > 0 ? "" : "none")
+    : (approved > 0 ? "" : "none");
 
   const titles = {
     review: ["Review queue", `Wrapped: ${counts.wrapped}/${DAILY_CAP} | ${pending} pending`],
@@ -326,6 +506,42 @@ function refreshChrome() {
   const [t, sub] = titles[state.section] || ["", ""];
   $("#sectionTitle").textContent = t;
   $("#sectionSub").textContent = sub;
+}
+
+function renderDigestComposerControls() {
+  syncDigestSelections();
+  const format = digestFormatConfig();
+  const categories = approvedDailyTopics();
+  if (!state.digestCategory && categories.length > 0) state.digestCategory = categories[0];
+  if (format.needsCategory && state.digestCategory && !categories.includes(state.digestCategory)) {
+    state.digestCategory = categories[0] || "";
+  }
+  if (!format.needsCategory) state.digestCategory = "";
+
+  const formatSelect = $("#digestFormatSelect");
+  if (formatSelect) formatSelect.value = state.digestFormat;
+
+  const categoryWrap = $("#digestCategoryWrap");
+  if (categoryWrap) categoryWrap.style.display = format.needsCategory ? "" : "none";
+
+  const categorySelect = $("#digestCategorySelect");
+  if (categorySelect) {
+    categorySelect.innerHTML = categories.length
+      ? categories.map((topic) => `<option value="${esc(topic)}" ${topic === state.digestCategory ? "selected" : ""}>${esc(topic)}</option>`).join("")
+      : `<option value="">No approved categories</option>`;
+  }
+
+  const plan = resolveDigestComposition();
+  const dailyText = plan.dailyLimit
+    ? `${plan.dailySelected}/${plan.dailyLimit} daily picks${plan.dailyAutoFilled ? `, ${plan.dailyAutoFilled} auto-fill ready` : ""}`
+    : "No daily picks needed";
+  const caseText = plan.caseLimit
+    ? `${plan.caseSelected}/${plan.caseLimit} case study picked${plan.caseAutoFilled ? `, ${plan.caseAutoFilled} auto-fill ready` : ""}`
+    : "No case study needed";
+  $("#digestComposerHint").textContent = format.hint;
+  $("#digestSlotStatus").textContent = format.needsCategory && plan.category
+    ? `${dailyText} in ${plan.category} | ${caseText}`
+    : `${dailyText} | ${caseText}`;
 }
 
 function populateTopicFilter() {
@@ -345,7 +561,9 @@ function cardHtml(a, mode) {
   const topic = a.topic ? `<span class="topic-chip">${esc(a.topic)}</span>` : "";
   const sec = "wrapped";
   const atCap = approvedTodayCount() >= DAILY_CAP;
-  const checked = state.selected.has(a.id) ? "checked" : "";
+  const isReviewSelected = state.selected.has(a.id);
+  const isDigestSelected = state.digestSelections.daily.has(a.id);
+  const checked = mode === "approved" ? isDigestSelected : isReviewSelected;
   const draggable = mode === "approved" ? 'draggable="true"' : "";
 
   // Section picker
@@ -357,8 +575,10 @@ function cardHtml(a, mode) {
       </select>
     </div>` : "";
 
-  const canSelect = mode === "review" || mode === "approved";
-  const checkbox = canSelect ? `<input type="checkbox" class="card-check" data-id="${a.id}" ${checked}>` : "";
+  const canSelect = mode === "review" || (mode === "approved" && digestFormatConfig().dailyLimit > 0);
+  const checkbox = canSelect
+    ? `<input type="checkbox" class="card-check" data-id="${a.id}" data-select-kind="${mode === "approved" ? "daily" : "review"}" ${checked ? "checked" : ""}>`
+    : "";
 
   let actions = "";
   if (mode === "review") {
@@ -389,7 +609,7 @@ function cardHtml(a, mode) {
   const readTime = Math.max(1, Math.ceil(words / 200));
 
   return `
-    <article class="card ${checked ? "selected" : ""}" data-id="${a.id}" ${draggable}>
+    <article class="card ${checked ? "selected" : ""}" data-id="${a.id}" data-select-kind="${mode === "approved" ? "daily" : "review"}" data-preview-key="${dailyDigestKey(a.id)}" ${draggable}>
       <header>
         ${checkbox}
           <div class="card-head">
@@ -416,6 +636,7 @@ function renderReview() {
 }
 
 function renderApproved() {
+  renderDigestComposerControls();
   const topic = state.approvedTopic;
   const tabs = $("#approvedTopicTabs");
   if (tabs) {
@@ -425,31 +646,18 @@ function renderApproved() {
   }
 
   const dailyItems = topic === "daily-wrap" || topic === "all-topics"
-    ? state.articles.filter(isApprovedToday)
+    ? sortedApprovedDailyArticles(digestFormatConfig().needsCategory ? state.digestCategory : "")
     : [];
   const topicItems = topic === "daily-wrap"
     ? []
     : topicDraftCards(topic, "approved");
-  const topicCount = dailyItems.length + topicItems.length;
-
-  const sendTopic = $("#sendApprovedTopic");
-  if (sendTopic) {
-    sendTopic.textContent = `Send ${topicLabel(topic)}`;
-    sendTopic.disabled = topicCount === 0 || topicSubscriberCount(topic) === 0 || (!cfg.topicDigest && topic !== "daily-wrap");
-  }
-
-  const allTopicCount = state.articles.filter(isApprovedToday).length + topicDraftCards("all-topics", "approved").length;
-  const sendAll = $("#sendAllTopics");
-  if (sendAll) {
-    sendAll.disabled = allTopicCount === 0 || topicSubscriberCount("all-topics") === 0 || !cfg.topicDigest;
-  }
 
   const node = $("#approvedList");
   const dailyHtml = dailyItems.length
     ? `${topic === "all-topics" ? `<h3 class="approved-group-title">Daily Wrap</h3>` : ""}${dailyItems.map((a) => cardHtml(a, "approved")).join("")}`
     : "";
   const topicHtml = topicItems.length
-    ? `${topic === "all-topics" ? `<h3 class="approved-group-title">Topic Articles</h3>` : ""}${topicItems.map(topicDraftCardHtml).join("")}`
+    ? `${topic === "all-topics" ? `<h3 class="approved-group-title">Topic Articles</h3>` : ""}${topicItems.map((card) => topicDraftCardHtml(card, { selectable: topic === "corporate-case" || (topic === "all-topics" && card.kind === "corporate") })).join("")}`
     : "";
   node.innerHTML = dailyHtml || topicHtml
     ? `${dailyHtml}${topicHtml}`
@@ -543,13 +751,15 @@ function sourceNameForUrl(draft, url) {
   return (draft.source_links || []).find((item) => item.url === url)?.source || "Source";
 }
 
-function topicDraftCardHtml(card) {
+function topicDraftCardHtml(card, options = {}) {
   const date = card.generatedAt
     ? new Date(card.generatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })
     : "";
   const words = card.body.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.ceil(words / 200));
   const cardId = `${card.kind}:${card.id}:${card.cardType}:${card.briefIndex ?? ""}`;
+  const allowSelect = options.selectable === true && card.kind === "corporate";
+  const selected = allowSelect && state.digestSelections.corporate.has(card.id);
   const draftActions = card.status === "approved"
     ? `
         <button class="btn-save" data-action="update">Save</button>
@@ -559,8 +769,9 @@ function topicDraftCardHtml(card) {
         <button class="btn-reject" data-action="reject">Reject draft</button>
         <button class="btn-approve" data-action="approve">Approve draft</button>`;
   return `
-    <article class="card topic-draft-card" data-kind="${esc(card.kind)}" data-id="${esc(card.id)}" data-card-type="${esc(card.cardType)}" data-brief-index="${card.briefIndex ?? ""}">
+    <article class="card topic-draft-card ${selected ? "selected" : ""}" data-kind="${esc(card.kind)}" data-id="${esc(card.id)}" data-card-type="${esc(card.cardType)}" data-brief-index="${card.briefIndex ?? ""}" data-select-kind="${allowSelect ? "corporate" : ""}" data-preview-key="${allowSelect ? corporateDigestKey(card.id) : `${card.kind}:${card.id}:${card.cardType}`}">
       <header>
+        ${allowSelect ? `<input type="checkbox" class="card-check" data-id="${esc(card.id)}" data-select-kind="corporate" ${selected ? "checked" : ""}>` : ""}
         <div class="card-head">
           <div class="chips">
             <span class="source-pill">${esc(card.source || "Shortly")}</span>
@@ -799,6 +1010,7 @@ function renderAnalytics() {
 function renderAll() {
   refreshChrome();
   populateTopicFilter();
+  renderDigestComposerControls();
   renderReview();
   renderApproved();
   renderTopicDrafts();
@@ -973,6 +1185,55 @@ function updateBulkBar() {
   }
 }
 
+function toggleDigestSelection(kind, id, checked) {
+  const format = digestFormatConfig();
+  if (kind === "daily") {
+    const article = state.articles.find((item) => item.id === id && isApprovedToday(item));
+    if (!article) return;
+    if (format.dailyLimit === 0) {
+      toast("This format does not use daily articles.");
+      return;
+    }
+    if (format.needsCategory && state.digestCategory && article.topic !== state.digestCategory) {
+      toast(`Pick only ${state.digestCategory} articles for this format.`);
+      return;
+    }
+    if (checked) {
+      if (state.digestSelections.daily.has(id)) return;
+      if (state.digestSelections.daily.size >= format.dailyLimit) {
+        toast(`This format only allows ${format.dailyLimit} daily article${format.dailyLimit === 1 ? "" : "s"}.`);
+        return;
+      }
+      state.digestSelections.daily.add(id);
+    } else {
+      state.digestSelections.daily.delete(id);
+    }
+    return;
+  }
+
+  if (kind === "corporate") {
+    if (format.caseLimit === 0) {
+      toast("This format does not use a case study.");
+      return;
+    }
+    if (checked) {
+      if (state.digestSelections.corporate.has(id)) return;
+      if (state.digestSelections.corporate.size >= format.caseLimit) {
+        toast(`This format only allows ${format.caseLimit} case study.`);
+        return;
+      }
+      state.digestSelections.corporate.add(id);
+    } else {
+      state.digestSelections.corporate.delete(id);
+    }
+  }
+}
+
+function clearDigestSelections() {
+  state.digestSelections.daily.clear();
+  state.digestSelections.corporate.clear();
+}
+
 async function bulkAction(action) {
   const ids = [...document.querySelectorAll("#reviewList .card-check:checked")]
     .map((check) => check.dataset.id)
@@ -1078,20 +1339,20 @@ function attachDragListeners() {
 // ---------- email preview ----------
 function collectLiveSummaryOverrides() {
   const overrides = new Map();
-  $$(".card[data-id] textarea[data-role=summary]").forEach((node) => {
+  $$(".card[data-preview-key] textarea[data-role=summary]").forEach((node) => {
     const card = node.closest(".card");
-    const id = card?.dataset.id;
-    if (id) overrides.set(id, node.value.trim());
+    const key = card?.dataset.previewKey;
+    if (key) overrides.set(key, node.value.trim());
   });
   return overrides;
 }
 
 function collectLiveHeadlineOverrides() {
   const overrides = new Map();
-  $$(".card[data-id] input[data-role=headline]").forEach((node) => {
+  $$(".card[data-preview-key] input[data-role=headline]").forEach((node) => {
     const card = node.closest(".card");
-    const id = card?.dataset.id;
-    if (id) overrides.set(id, node.value.trim());
+    const key = card?.dataset.previewKey;
+    if (key) overrides.set(key, node.value.trim());
   });
   return overrides;
 }
@@ -1099,10 +1360,14 @@ function collectLiveHeadlineOverrides() {
 function generatePreviewHtml() {
   const liveHeadlines = collectLiveHeadlineOverrides();
   const liveSummaries = collectLiveSummaryOverrides();
+  const plan = resolveDigestComposition();
+  if (state.section === "approved" && plan.dailyArticles.length === 0 && plan.corporateCases.length === 0) {
+    return "<p>No approved items ready for this format yet.</p>";
+  }
   const approved = state.articles.filter(isApprovedToday);
-  if (approved.length === 0) return "<p>No articles approved yet.</p>";
+  if (state.section !== "approved" && approved.length === 0) return "<p>No articles approved yet.</p>";
 
-  const wrapped = approved.slice(0, DAILY_CAP);
+  const wrapped = state.section === "approved" ? plan.dailyArticles : approved.slice(0, DAILY_CAP);
   const previewBaseUrl =
     window.location.origin && window.location.origin !== "null"
       ? `${window.location.origin}/`
@@ -1110,9 +1375,6 @@ function generatePreviewHtml() {
   const previewBannerUrl = `${new URL("assets/email-banner.jpg", previewBaseUrl).href}?v=${Date.now()}`;
   const previewFooterLogoUrl = `${new URL("assets/footer-logo.png", previewBaseUrl).href}?v=${Date.now()}`;
 
-  const today = new Date().toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric", year: "numeric"
-  });
   const shareBase = (cfg.siteUrl || window.location.origin || "").replace(/\/+$/, "");
   const shareUrl = shareBase ? `${shareBase}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
   const shareMessage = "Click here to subscribe to Shortly Daily Wrap:";
@@ -1125,10 +1387,11 @@ function generatePreviewHtml() {
   const linkedinIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.94 8.5H3.56V20h3.38V8.5Zm.22-3.56C7.15 3.77 6.3 3 5.26 3S3.38 3.77 3.38 4.94s.83 1.94 1.85 1.94h.03c1.06 0 1.9-.77 1.9-1.94ZM20.62 12.65c0-3.46-1.85-5.07-4.32-5.07-1.99 0-2.88 1.1-3.37 1.87V8.5H9.55c.04.63 0 11.5 0 11.5h3.38v-6.42c0-.34.02-.68.12-.92.27-.68.88-1.39 1.9-1.39 1.34 0 1.88 1.02 1.88 2.52V20H20.2v-6.35Z" fill="#6d28d9"/></svg>`;
   const whatsappIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.52 3.48A11.86 11.86 0 0 0 12.07 0C5.51 0 .18 5.33.18 11.88c0 2.1.55 4.16 1.58 5.97L0 24l6.33-1.66a11.86 11.86 0 0 0 5.74 1.47h.01c6.55 0 11.88-5.33 11.88-11.88 0-3.17-1.24-6.14-3.44-8.45Zm-8.45 18.3h-.01a9.94 9.94 0 0 1-5.07-1.39l-.36-.21-3.76.99 1-3.66-.23-.37a9.9 9.9 0 0 1-1.53-5.26c0-5.47 4.45-9.92 9.93-9.92 2.65 0 5.14 1.03 7.01 2.9a9.85 9.85 0 0 1 2.9 7.02c0 5.47-4.45 9.92-9.91 9.92Zm5.44-7.42c-.3-.15-1.8-.89-2.08-.99-.28-.1-.48-.15-.69.15-.2.3-.79.99-.96 1.19-.18.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5a9 9 0 0 1-1.67-2.07c-.18-.3-.02-.46.13-.61.13-.13.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.02-.53-.08-.15-.69-1.66-.94-2.28-.25-.6-.5-.52-.69-.53h-.58c-.2 0-.53.08-.81.38-.28.3-1.06 1.03-1.06 2.5s1.09 2.89 1.24 3.1c.15.2 2.14 3.26 5.18 4.57.72.31 1.29.5 1.73.64.73.23 1.39.2 1.92.12.59-.09 1.8-.74 2.05-1.45.25-.71.25-1.32.17-1.45-.08-.13-.28-.2-.58-.35Z" fill="#6d28d9"/></svg>`;
 
-  function renderItems(articles) {
-    return articles.map((a, i) => {
-      const headline = liveHeadlines.get(a.id) || (a.edited_title || a.title || "").trim();
-      const text = liveSummaries.get(a.id) || (a.edited_summary || a.summary || "").trim();
+  function renderItems(items, kind = "daily") {
+    return items.map((a, i) => {
+      const previewKey = kind === "daily" ? dailyDigestKey(a.id) : corporateDigestKey(a.id);
+      const headline = liveHeadlines.get(previewKey) || (a.edited_title || a.title || a.headline || "").trim();
+      const text = liveSummaries.get(previewKey) || (a.edited_summary || a.summary || a.detail || "").trim();
       return `<tr><td style="padding:0 0 16px">
         <div style="background:#ffffff;border:3px solid #111111;border-radius:12px;padding:18px 18px 18px 16px">
           <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
@@ -1154,22 +1417,36 @@ function generatePreviewHtml() {
     </tr></table>`;
   }
 
-  function renderSection(title, subtitle, articles) {
-    if (articles.length === 0) return "";
-    return `${renderLabelBar("Quick Hits. Daily Wrap", "#6d28d9")}<div style="margin-bottom:22px;border-radius:22px;background:transparent">
+  function renderSection(label, items, kind = "daily", color = "#6d28d9") {
+    if (items.length === 0) return "";
+    return `${renderLabelBar(label, color)}<div style="margin-bottom:22px;border-radius:22px;background:transparent">
       <div style="padding:0">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-          ${renderItems(articles)}
+          ${renderItems(items, kind)}
         </table>
       </div>
     </div>`;
   }
 
-  // Calculate read time
-  const allText = wrapped
-    .map((a) => liveSummaries.get(a.id) || a.edited_summary || a.summary || "")
+  const introText = state.section === "approved"
+    ? {
+        "daily-wrap-10": "Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!",
+        "category-5-case-1": `Here are 5 stories from ${esc(plan.category || "today's focus")} plus one case study that adds the deeper business angle.`,
+        "case-study-only": "Here is today's Shortly case study, designed as one focused long-form read."
+      }[state.digestFormat]
+    : "Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!";
+
+  const allText = [...wrapped, ...plan.corporateCases]
+    .map((a) => {
+      const key = a.headline ? corporateDigestKey(a.id) : dailyDigestKey(a.id);
+      return liveSummaries.get(key) || a.edited_summary || a.summary || a.detail || "";
+    })
     .join(" ");
   const wordCount = allText.split(/\s+/).filter(Boolean).length;
+  const categoryLabel = plan.category || "Daily Wrap";
+  const dailyLabel = state.section === "approved" && state.digestFormat === "category-5-case-1"
+    ? `Quick Hits. ${esc(categoryLabel)}`
+    : "Quick Hits. Daily Wrap";
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><base href="${previewBaseUrl}"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet"></head>
   <body style="margin:0;background:#fcfbf7;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
@@ -1179,10 +1456,11 @@ function generatePreviewHtml() {
       <div style="background:#ffffff;border-radius:12px;padding:26px 28px;margin:0 0 24px;border:3px solid #111111">
         <p style="margin:0 0 12px;color:#191919;font-size:18px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">Hi &lt;NAME&gt;,</p>
         <p style="margin:0;color:#2f2f39;font-size:16px;line-height:1.7;font-weight:400;font-family:Roboto,Arial,sans-serif">
-          Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!
+          ${introText}
         </p>
       </div>
-      ${renderSection("Shortly Wrapped", `${wrapped.length} stories to catch up on`, wrapped)}
+      ${renderSection(dailyLabel, wrapped, "daily")}
+      ${renderSection("Corporate Case", plan.corporateCases, "corporate", "#0f9d69")}
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:4px;margin-bottom:20px">
         <tr><td style="text-align:center;padding:10px 20px 14px">
           <img src="${previewFooterLogoUrl}" alt="Shortly" style="display:block;width:96px;max-width:100%;height:auto;margin:0 auto 8px">
@@ -1305,10 +1583,16 @@ $("#bulkClear").addEventListener("click", () => {
     const check = e.target.closest(".card-check");
     if (check) {
       const id = check.dataset.id;
-      if (check.checked) state.selected.add(id);
-      else state.selected.delete(id);
-      check.closest(".card")?.classList.toggle("selected", check.checked);
-      updateBulkBar();
+      if (sel === "#approvedList") {
+        toggleDigestSelection(check.dataset.selectKind, id, check.checked);
+        renderApproved();
+        refreshChrome();
+      } else {
+        if (check.checked) state.selected.add(id);
+        else state.selected.delete(id);
+        check.closest(".card")?.classList.toggle("selected", check.checked);
+        updateBulkBar();
+      }
       return;
     }
     // Handle action button
@@ -1321,6 +1605,28 @@ $("#bulkClear").addEventListener("click", () => {
     }
     handleArticleAction(card, btn.dataset.action);
   });
+});
+
+$("#digestFormatSelect").addEventListener("change", (e) => {
+  state.digestFormat = e.target.value;
+  clearDigestSelections();
+  if (state.digestFormat === "case-study-only") state.approvedTopic = "corporate-case";
+  else state.approvedTopic = "daily-wrap";
+  renderApproved();
+  refreshChrome();
+});
+
+$("#digestCategorySelect").addEventListener("change", (e) => {
+  state.digestCategory = e.target.value;
+  syncDigestSelections();
+  renderApproved();
+  refreshChrome();
+});
+
+$("#clearDigestSelection").addEventListener("click", () => {
+  clearDigestSelections();
+  renderApproved();
+  refreshChrome();
 });
 
 $("#approvedTopicTabs").addEventListener("click", (e) => {
@@ -1552,34 +1858,37 @@ async function sendDailyDigest() {
   }
 }
 
-async function sendTopicDigest(topicSlug) {
-  if (topicSlug === "daily-wrap") {
-    await sendDailyDigest();
+async function sendCuratedDigest() {
+  if (!cfg.curatedDigest) {
+    toast("Curated digest endpoint is missing.");
     return;
   }
-  if (!cfg.topicDigest) {
-    toast("Topic digest endpoint is missing.");
-    return;
-  }
+  const plan = resolveDigestComposition();
   const selectedIds = [...state.selectedSubscribers];
-  const subCount = selectedIds.length || topicSubscriberCount(topicSlug);
-  const topicItems = topicDraftCards(topicSlug, "approved").length;
-  const dailyItems = topicSlug === "all-topics" ? state.articles.filter(isApprovedToday).length : 0;
-  const itemCount = topicItems + dailyItems;
-  if (itemCount === 0) {
-    toast(`No approved ${topicLabel(topicSlug)} items to send.`);
+  const subCount = selectedIds.length || defaultDigestAudienceCount();
+  if (!plan.isReady) {
+    toast("This format does not have enough approved items yet.");
     return;
   }
-  if (!confirm(`Send ${topicLabel(topicSlug)} email with ${itemCount} item${itemCount === 1 ? "" : "s"} to ${subCount} subscribers?`)) return;
+  const itemCount = plan.dailyArticles.length + plan.corporateCases.length;
+  const detail = [
+    plan.dailyLimit ? `${plan.dailyArticles.length} daily article${plan.dailyArticles.length === 1 ? "" : "s"}` : "",
+    plan.caseLimit ? `${plan.corporateCases.length} case stud${plan.corporateCases.length === 1 ? "y" : "ies"}` : ""
+  ].filter(Boolean).join(" + ");
+  if (!confirm(`Send ${plan.formatLabel} to ${subCount} subscribers?\n\n${detail}`)) return;
 
   try {
-    const res = await api("POST", cfg.topicDigest, {
+    const res = await api("POST", cfg.curatedDigest, {
       manual: true,
-      topic: topicSlug,
+      format: plan.format,
+      category: plan.category,
+      article_ids: [...state.digestSelections.daily],
+      corporate_case_id: [...state.digestSelections.corporate][0] || null,
       ...(selectedIds.length ? { subscriber_ids: selectedIds } : {})
     });
+    clearDigestSelections();
     state.selectedSubscribers.clear();
-    toast(`Sent ${topicLabel(topicSlug)} to ${res.sent ?? 0} subscribers.`);
+    toast(`Sent ${plan.formatLabel} to ${res.sent ?? 0} subscribers.`);
     await reload();
     showSection("approved");
   } catch (e) {
@@ -1588,9 +1897,12 @@ async function sendTopicDigest(topicSlug) {
 }
 
 // Send digest
-$("#sendDigest").addEventListener("click", sendDailyDigest);
-$("#sendApprovedTopic").addEventListener("click", () => sendTopicDigest(state.approvedTopic));
-$("#sendAllTopics").addEventListener("click", () => sendTopicDigest("all-topics"));
+$("#sendDigest").addEventListener("click", () => {
+  if (state.section === "approved") {
+    return sendCuratedDigest();
+  }
+  return sendDailyDigest();
+});
 
 // Keyboard shortcut: Escape closes modal
 document.addEventListener("keydown", (e) => {

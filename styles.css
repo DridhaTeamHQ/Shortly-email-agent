@@ -194,12 +194,43 @@ a:hover { text-decoration: underline; }
 .topic-tab.active { background: var(--purple); color: #fff; border-color: var(--purple); }
 .topic-draft-card textarea { min-height: 132px; }
 .approved-workbench { align-items: flex-start; }
-.approved-send-actions {
-  display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
-}
 .approved-group-title {
   margin: 12px 0 2px; font-size: 13px; color: var(--muted);
   text-transform: uppercase; letter-spacing: 0.08em;
+}
+.digest-composer-card {
+  flex: 1 1 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+.digest-composer-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: end;
+  margin-bottom: 10px;
+}
+.digest-field {
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+.digest-field span {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.digest-slot-bar {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 13px;
 }
 
 /* ── Article Card ── */
