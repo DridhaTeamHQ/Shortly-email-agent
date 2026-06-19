@@ -41,6 +41,19 @@ function utcDayWindow() {
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
+function istDayWindow() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const startMs = Date.UTC(value("year"), value("month") - 1, value("day")) - (5.5 * 60 * 60 * 1000);
+  const endMs = startMs + (24 * 60 * 60 * 1000);
+  return { start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString() };
+}
+
 function escapeHtmlText(value = ""): string {
   return value
     .replaceAll("&", "&amp;")
@@ -73,6 +86,8 @@ Deno.serve(async (request) => {
   let subscriberIds: string[] = [];
   let articleIds: string[] = [];
   let isManual = false;
+  let isScheduled = false;
+  let forceSend = false;
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     subscriberIds = Array.isArray(body?.subscriber_ids)
@@ -82,10 +97,34 @@ Deno.serve(async (request) => {
       ? body.article_ids.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
       : [];
     isManual = body?.manual === true;
+    isScheduled = body?.scheduled === true;
+    forceSend = body?.force === true;
   }
 
-  if (!isManual && !AUTO_DIGEST_ENABLED) {
+  if (!isManual && !isScheduled && !AUTO_DIGEST_ENABLED) {
     return json({ error: "Automatic digest sending is turned off for now." }, 403);
+  }
+
+  if (isScheduled && !forceSend) {
+    const { start: istStart, end: istEnd } = istDayWindow();
+    const { data: existingDigest, error: existingDigestError } = await supabase
+      .from("digests")
+      .select("id,sent_at,recipients,sent,failed")
+      .gte("sent_at", istStart)
+      .lt("sent_at", istEnd)
+      .gt("recipients", 0)
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingDigestError) return json({ error: existingDigestError.message }, 500);
+    if (existingDigest) {
+      return json({
+        skipped: true,
+        reason: "Scheduled digest already ran for the current IST day.",
+        digestId: existingDigest.id,
+        sentAt: existingDigest.sent_at,
+      });
+    }
   }
 
   let articles: Article[] = [];

@@ -80,7 +80,7 @@ select cron.schedule(
 select cron.schedule(
   'shortly-send-digest-9am-ist',
   '30 3 * * *',
-  $$select public.invoke_edge('send-daily-digest', '{"manual": true}'::jsonb, 300000);$$
+  $$select public.invoke_edge('send-daily-digest', '{"scheduled": true}'::jsonb, 300000);$$
 );
 
 -- 04:30 UTC (10:00 IST), Monday-Friday: draft one Corporate Case.
