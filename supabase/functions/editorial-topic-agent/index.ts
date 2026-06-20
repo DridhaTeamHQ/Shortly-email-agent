@@ -148,7 +148,21 @@ async function handleRequest(request: Request): Promise<Response> {
   };
   const { data, error } = await supabase.from("editorial_drafts").insert(row).select("*").single();
   if (error) return json({ error: error.message }, 500);
-  return json({ draft: data, scanned: candidates.length, sourcesUsed: sourceLinks.length, sourceErrors });
+
+  let shortArticlesInserted = 0;
+  if (topic.format === "hybrid") {
+    const shortArticles = buildShortArticlesFromBriefs(topic, content.briefs ?? [], sourceLinks, data.id);
+    if (shortArticles.length > 0) {
+      const { data: articleRows, error: articleError } = await supabase
+        .from("articles")
+        .upsert(shortArticles, { onConflict: "url", ignoreDuplicates: true })
+        .select("id");
+      if (articleError) return json({ error: articleError.message, draft: data }, 500);
+      shortArticlesInserted = articleRows?.length ?? 0;
+    }
+  }
+
+  return json({ draft: data, shortArticlesInserted, scanned: candidates.length, sourcesUsed: sourceLinks.length, sourceErrors });
 }
 
 Deno.serve(async (request) => {
@@ -162,6 +176,45 @@ Deno.serve(async (request) => {
 
 function topicMeta(topic: EditorialTopic) {
   return { slug: topic.slug, name: topic.name, format: topic.format, cadence: topic.cadence, description: topic.description };
+}
+
+function shortArticleCategory(topic: EditorialTopic): string {
+  if (topic.slug === "real-estate") return "Real Estate";
+  if (topic.slug === "policy-partner") return "Policy Partner";
+  if (topic.slug === "money-matters") return "Money Matters";
+  if (topic.slug === "wellness-daily") return "Wellness Daily";
+  return topic.name;
+}
+
+function buildShortArticlesFromBriefs(
+  topic: EditorialTopic,
+  briefs: Array<Record<string, unknown>>,
+  sourceLinks: Array<{ title: string; source: string; url: string }>,
+  draftId: string
+) {
+  const category = shortArticleCategory(topic);
+  return briefs.map((brief, index) => {
+    const sourceUrl = String(brief.source_url || sourceLinks[0]?.url || "").trim();
+    const source = sourceLinks.find((item) => item.url === sourceUrl)?.source ?? sourceLinks[0]?.source ?? "Source";
+    const body = [
+      brief.city ? `${brief.city}: ${brief.what_happened ?? ""}` : brief.what_happened,
+      brief.why_it_matters
+    ].filter(Boolean).map(String).join("\n\n").trim();
+    return {
+      title: String(brief.headline ?? "").trim().slice(0, 500),
+      url: `${sourceUrl || `https://shortly.local/editorial/${draftId}`}#shortly-brief-${index + 1}`,
+      raw_content: body,
+      summary: body,
+      source,
+      topic: category,
+      category,
+      section: "wrapped",
+      status: "summarized",
+      rank_score: 0.9,
+      scraped_at: new Date().toISOString(),
+      summarized_at: new Date().toISOString()
+    };
+  }).filter((row) => row.title && row.summary);
 }
 
 async function collectCandidates(topic: EditorialTopic, sourceErrors: Array<{ source: string; error: string }>): Promise<Candidate[]> {

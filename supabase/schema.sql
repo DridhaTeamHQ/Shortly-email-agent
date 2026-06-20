@@ -23,6 +23,7 @@ create table if not exists public.articles (
   edited_summary text,
   source text,
   topic text,
+  category text,
   section text check (section in ('wrapped', 'ahead')),
   note text,
   status text not null default 'pending'
@@ -38,6 +39,7 @@ create table if not exists public.articles (
 
 create index if not exists articles_status_idx on public.articles (status, scraped_at desc);
 create index if not exists articles_rank_idx on public.articles (rank_score desc);
+create index if not exists articles_category_status_idx on public.articles (category, status, scraped_at desc);
 
 create table if not exists public.corporate_cases (
   id uuid primary key default gen_random_uuid(),

@@ -73,14 +73,23 @@
               <input id="subEmail" type="email" placeholder="you@example.com" required />
             </label>
             <fieldset class="topic-choice-group">
-              <legend>Choose what you want</legend>
-              <label><input type="checkbox" name="topics" value="daily-wrap" checked /> Daily Wrap</label>
-              <label><input type="checkbox" name="topics" value="corporate-case" /> Corporate Case</label>
-              <label><input type="checkbox" name="topics" value="real-estate" /> Real Estate</label>
-              <label><input type="checkbox" name="topics" value="policy-partner" /> Policy Partner</label>
-              <label><input type="checkbox" name="topics" value="money-matters" /> Money Matters</label>
-              <label><input type="checkbox" name="topics" value="wellness-daily" /> Wellness Daily</label>
+              <legend>Choose your plan</legend>
+              <label><input type="radio" name="plan" value="daily-wrap" checked /> Daily Wrap — 10 top stories every morning</label>
+              <label><input type="radio" name="plan" value="category-case" /> 5 Category briefs + 1 Case Study</label>
+              <label><input type="radio" name="plan" value="wrap-category" /> 5 Daily Wrap + 5 Category briefs</label>
+              <label><input type="radio" name="plan" value="case-only" /> Case Study only</label>
             </fieldset>
+            <label id="categoryField" hidden>
+              <span>Your category</span>
+              <select id="subCategory">
+                <option value="">Select a category</option>
+                <option value="Real Estate">Real Estate</option>
+                <option value="Policy Partner">Policy Partner</option>
+                <option value="Money Matters">Money Matters</option>
+                <option value="Wellness Daily">Wellness Daily</option>
+                <option value="Corporate Case">Corporate Case</option>
+              </select>
+            </label>
             <button id="subscribeButton" type="submit">Subscribe now</button>
           </form>
 

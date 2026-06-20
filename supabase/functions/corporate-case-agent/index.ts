@@ -280,7 +280,10 @@ Hard rules:
 - Every factual claim and every number must come from the supplied source text.
 - Do not use latent knowledge for company facts or numbers.
 - Do not invent missing unit economics. State that the source does not provide them.
-- No founder worship, press-release language, exclamation marks, entrepreneur lessons, or marketing terms.
+- Lead with the business model, never the founder. Open on what the company does, not who runs it; the founder appears only when relevant to a specific decision. No founder-quote openings ("As [founder] once said...").
+- Banned phrases: "disrupting", "10x growth", "category-defining", "rocketship", "legendary founder", "this is just the beginning". No "lessons for entrepreneurs" closer, no press-release language, no exclamation marks.
+- State which side (bull or bear) has the numbers and which has the vibes; weight by evidence, never "some say good, some say bad".
+- Be honest about luck versus skill; if you are guessing, say "we're guessing".
 - At most one source quote, under 15 words. Prefer no direct quote.
 - Define business jargon the first time it appears.
 - Total summary + detail should be 400-600 words.
