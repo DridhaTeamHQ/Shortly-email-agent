@@ -11,11 +11,23 @@ const INLINE_NOISE_PATTERNS = [
   /updated on:\s*/gi
 ];
 
-const LINE_NOISE_PATTERNS = [
-  /\b(contact us|call us|helpline|hotline|customer care|whatsapp|telegram|follow us|subscribe|newsletter|email us)\b/i,
-  /\b(all rights reserved|copyright|cookie policy|privacy policy|terms of use)\b/i,
-  /\b(live updates|live blog|photo gallery|video)\b/i
+// Footer/legal furniture — safe to drop from any line, however long.
+const FOOTER_LINE_PATTERNS = [
+  /\b(all rights reserved|copyright|cookie policy|privacy policy|terms of use)\b/i
 ];
+// Call-to-action furniture — drop ONLY when the line is short (a real CTA line),
+// never when the word merely appears inside a longer news sentence. This avoids
+// emptying legitimate stories that are *about* WhatsApp/Telegram/video/etc.
+const CTA_LINE_PATTERNS = [
+  /\b(contact us|call us|helpline|hotline|customer care|follow us|subscribe|newsletter|email us|download (the |our )?app|join (our|the) (telegram|whatsapp|facebook|instagram|x|twitter|linkedin)( channel| group)?)\b/i
+];
+const CTA_MAX_LINE_LENGTH = 80;
+
+function isFurnitureLine(line: string): boolean {
+  if (FOOTER_LINE_PATTERNS.some((p) => p.test(line))) return true;
+  if (line.length <= CTA_MAX_LINE_LENGTH && CTA_LINE_PATTERNS.some((p) => p.test(line))) return true;
+  return false;
+}
 
 function decodeEntities(text: string): string {
   return text
@@ -59,7 +71,7 @@ export function cleanArticleText(text: string): string {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => !LINE_NOISE_PATTERNS.some((pattern) => pattern.test(line)))
+    .filter((line) => !isFurnitureLine(line))
     .filter((line) => !isMostlyPhoneLine(line))
     .filter((line) => line.length > 20 || /[.?!]/.test(line));
 

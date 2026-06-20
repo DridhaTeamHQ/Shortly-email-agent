@@ -25,6 +25,7 @@ Deno.serve(async (request) => {
     edited_summary?: string;
     reviewer?: string;
     section?: string;
+    category?: string | null;
     rank_score?: number;
   };
   try {
@@ -33,7 +34,7 @@ Deno.serve(async (request) => {
     return json({ error: "invalid JSON" }, 400);
   }
 
-  const { id, action, edited_title, edited_summary, reviewer, section, rank_score } = body;
+  const { id, action, edited_title, edited_summary, reviewer, section, category, rank_score } = body;
   if (!id) return json({ error: "id is required" }, 400);
   if (!action || !["approve", "reject", "edit", "reorder"].includes(action))
     return json({ error: "action must be approve|reject|edit|reorder" }, 400);
@@ -50,6 +51,12 @@ Deno.serve(async (request) => {
     patch.section = section;
   }
 
+  if (typeof category === "string") {
+    const cleanCategory = category.trim();
+    patch.category = cleanCategory || null;
+  }
+
+
   if (action === "edit") {
     if (!edited_title?.trim() && !edited_summary?.trim() && typeof rank_score !== "number") {
       return json({ error: "edited_title, edited_summary, or rank_score required for edit" }, 400);
@@ -62,17 +69,27 @@ Deno.serve(async (request) => {
       return json({ error: "rank_score is required for reorder" }, 400);
     }
   } else if (action === "approve") {
+    const { data: current, error: currentError } = await supabase
+      .from("articles")
+      .select("category")
+      .eq("id", id)
+      .single();
+    if (currentError) return json({ error: currentError.message }, 500);
+
+    const articleCategory = typeof category === "string" ? category.trim() || null : current?.category ?? null;
     const { start, end } = utcDayWindow();
-    const { count, error: countError } = await supabase
+    let countQuery = supabase
       .from("articles")
       .select("id", { count: "exact", head: true })
       .eq("status", "approved")
       .gte("reviewed_at", start)
       .lt("reviewed_at", end);
+    countQuery = articleCategory ? countQuery.eq("category", articleCategory) : countQuery.is("category", null);
+    const { count, error: countError } = await countQuery;
 
     if (countError) return json({ error: countError.message }, 500);
     if ((count ?? 0) >= 10) {
-      return json({ error: "Daily approval limit reached. Remove one approved article before approving another." }, 409);
+      return json({ error: "Daily approval limit reached for this category. Remove one approved article before approving another." }, 409);
     }
 
     patch.status = "approved";
@@ -90,7 +107,7 @@ Deno.serve(async (request) => {
     .from("articles")
     .update(patch)
     .eq("id", id)
-    .select("id,status,edited_title,edited_summary,reviewed_at,rank_score")
+    .select("id,status,edited_title,edited_summary,category,reviewed_at,rank_score")
     .single();
 
   if (error) return json({ error: error.message }, 500);

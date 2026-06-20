@@ -6,7 +6,23 @@ const button = document.querySelector("#subscribeButton");
 const message = document.querySelector("#subscribeMessage");
 const xLink = document.querySelector("#xLink");
 const linkedinLink = document.querySelector("#linkedinLink");
-const topicInputs = [...document.querySelectorAll('input[name="topics"]')];
+const planInputs = [...document.querySelectorAll('input[name="plan"]')];
+const categoryField = document.querySelector("#categoryField");
+const categorySelect = document.querySelector("#subCategory");
+
+function selectedPlan() {
+  return planInputs.find((input) => input.checked)?.value || "daily-wrap";
+}
+
+// Show the category dropdown only for plans that need one.
+function syncCategoryField() {
+  const needsCategory = selectedPlan() !== "daily-wrap";
+  if (categoryField) categoryField.hidden = !needsCategory;
+  if (categorySelect) categorySelect.required = needsCategory;
+}
+
+planInputs.forEach((input) => input.addEventListener("change", syncCategoryField));
+syncCategoryField();
 
 if (cfg.twitterUrl && xLink) {
   xLink.href = cfg.twitterUrl;
@@ -48,6 +64,13 @@ form?.addEventListener("submit", async (event) => {
     return;
   }
 
+  const plan = selectedPlan();
+  const category = categorySelect ? categorySelect.value : "";
+  if (plan !== "daily-wrap" && !category) {
+    setMessage("Please choose a category for this plan.", "error");
+    return;
+  }
+
   button.disabled = true;
   setMessage("Adding you to Shortly...", "");
 
@@ -56,7 +79,8 @@ form?.addEventListener("submit", async (event) => {
       action: "add",
       email: emailInput.value.trim(),
       full_name: nameInput.value.trim(),
-      topics: topicInputs.filter((input) => input.checked).map((input) => input.value)
+      plan,
+      category: plan === "daily-wrap" ? null : category
     });
 
     form.reset();

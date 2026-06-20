@@ -8,7 +8,9 @@ export type RssItem = {
   publishedAt: string | null;
 };
 
-const stripCdata = (s: string) => s.replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "").trim();
+// Strip ALL CDATA markers, not just anchored ones — some feeds (e.g. ET) leak a
+// trailing `]]>` into titles when the closing marker isn't at the string end.
+const stripCdata = (s: string) => s.replace(/<!\[CDATA\[/g, "").replace(/\]\]>/g, "").trim();
 const stripTags = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 const decode = (s: string) =>
   s

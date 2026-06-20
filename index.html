@@ -30,31 +30,38 @@
       <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">&#9776;</button>
       <aside class="sidebar" id="sidebar">
         <div class="brand"><span class="brand-mark">S</span> Shortly</div>
+        <div class="workspace-toggle" id="workspaceToggle" role="tablist" aria-label="Workspace">
+          <button class="ws-btn active" data-workspace="short" role="tab" aria-selected="true">Short Articles</button>
+          <button class="ws-btn" data-workspace="cases" role="tab" aria-selected="false">Case Studies</button>
+        </div>
         <nav class="nav">
-          <button class="nav-item active" data-section="review">
+          <button class="nav-item active" data-section="review" data-workspace="short">
             <span>Review</span><span class="badge" id="badgeReview">0</span>
           </button>
-          <button class="nav-item" data-section="approved">
+          <button class="nav-item" data-section="approved" data-workspace="short">
             <span>Approved</span><span class="badge accent" id="badgeApproved">0/10</span>
           </button>
-          <button class="nav-item" data-section="topics">
-            <span>Topic Articles</span><span class="badge" id="badgeTopics">0</span>
-          </button>
-          <button class="nav-item" data-section="rejected">
+          <button class="nav-item" data-section="rejected" data-workspace="short">
             <span>Rejected</span><span class="badge" id="badgeRejected">0</span>
           </button>
+          <button class="nav-item" data-section="topics" data-workspace="cases">
+            <span>Case Drafts</span><span class="badge" id="badgeTopics">0</span>
+          </button>
+          <button class="nav-item" data-section="cases-send" data-workspace="cases">
+            <span>Approved Cases</span><span class="badge accent" id="badgeCasesApproved">0</span>
+          </button>
           <div class="nav-divider"></div>
-          <button class="nav-item" data-section="history">
+          <button class="nav-item" data-section="history" data-workspace="both">
             <span>History</span>
           </button>
-          <button class="nav-item" data-section="analytics">
+          <button class="nav-item" data-section="analytics" data-workspace="both">
             <span>Analytics</span>
           </button>
           <div class="nav-divider"></div>
-          <button class="nav-item" data-section="subscribers">
+          <button class="nav-item" data-section="subscribers" data-workspace="both">
             <span>Subscribers</span><span class="badge" id="badgeSubs">0</span>
           </button>
-          <button class="nav-item" data-section="scraper">
+          <button class="nav-item" data-section="scraper" data-workspace="short">
             <span>Scraper</span>
           </button>
         </nav>
@@ -79,7 +86,15 @@
         </header>
 
         <!-- REVIEW -->
-        <section class="section active" data-section="review">
+        <section class="section active" data-section="review" data-workspace="short">
+          <div class="topic-tabs short-cat-tabs">
+            <button class="topic-tab active" data-cat="">All</button>
+            <button class="topic-tab" data-cat="Real Estate">Real Estate</button>
+            <button class="topic-tab" data-cat="Policy Partner">Policy Partner</button>
+            <button class="topic-tab" data-cat="Money Matters">Money Matters</button>
+            <button class="topic-tab" data-cat="Wellness Daily">Wellness Daily</button>
+            <button class="topic-tab" data-cat="Corporate Case">Corporate Case</button>
+          </div>
           <div class="toolbar">
             <input type="search" id="searchArticles" placeholder="Search articles..." />
             <select id="filterTopic">
@@ -101,8 +116,16 @@
         </section>
 
         <!-- APPROVED -->
-        <section class="section" data-section="approved">
-          <div class="topic-workbench approved-workbench">
+        <section class="section" data-section="approved" data-workspace="short">
+          <div class="topic-tabs short-cat-tabs">
+            <button class="topic-tab active" data-cat="">All</button>
+            <button class="topic-tab" data-cat="Real Estate">Real Estate</button>
+            <button class="topic-tab" data-cat="Policy Partner">Policy Partner</button>
+            <button class="topic-tab" data-cat="Money Matters">Money Matters</button>
+            <button class="topic-tab" data-cat="Wellness Daily">Wellness Daily</button>
+            <button class="topic-tab" data-cat="Corporate Case">Corporate Case</button>
+          </div>
+          <div class="topic-workbench approved-workbench" style="display:none">
             <div class="digest-composer-card">
               <div class="digest-composer-row">
                 <label class="digest-field">
@@ -136,12 +159,11 @@
               <button class="topic-tab" data-topic="all-topics">All Topics</button>
             </div>
           </div>
-          <p class="muted" style="margin:0 0 12px;font-size:13px">Choose a format, then pick approved daily articles or case studies from the tabs below. If you leave slots empty, Shortly fills them using top-ranked approved stories.</p>
           <div class="list" id="approvedList"><div class="skeleton skeleton-card"></div></div>
         </section>
 
-        <!-- TOPIC ARTICLES -->
-        <section class="section" data-section="topics">
+        <!-- CASE DRAFTS (corporate cases + editorial topics) -->
+        <section class="section" data-section="topics" data-workspace="cases">
           <div class="topic-workbench">
             <div class="topic-tabs" id="topicTabs">
               <button class="topic-tab active" data-topic="corporate-case">Corporate Case</button>
@@ -160,13 +182,53 @@
           <div class="list" id="topicDraftList"><div class="skeleton skeleton-card"></div></div>
         </section>
 
+        <!-- APPROVED CASES + SEND -->
+        <section class="section" data-section="cases-send" data-workspace="cases">
+          <div class="topic-workbench approved-workbench">
+            <div class="digest-composer-card">
+              <div class="digest-composer-row">
+                <label class="digest-field">
+                  <span>Send mode</span>
+                  <select id="casesSendModeSelect">
+                    <option value="case-study-only">Corporate Case digest (curated)</option>
+                    <option value="topic">Per-topic digest</option>
+                  </select>
+                </label>
+                <label class="digest-field" id="casesTopicWrap" style="display:none">
+                  <span>Topic</span>
+                  <select id="casesTopicSelect">
+                    <option value="corporate-case">Corporate Case</option>
+                    <option value="real-estate">Real Estate</option>
+                    <option value="policy-partner">Policy Partner</option>
+                    <option value="money-matters">Money Matters</option>
+                    <option value="wellness-daily">Wellness Daily</option>
+                    <option value="all-topics">All Topics</option>
+                  </select>
+                </label>
+              </div>
+              <p class="muted" id="casesSendHint" style="margin:0 0 8px;font-size:13px"></p>
+              <div class="digest-slot-bar"><span id="casesSendStatus"></span></div>
+            </div>
+            <div class="topic-tabs" id="casesApprovedTabs">
+              <button class="topic-tab active" data-topic="corporate-case">Corporate Case</button>
+              <button class="topic-tab" data-topic="real-estate">Real Estate</button>
+              <button class="topic-tab" data-topic="policy-partner">Policy Partner</button>
+              <button class="topic-tab" data-topic="money-matters">Money Matters</button>
+              <button class="topic-tab" data-topic="wellness-daily">Wellness Daily</button>
+              <button class="topic-tab" data-topic="all-topics">All Topics</button>
+            </div>
+          </div>
+          <p class="muted" style="margin:0 0 12px;font-size:13px">Review approved case studies and editorial drafts, then send a curated corporate-case digest or a per-topic digest.</p>
+          <div class="list" id="casesApprovedList"><div class="skeleton skeleton-card"></div></div>
+        </section>
+
         <!-- REJECTED -->
-        <section class="section" data-section="rejected">
+        <section class="section" data-section="rejected" data-workspace="short">
           <div class="list" id="rejectedList"><div class="skeleton skeleton-card"></div></div>
         </section>
 
         <!-- HISTORY -->
-        <section class="section" data-section="history">
+        <section class="section" data-section="history" data-workspace="both">
           <div class="table-wrap">
             <table class="history-table">
               <thead>
@@ -185,7 +247,7 @@
         </section>
 
         <!-- ANALYTICS -->
-        <section class="section" data-section="analytics">
+        <section class="section" data-section="analytics" data-workspace="both">
           <div class="stats-grid">
             <div class="stat-card">
               <div class="stat-value" id="statDigests">-</div>
@@ -216,7 +278,7 @@
         </section>
 
         <!-- SUBSCRIBERS -->
-        <section class="section" data-section="subscribers">
+        <section class="section" data-section="subscribers" data-workspace="both">
           <form id="subForm" class="sub-form">
             <input id="subEmail" class="sub-input-email" type="email" placeholder="email@example.com" required />
             <input id="subName" class="sub-input-name" type="text" placeholder="Full name (optional)" />
@@ -246,14 +308,14 @@
         </section>
 
         <!-- SCRAPER -->
-        <section class="section" data-section="scraper">
+        <section class="section" data-section="scraper" data-workspace="short">
           <div class="fetch-today-card">
             <div class="fetch-today-info">
-              <h3 style="margin:0 0 4px">Fetch today's articles</h3>
-              <p class="muted" style="margin:0;font-size:13px">Scrape RSS feeds, summarize with GPT-4o, and load articles into the review queue.</p>
+              <h3 style="margin:0 0 4px">Run today's AI pipeline</h3>
+              <p class="muted" style="margin:0;font-size:13px">Scrape and summarize Daily Wrap, then build Corporate Case and all topic editions.</p>
             </div>
             <button class="btn-primary btn-fetch" id="fetchToday">
-              <span id="fetchBtnText">Fetch &amp; Summarize</span>
+              <span id="fetchBtnText">Run full pipeline</span>
             </button>
           </div>
           <pre id="fetchResult" class="code-card hidden"></pre>

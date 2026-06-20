@@ -14,6 +14,11 @@ const NEWSLETTER_TOPICS = [
   { slug: "wellness-daily", label: "Wellness Daily" }
 ];
 const TOPIC_DRAFT_TABS = NEWSLETTER_TOPICS.filter((topic) => topic.slug !== "daily-wrap");
+
+// Two-workspace split: Short Articles (daily wrap) vs Case Studies (corporate + editorial).
+const WORKSPACE_KEY = "shortly-workspace";
+const DEFAULT_SECTION = { short: "review", cases: "topics" };
+function defaultSectionFor(ws) { return DEFAULT_SECTION[ws] || "review"; }
 const DIGEST_FORMATS = {
   "daily-wrap-10": {
     label: "Daily Wrap 10",
@@ -98,6 +103,21 @@ function normalizeTopicList(value) {
   return [...new Set(topics.length ? topics : ["daily-wrap"])];
 }
 
+const AI_PIPELINE_TOPICS = ["real-estate", "policy-partner", "money-matters", "wellness-daily"];
+const AUTO_PIPELINE_LAST_RUN_KEY = "shortly-auto-pipeline-last-run";
+const AUTO_PIPELINE_LOCK_KEY = "shortly-auto-pipeline-running";
+const AUTO_PIPELINE_INTERVAL_MS = 3 * 60 * 60 * 1000;
+
+function supabaseRestBase() {
+  try {
+    const fnUrl = new URL(cfg.list);
+    const ref = fnUrl.hostname.split(".")[0];
+    return `https://${ref}.supabase.co/rest/v1`;
+  } catch {
+    return "";
+  }
+}
+
 async function api(method, path, body) {
   const headers = { "Content-Type": "application/json" };
   if (cfg.anonKey) {
@@ -111,6 +131,24 @@ async function api(method, path, body) {
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+async function rpc(name, body) {
+  const base = supabaseRestBase();
+  if (!base || !cfg.anonKey) throw new Error("Missing Supabase REST config");
+  const headers = {
+    "Content-Type": "application/json",
+    apikey: cfg.anonKey,
+    Authorization: `Bearer ${cfg.anonKey}`
+  };
+  const response = await fetch(`${base}/rpc/${name}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body || {})
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
   return data;
 }
 
@@ -165,7 +203,7 @@ async function unlockWithToken(token) {
   unlockDashboardUi();
   if (!dashboardBooted) {
     dashboardBooted = true;
-    await reload();
+    await bootDashboard();
   }
 }
 
@@ -197,7 +235,7 @@ async function bootAuth() {
     unlockDashboardUi();
     if (!dashboardBooted) {
       dashboardBooted = true;
-      await reload();
+      await bootDashboard();
     }
     return;
   }
@@ -214,7 +252,7 @@ async function bootAuth() {
     unlockDashboardUi();
     if (!dashboardBooted) {
       dashboardBooted = true;
-      await reload();
+      await bootDashboard();
     }
     toast(error instanceof Error ? error.message : "Invalid shared token. Opened dashboard normally.");
   }
@@ -231,9 +269,14 @@ const state = {
   digests: [],
   corporateCases: [],
   editorialDrafts: [],
+  workspace: "short",
   section: "review",
   activeTopicDraft: "corporate-case",
   approvedTopic: "daily-wrap",
+  casesApprovedTopic: "corporate-case",
+  casesSendMode: "case-study-only",
+  casesTopic: "corporate-case",
+  shortCategory: "",
   digestFormat: "daily-wrap-10",
   digestCategory: "",
   search: "",
@@ -249,8 +292,22 @@ const state = {
 };
 
 // ---------- computed ----------
+// QA approves up to 10 short articles PER CATEGORY per day.
+const CATEGORY_CAP = 10;
 function approvedTodayCount() {
   return state.articles.filter(isApprovedToday).length;
+}
+function articleCategory(article) {
+  const category = article.category || article.topic || "";
+  return SHORT_CATEGORIES.includes(category) ? category : "";
+}
+function approvedTodayInCategory(cat) {
+  return state.articles.filter((a) => isApprovedToday(a) && articleCategory(a) === (cat || "")).length;
+}
+// Cap reached for the category this article belongs to (uncategorised has no cap here).
+function categoryAtCap(cat) {
+  if (!cat) return false;
+  return approvedTodayInCategory(cat) >= CATEGORY_CAP;
 }
 
 function sectionCounts() {
@@ -276,6 +333,10 @@ function filteredArticles(statusFilter) {
   }
   if (state.filterTopic) {
     items = items.filter((a) => a.topic === state.filterTopic);
+  }
+  // Short Articles category nav bar (set by the editorial agents, not per-card).
+  if (state.shortCategory) {
+    items = items.filter((a) => articleCategory(a) === state.shortCategory);
   }
   if (state.filterSection) {
     items = items.filter((a) => (a.section || "wrapped") === state.filterSection);
@@ -467,16 +528,34 @@ function refreshChrome() {
   const dailyWrapSubs = dailyWrapSubscriberCount();
   const topicDrafts = state.corporateCases.length + state.editorialDrafts.length;
 
-  $("#badgeReview").textContent = pending;
-  $("#badgeApproved").textContent = `${approved}/${DAILY_CAP}`;
+  // Per-category counts when a category tab is active in Short Articles.
+  const cat = state.shortCategory;
+  const pendingHere = cat ? state.articles.filter((a) => a.status === "summarized" && articleCategory(a) === cat).length : pending;
+  const approvedHere = cat ? approvedTodayInCategory(cat) : approved;
+  $("#badgeReview").textContent = pendingHere;
+  $("#badgeApproved").textContent = cat ? `${approvedHere}/${CATEGORY_CAP}` : `${approved}/${DAILY_CAP}`;
   $("#badgeRejected").textContent = rejected;
   $("#badgeSubs").textContent = subs;
   $("#badgeTopics").textContent = topicDrafts;
+  const approvedCases =
+    state.corporateCases.filter((c) => (c.status || "draft") === "approved").length +
+    state.editorialDrafts.filter((d) => (d.status || "draft") === "approved").length;
+  if ($("#badgeCasesApproved")) $("#badgeCasesApproved").textContent = approvedCases;
 
   const send = $("#sendDigest");
   const selectedSubs = selectedSubscriberCount();
   const digestPlan = resolveDigestComposition();
-  if (state.section === "approved") {
+  if (state.section === "cases-send") {
+    if (state.casesSendMode === "case-study-only") {
+      const caseAudience = topicSubscriberCount("corporate-case") || subs;
+      send.textContent = "Send Case Study";
+      send.disabled = sortedApprovedCorporateCases().length === 0 || caseAudience === 0 || !cfg.curatedDigest;
+    } else {
+      const count = topicSubscriberCount(state.casesTopic);
+      send.textContent = `Send ${topicLabel(state.casesTopic)} digest`;
+      send.disabled = count === 0 || !cfg.topicDigest;
+    }
+  } else if (state.section === "approved") {
     send.textContent = selectedSubs > 0
       ? `Send ${digestPlan.formatLabel} to ${selectedSubs}`
       : `Send ${digestPlan.formatLabel}`;
@@ -491,12 +570,18 @@ function refreshChrome() {
   const preview = $("#previewDigest");
   preview.style.display = state.section === "approved"
     ? (digestPlan.dailyArticles.length > 0 || digestPlan.corporateCases.length > 0 ? "" : "none")
-    : (approved > 0 ? "" : "none");
+    : state.section === "cases-send"
+      ? "none"
+      : (approved > 0 ? "" : "none");
 
+  const reviewSub = cat
+    ? `${cat}: ${approvedHere}/${CATEGORY_CAP} approved | ${pendingHere} pending`
+    : `${approved} approved | ${pending} pending across all categories`;
   const titles = {
-    review: ["Review queue", `Wrapped: ${counts.wrapped}/${DAILY_CAP} | ${pending} pending`],
+    review: ["Review queue", reviewSub],
     approved: ["Approved", `${topicLabel(state.approvedTopic)} approved items ready`],
-    topics: ["Topic Articles", `${topicLabel(state.activeTopicDraft)} drafts in article-card format`],
+    topics: ["Case Drafts", `${topicLabel(state.activeTopicDraft)} drafts in article-card format`],
+    "cases-send": ["Approved Cases", `${topicLabel(state.casesApprovedTopic)} approved & ready to send`],
     rejected: ["Rejected", `${rejected} articles removed from queue`],
     history: ["Digest History", "All past digests and delivery stats"],
     analytics: ["Analytics", "Overview of your newsletter performance"],
@@ -559,8 +644,10 @@ function cardHtml(a, mode) {
   const time = new Date(a.scraped_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   const source = a.source ? `<span class="source-pill">${esc(a.source)}</span>` : "";
   const topic = a.topic ? `<span class="topic-chip">${esc(a.topic)}</span>` : "";
+  const category = articleCategory(a);
+  const categoryChip = category ? `<span class="topic-chip cat-chip">${esc(category)}</span>` : "";
   const sec = "wrapped";
-  const atCap = approvedTodayCount() >= DAILY_CAP;
+  const atCap = category ? categoryAtCap(category) : (approvedTodayCount() >= DAILY_CAP);
   const isReviewSelected = state.selected.has(a.id);
   const isDigestSelected = state.digestSelections.daily.has(a.id);
   const checked = mode === "approved" ? isDigestSelected : isReviewSelected;
@@ -613,7 +700,7 @@ function cardHtml(a, mode) {
       <header>
         ${checkbox}
           <div class="card-head">
-            <div class="chips">${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
+            <div class="chips">${categoryChip}${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
             <input class="headline-input" data-role="headline" type="text" value="${esc(headline)}" ${headlineReadonly} />
             <div class="meta">
               ${date} &middot; ${time}
@@ -630,43 +717,42 @@ function cardHtml(a, mode) {
 function renderReview() {
   const items = filteredArticles("summarized");
   const node = $("#reviewList");
+  const approvedHere = state.shortCategory
+    ? state.articles.filter((a) => isApprovedToday(a) && articleCategory(a) === state.shortCategory).length
+    : 0;
+  const emptyMessage = state.shortCategory && approvedHere > 0
+    ? `All available ${esc(state.shortCategory)} articles are approved. Open Approved to review or send them.`
+    : `No articles to review${state.search ? " matching your search" : ""}.`;
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "review")).join("")
-    : `<p class="muted">No articles to review${state.search ? " matching your search" : ""}.</p>`;
+    : `<p class="muted">${emptyMessage}</p>`;
 }
 
+// Approved = the QA's selected short articles, shown per category section.
+const SHORT_CATEGORIES = ["Real Estate", "Policy Partner", "Money Matters", "Wellness Daily", "Corporate Case"];
 function renderApproved() {
-  renderDigestComposerControls();
-  const topic = state.approvedTopic;
-  const tabs = $("#approvedTopicTabs");
-  if (tabs) {
-    tabs.querySelectorAll(".topic-tab").forEach((tab) => {
-      tab.classList.toggle("active", tab.dataset.topic === topic);
-    });
-  }
-
-  const dailyItems = topic === "daily-wrap" || topic === "all-topics"
-    ? sortedApprovedDailyArticles(digestFormatConfig().needsCategory ? state.digestCategory : "")
-    : [];
-  const topicItems = topic === "daily-wrap"
-    ? []
-    : topicDraftCards(topic, "approved");
-
   const node = $("#approvedList");
-  const dailyHtml = dailyItems.length
-    ? `${topic === "all-topics" ? `<h3 class="approved-group-title">Daily Wrap</h3>` : ""}${dailyItems.map((a) => cardHtml(a, "approved")).join("")}`
-    : "";
-  const topicHtml = topicItems.length
-    ? `${topic === "all-topics" ? `<h3 class="approved-group-title">Topic Articles</h3>` : ""}${topicItems.map((card) => topicDraftCardHtml(card, { selectable: topic === "corporate-case" || (topic === "all-topics" && card.kind === "corporate") })).join("")}`
-    : "";
-  node.innerHTML = dailyHtml || topicHtml
-    ? `${dailyHtml}${topicHtml}`
-    : `<p class="muted">No approved ${esc(topicLabel(topic))} items yet.</p>`;
-  attachDragListeners();
+  if (!node) return;
+  const approved = state.articles.filter(isApprovedToday);
+  const cats = state.shortCategory ? [state.shortCategory] : SHORT_CATEGORIES;
+  let html = "";
+  for (const c of cats) {
+    const items = approved.filter((a) => articleCategory(a) === c);
+    html += `<h3 class="approved-group-title">${esc(c)} — ${items.length}/${CATEGORY_CAP} selected</h3>`;
+    html += items.length
+      ? items.map((a) => cardHtml(a, "approved")).join("")
+      : `<p class="muted" style="margin:0 0 14px">No ${esc(c)} articles selected yet.</p>`;
+  }
+  // Uncategorised approved (general daily wrap), only in the "All" view.
+  if (!state.shortCategory) {
+    const unc = approved.filter((a) => !articleCategory(a));
+    if (unc.length) html += `<h3 class="approved-group-title">Uncategorised</h3>${unc.map((a) => cardHtml(a, "approved")).join("")}`;
+  }
+  node.innerHTML = html || `<p class="muted">Nothing approved yet.</p>`;
 }
 
 function renderRejected() {
-  const items = state.articles.filter((a) => a.status === "rejected");
+  const items = state.articles.filter((a) => a.status === "rejected" && (!state.shortCategory || articleCategory(a) === state.shortCategory));
   const node = $("#rejectedList");
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "rejected")).join("")
@@ -811,6 +897,41 @@ function renderTopicDrafts() {
   list.innerHTML = cards.length
     ? cards.map(topicDraftCardHtml).join("")
     : `<p class="muted">No ${esc(label)} drafts yet. Use "Build selected topic" to create one.</p>`;
+}
+
+// ---------- Case Studies workspace: approved review + send ----------
+function renderCasesApproved() {
+  const topic = state.casesApprovedTopic;
+  const tabs = $("#casesApprovedTabs");
+  if (tabs) {
+    tabs.querySelectorAll(".topic-tab").forEach((t) => t.classList.toggle("active", t.dataset.topic === topic));
+  }
+  const node = $("#casesApprovedList");
+  if (!node) return;
+  const cards = topicDraftCards(topic, "approved");
+  node.innerHTML = cards.length
+    ? cards.map((card) => topicDraftCardHtml(card, { selectable: false })).join("")
+    : `<p class="muted">No approved ${esc(topicLabel(topic))} items yet.</p>`;
+}
+
+function renderCasesSendControls() {
+  const modeSel = $("#casesSendModeSelect");
+  if (modeSel) modeSel.value = state.casesSendMode;
+  const wrap = $("#casesTopicWrap");
+  if (wrap) wrap.style.display = state.casesSendMode === "topic" ? "" : "none";
+  const topicSel = $("#casesTopicSelect");
+  if (topicSel) topicSel.value = state.casesTopic;
+  const hint = $("#casesSendHint");
+  if (hint) {
+    hint.textContent = state.casesSendMode === "case-study-only"
+      ? "Sends the latest approved corporate case study to Corporate Case subscribers."
+      : "Sends all approved drafts for the chosen topic to that topic's subscribers.";
+  }
+  const status = $("#casesSendStatus");
+  if (status) {
+    const n = topicDraftCards(state.casesApprovedTopic, "approved").length;
+    status.textContent = `${n} approved ${topicLabel(state.casesApprovedTopic)} item${n === 1 ? "" : "s"} ready`;
+  }
 }
 
 function renderSubscriberTopicPicker() {
@@ -1014,6 +1135,8 @@ function renderAll() {
   renderReview();
   renderApproved();
   renderTopicDrafts();
+  renderCasesApproved();
+  renderCasesSendControls();
   renderRejected();
   renderSubscribers();
   renderHistory();
@@ -1095,6 +1218,112 @@ async function reload() {
   }
 }
 
+async function bootDashboard() {
+  await reload();
+  maybeAutoRunPipeline();
+}
+
+function pipelineRecentlyRan() {
+  const lastRun = Number(localStorage.getItem(AUTO_PIPELINE_LAST_RUN_KEY) || 0);
+  return lastRun > 0 && Date.now() - lastRun < AUTO_PIPELINE_INTERVAL_MS;
+}
+
+function pipelineLocked() {
+  const lockedAt = Number(localStorage.getItem(AUTO_PIPELINE_LOCK_KEY) || 0);
+  return lockedAt > 0 && Date.now() - lockedAt < 20 * 60 * 1000;
+}
+
+function maybeAutoRunPipeline() {
+  if (!cfg.scrape || !cfg.summarize) return;
+  if (pipelineRecentlyRan() || pipelineLocked()) return;
+  runAiPipeline({ force: false, showProgress: false }).catch((error) => {
+    console.warn("Auto pipeline failed", error);
+  });
+}
+
+async function runAiPipeline({ force = false, showProgress = true } = {}) {
+  if (!force && (pipelineRecentlyRan() || pipelineLocked())) return [];
+
+  localStorage.setItem(AUTO_PIPELINE_LOCK_KEY, String(Date.now()));
+  const btn = $("#fetchToday");
+  const btnText = $("#fetchBtnText");
+  const resultBox = $("#fetchResult");
+  const lines = [];
+
+  if (showProgress) {
+    if (btn) btn.disabled = true;
+    resultBox?.classList.add("hidden");
+  } else {
+    toast("Refreshing AI pipeline in the background...");
+  }
+
+  const setProgress = (text) => {
+    if (showProgress && btnText) btnText.innerHTML = `<span class="spinner"></span> ${text}`;
+  };
+
+  try {
+    setProgress("Scraping feeds...");
+    const scrapeRes = await api("POST", cfg.scrape, {});
+    lines.push(`Daily Wrap: scraped ${scrapeRes.scraped ?? 0} articles, ${scrapeRes.inserted ?? 0} new.`);
+
+    setProgress("Summarizing...");
+    const sumRes = await api("POST", cfg.summarize, {});
+    lines.push(`Daily Wrap: summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, failed ${sumRes.failed ?? 0}.`);
+
+    if (sumRes.failed > 0) {
+      setProgress(`Retry (${sumRes.failed} remaining)...`);
+      const retryRes = await api("POST", cfg.summarize, {});
+      lines.push(`Daily Wrap retry: ${retryRes.summarized ?? 0} more summarized.`);
+    }
+
+    if (cfg.corporateCase) {
+      setProgress("Building Corporate Case...");
+      try {
+        await api("POST", cfg.corporateCase, {});
+        lines.push("Corporate Case: draft created.");
+      } catch (error) {
+        lines.push(`Corporate Case: failed - ${error.message}`);
+      }
+    }
+
+    if (cfg.editorialTopics) {
+      for (const topic of AI_PIPELINE_TOPICS) {
+        setProgress(`Building ${topicLabel(topic)}...`);
+        try {
+          const topicRes = await api("POST", cfg.editorialTopics, { topic });
+          const inserted = topicRes.shortArticlesInserted;
+          lines.push(`${topicLabel(topic)}: draft created${typeof inserted === "number" ? `, ${inserted} short articles inserted` : ""}.`);
+        } catch (error) {
+          lines.push(`${topicLabel(topic)}: failed - ${error.message}`);
+        }
+      }
+    }
+
+    localStorage.setItem(AUTO_PIPELINE_LAST_RUN_KEY, String(Date.now()));
+    if (showProgress && resultBox) {
+      resultBox.textContent = lines.join("\n");
+      resultBox.classList.remove("hidden");
+    }
+    await reload();
+    showSection("review");
+    toast(showProgress ? "Full AI pipeline finished." : "AI pipeline refreshed.");
+    return lines;
+  } catch (error) {
+    if (showProgress && resultBox) {
+      resultBox.textContent = [...lines, `Error: ${error.message}`].join("\n");
+      resultBox.classList.remove("hidden");
+    }
+    toast(`Pipeline failed: ${error.message}`);
+    throw error;
+  } finally {
+    localStorage.removeItem(AUTO_PIPELINE_LOCK_KEY);
+    if (showProgress) {
+      if (btn) btn.disabled = false;
+      if (btnText) btnText.textContent = "Run full pipeline";
+    }
+  }
+}
+
 // ---------- actions ----------
 async function handleArticleAction(card, action) {
   const id = card.dataset.id;
@@ -1104,8 +1333,23 @@ async function handleArticleAction(card, action) {
   const body = { id, action, reviewer: cfg.reviewer, section };
   if (action === "edit" || action === "approve") body.edited_title = headline;
   if (action === "edit" || action === "approve") body.edited_summary = summary;
+  const category = articleCategory(state.articles.find((article) => article.id === id) || {});
+  if (category) body.category = category;
   try {
-    await api("POST", cfg.review, body);
+    try {
+      await rpc("review_article_category_safe", {
+        p_id: id,
+        p_action: action,
+        p_reviewer: cfg.reviewer,
+        p_section: section,
+        p_category: category || null,
+        p_edited_title: body.edited_title || null,
+        p_edited_summary: body.edited_summary || null
+      });
+    } catch (rpcError) {
+      if (rpcError.message?.includes("review_article_category_safe")) throw rpcError;
+      await api("POST", cfg.review, body);
+    }
     state.selected.delete(id);
     await reload();
     toast(action === "edit" ? "Summary saved." : `Article ${action}d.`);
@@ -1125,6 +1369,19 @@ async function handleTopicDraftAction(card, action) {
   if (!endpoint) return toast(`Missing ${kind} endpoint`);
   const id = card.dataset.id;
   const cardType = card.dataset.cardType;
+
+  // QA may approve only 1 case study (long-form) per category per day.
+  if (action === "approve") {
+    if (kind === "corporate") {
+      const approvedCorp = state.corporateCases.filter((c) => (c.status || "draft") === "approved").length;
+      if (approvedCorp >= 1) return toast("Only 1 Corporate Case can be approved per day.");
+    } else {
+      const draft = state.editorialDrafts.find((d) => d.id === id);
+      const slug = draft?.topic_slug;
+      const approvedHere = state.editorialDrafts.filter((d) => d.topic_slug === slug && (d.status || "draft") === "approved").length;
+      if (slug && approvedHere >= 1) return toast(`Only 1 ${draft?.topic_name || "case"} can be approved per day.`);
+    }
+  }
   const headline = card.querySelector('[data-role="headline"]')?.value.trim() || "";
   const body = card.querySelector('[data-role="summary"]')?.value.trim() || "";
   const payload = { action, id };
@@ -1519,10 +1776,31 @@ function updateThemeButton(isDark) {
 }
 
 function showSection(name) {
+  // Never strand on a section that isn't part of the active workspace.
+  const target = document.querySelector(`.section[data-section="${name}"]`);
+  const ws = target?.dataset.workspace;
+  if (ws && ws !== "both" && ws !== state.workspace) {
+    name = defaultSectionFor(state.workspace);
+  }
   state.section = name;
   $$(".section").forEach((s) => s.classList.toggle("active", s.dataset.section === name));
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.section === name));
   refreshChrome();
+}
+
+function setWorkspace(ws) {
+  if (ws !== "short" && ws !== "cases") ws = "short";
+  state.workspace = ws;
+  try { localStorage.setItem(WORKSPACE_KEY, ws); } catch { /* ignore */ }
+  $$(".ws-btn").forEach((b) => {
+    const on = b.dataset.workspace === ws;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  const inWorkspace = (el) => !el.dataset.workspace || el.dataset.workspace === ws || el.dataset.workspace === "both";
+  $$(".nav-item").forEach((n) => { n.style.display = inWorkspace(n) ? "" : "none"; });
+  $$(".section").forEach((s) => { if (!inWorkspace(s)) s.classList.remove("active"); });
+  showSection(defaultSectionFor(ws));
 }
 
 // ---------- mobile menu ----------
@@ -1537,11 +1815,19 @@ function openMenu() {
 
 // ---------- wire up ----------
 initTheme();
+setWorkspace(localStorage.getItem(WORKSPACE_KEY) || "short");
 
 $("#menuToggle")?.addEventListener("click", () => {
   $("#sidebar").classList.contains("open") ? closeMenu() : openMenu();
 });
 $("#backdrop")?.addEventListener("click", closeMenu);
+
+$("#workspaceToggle")?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".ws-btn");
+  if (!btn) return;
+  setWorkspace(btn.dataset.workspace);
+  closeMenu();
+});
 
 $$(".nav-item").forEach((btn) =>
   btn.addEventListener("click", () => {
@@ -1566,6 +1852,18 @@ $("#filterSection").addEventListener("change", (e) => {
   state.filterSection = e.target.value;
   renderReview();
 });
+$$(".short-cat-tabs").forEach((bar) => bar.addEventListener("click", (e) => {
+  const tab = e.target.closest(".topic-tab");
+  if (!tab) return;
+  state.shortCategory = tab.dataset.cat || "";
+  state.selected.clear(); // clear stale bulk selection when switching category
+  $$(".short-cat-tabs .topic-tab").forEach((t) => t.classList.toggle("active", (t.dataset.cat || "") === state.shortCategory));
+  renderReview();
+  renderApproved();
+  renderRejected();
+  refreshChrome();
+  updateBulkBar();
+}));
 
 // Bulk actions
 $("#bulkApprove").addEventListener("click", () => bulkAction("approve"));
@@ -1653,6 +1951,33 @@ $("#topicDraftList").addEventListener("click", (e) => {
   handleTopicDraftAction(card, btn.dataset.action);
 });
 
+// Case Studies workspace: approved review + send
+$("#casesApprovedTabs")?.addEventListener("click", (e) => {
+  const tab = e.target.closest(".topic-tab");
+  if (!tab) return;
+  state.casesApprovedTopic = tab.dataset.topic;
+  state.casesTopic = tab.dataset.topic;
+  refreshChrome();
+  renderCasesApproved();
+  renderCasesSendControls();
+});
+$("#casesApprovedList")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const card = btn.closest(".topic-draft-card");
+  if (!card) return;
+  handleTopicDraftAction(card, btn.dataset.action);
+});
+$("#casesSendModeSelect")?.addEventListener("change", (e) => {
+  state.casesSendMode = e.target.value;
+  renderCasesSendControls();
+  refreshChrome();
+});
+$("#casesTopicSelect")?.addEventListener("change", (e) => {
+  state.casesTopic = e.target.value;
+  refreshChrome();
+});
+
 // Subscriber actions
 $("#subRows").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-action]");
@@ -1731,44 +2056,69 @@ $("#importCsvBtn").addEventListener("click", async () => {
 
 // Fetch Today button — scrape + summarize in one click
 $("#fetchToday").addEventListener("click", async () => {
+  await runAiPipeline({ force: true, showProgress: true });
+  return;
   const btn = $("#fetchToday");
   const btnText = $("#fetchBtnText");
   const resultBox = $("#fetchResult");
   btn.disabled = true;
   resultBox.classList.add("hidden");
+  const lines = [];
 
   try {
     // Step 1: Scrape RSS feeds
     btnText.innerHTML = `<span class="spinner"></span> Scraping feeds...`;
     const scrapeRes = await api("POST", cfg.scrape, {});
-    const scrapeInfo = `Scraped ${scrapeRes.scraped ?? 0} articles, ${scrapeRes.inserted ?? 0} new.`;
+    lines.push(`Daily Wrap: scraped ${scrapeRes.scraped ?? 0} articles, ${scrapeRes.inserted ?? 0} new.`);
 
     // Step 2: Summarize with GPT-4o
     btnText.innerHTML = `<span class="spinner"></span> Summarizing...`;
     const sumRes = await api("POST", cfg.summarize, {});
-    const sumInfo = `Summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, Failed: ${sumRes.failed ?? 0}`;
+    lines.push(`Daily Wrap: summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, failed ${sumRes.failed ?? 0}.`);
 
     // Step 3: Second summarize pass for rate-limited articles
     if (sumRes.failed > 0) {
       btnText.innerHTML = `<span class="spinner"></span> Retry (${sumRes.failed} remaining)...`;
       const retryRes = await api("POST", cfg.summarize, {});
-      const retryInfo = `Retry: ${retryRes.summarized ?? 0} more summarized.`;
-      resultBox.textContent = `${scrapeInfo}\n${sumInfo}\n${retryInfo}`;
-    } else {
-      resultBox.textContent = `${scrapeInfo}\n${sumInfo}`;
+      lines.push(`Daily Wrap retry: ${retryRes.summarized ?? 0} more summarized.`);
     }
 
+    // Step 4: Run the category/case-study AI agents.
+    if (cfg.corporateCase) {
+      btnText.innerHTML = `<span class="spinner"></span> Building Corporate Case...`;
+      try {
+        await api("POST", cfg.corporateCase, {});
+        lines.push("Corporate Case: draft created.");
+      } catch (error) {
+        lines.push(`Corporate Case: failed - ${error.message}`);
+      }
+    }
+
+    if (cfg.editorialTopics) {
+      for (const topic of AI_PIPELINE_TOPICS) {
+        btnText.innerHTML = `<span class="spinner"></span> Building ${topicLabel(topic)}...`;
+        try {
+          const topicRes = await api("POST", cfg.editorialTopics, { topic });
+          const inserted = topicRes.shortArticlesInserted;
+          lines.push(`${topicLabel(topic)}: draft created${typeof inserted === "number" ? `, ${inserted} short articles inserted` : ""}.`);
+        } catch (error) {
+          lines.push(`${topicLabel(topic)}: failed - ${error.message}`);
+        }
+      }
+    }
+
+    resultBox.textContent = lines.join("\n");
     resultBox.classList.remove("hidden");
     await reload();
     showSection("review");
-    toast(`Done! ${sumRes.summarized ?? 0} articles ready for review.`);
+    toast("Full AI pipeline finished.");
   } catch (e) {
     toast(`Failed: ${e.message}`);
-    resultBox.textContent = `Error: ${e.message}`;
+    resultBox.textContent = [...lines, `Error: ${e.message}`].join("\n");
     resultBox.classList.remove("hidden");
   } finally {
     btn.disabled = false;
-    btnText.textContent = "Fetch & Summarize";
+    btnText.textContent = "Run full pipeline";
   }
 });
 
@@ -1901,8 +2251,42 @@ $("#sendDigest").addEventListener("click", () => {
   if (state.section === "approved") {
     return sendCuratedDigest();
   }
+  if (state.section === "cases-send") {
+    return sendCasesDigest();
+  }
   return sendDailyDigest();
 });
+
+async function sendCasesDigest() {
+  if (state.casesSendMode === "case-study-only") {
+    // Reuse the curated send path with the case-study-only format.
+    const prev = state.digestFormat;
+    state.digestFormat = "case-study-only";
+    syncDigestSelections();
+    try {
+      await sendCuratedDigest();
+    } finally {
+      state.digestFormat = prev;
+      syncDigestSelections();
+    }
+    return;
+  }
+  if (!cfg.topicDigest) {
+    toast("Topic digest endpoint is missing.");
+    return;
+  }
+  const topic = state.casesTopic;
+  const count = topicSubscriberCount(topic);
+  if (!confirm(`Send ${topicLabel(topic)} digest to ${count} subscribers?`)) return;
+  try {
+    const res = await api("POST", cfg.topicDigest, { manual: true, topic });
+    toast(`Sent ${topicLabel(topic)} to ${res.sent ?? 0} subscribers.`);
+    await reload();
+    showSection("cases-send");
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  }
+}
 
 // Keyboard shortcut: Escape closes modal
 document.addEventListener("keydown", (e) => {

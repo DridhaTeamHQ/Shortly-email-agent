@@ -61,17 +61,17 @@ where jobname in (
   'shortly-wellness-daily-mon-sat'
 );
 
--- 02:30 UTC (08:00 IST): scrape sources.
+-- Every 3 hours (00:00, 03:00, ... UTC): scrape sources.
 select cron.schedule(
   'shortly-scrape-8am-ist',
-  '30 2 * * *',
+  '0 */3 * * *',
   $$select public.invoke_edge('scrape-news', '{}'::jsonb, 60000);$$
 );
 
--- 02:45 UTC (08:15 IST): summarize pending articles with GPT-4o.
+-- Every 3 hours, 15 min after the scrape: summarize pending articles with GPT-4o.
 select cron.schedule(
   'shortly-summarize-815am-ist',
-  '45 2 * * *',
+  '15 */3 * * *',
   $$select public.invoke_edge('summarize-articles', '{}'::jsonb, 300000);$$
 );
 
@@ -83,34 +83,34 @@ select cron.schedule(
   $$select public.invoke_edge('send-daily-digest', '{"scheduled": true}'::jsonb, 300000);$$
 );
 
--- 04:30 UTC (10:00 IST), Monday-Friday: draft one Corporate Case.
+-- Category agents also run every 3 hours, staggered within each cycle to avoid
+-- overlapping long OpenAI/source-fetch runs.
 select cron.schedule(
   'shortly-corporate-case-weekdays',
-  '30 4 * * 1-5',
+  '30 */3 * * *',
   $$select public.invoke_edge('corporate-case-agent', '{}'::jsonb, 300000);$$
 );
 
--- Stagger topic agents to avoid overlapping long OpenAI/source-fetch runs.
 select cron.schedule(
   'shortly-real-estate-mon-sat',
-  '40 4 * * 1-6',
+  '35 */3 * * *',
   $$select public.invoke_edge('editorial-topic-agent', '{"topic":"real-estate"}'::jsonb, 300000);$$
 );
 
 select cron.schedule(
   'shortly-policy-partner-mon-sat',
-  '50 4 * * 1-6',
+  '40 */3 * * *',
   $$select public.invoke_edge('editorial-topic-agent', '{"topic":"policy-partner"}'::jsonb, 300000);$$
 );
 
 select cron.schedule(
   'shortly-money-matters-mon-sat',
-  '0 5 * * 1-6',
+  '45 */3 * * *',
   $$select public.invoke_edge('editorial-topic-agent', '{"topic":"money-matters"}'::jsonb, 300000);$$
 );
 
 select cron.schedule(
   'shortly-wellness-daily-mon-sat',
-  '10 5 * * 1-6',
+  '50 */3 * * *',
   $$select public.invoke_edge('editorial-topic-agent', '{"topic":"wellness-daily"}'::jsonb, 300000);$$
 );

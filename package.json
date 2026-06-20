@@ -4,7 +4,11 @@
   "private": true,
   "scripts": {
     "build": "node scripts/generate-config.js",
-    "dev": "node scripts/static-server.mjs",
+    "dev": "node scripts/preview-mock.mjs",
+    "dev:static": "node scripts/static-server.mjs",
+    "preview": "node scripts/preview-server.mjs",
+    "preview-mock": "node scripts/preview-mock.mjs",
+    "local": "node scripts/local-server.mjs",
     "check": "node scripts/check-files.mjs",
     "seed": "node scripts/seed.mjs",
     "reset": "node -e \"require('node:fs').rmSync('.devdata',{recursive:true,force:true});console.log('cleared .devdata');\""

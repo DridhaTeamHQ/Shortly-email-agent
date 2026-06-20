@@ -136,33 +136,16 @@ Deno.serve(async (request) => {
     }).eq("id", row.id);
   }
 
-  // Topic-diverse top 50 — bonus on rank for the best per source
-  // (Simple approach: keep them all as `summarized`; QA picks 10. The top-50 cap
-  // is enforced by re-ranking and demoting overflow back to `pending`.)
-  const topIds = updates
-    .sort((a, b) => b.rank_score - a.rank_score)
-    .slice(0, 50)
-    .map((r) => r.id);
-
-  if (topIds.length > 0) {
-    // Anything summarized today that isn't in top 50 → back to pending (kept as history)
-    const { data: tooMany } = await supabase
-      .from("articles")
-      .select("id")
-      .eq("status", "summarized")
-      .not("id", "in", `(${topIds.join(",")})`);
-    if (tooMany && tooMany.length > 0) {
-      await supabase
-        .from("articles")
-        .update({ status: "pending" })
-        .in("id", tooMany.map((r) => r.id));
-    }
-  }
+  // No demotion. Every article we summarize this run goes to `summarized` and STAYS
+  // on the website for QA. Each 3h run scrapes fresh headlines and summarizes a capped
+  // batch of the highest-ranked ones; whatever isn't summarized simply ages out of the
+  // 10h freshness window on the next run — it is never parked in a growing backlog and
+  // never pulled back off the site. Editorial category briefs are inserted already
+  // `summarized` by their own agents/triggers and are untouched here.
 
   const failed = results.filter((r) => !r.summary);
   return json({
     summarized: updates.length,
-    top_50: topIds.length,
     failed: failed.length,
     failures: failed.slice(0, 5)
   });
