@@ -258,9 +258,16 @@ async function bootAuth() {
   }
 }
 
-const todayUtc = () => new Date().toISOString().slice(0, 10);
+const istDateKey = (value = new Date()) => new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+}).format(new Date(value));
+const todayIst = () => istDateKey();
+const isScrapedToday = (a) => Boolean(a.scraped_at) && istDateKey(a.scraped_at) === todayIst();
 const isApprovedToday = (a) =>
-  a.status === "approved" && (a.reviewed_at ?? "").slice(0, 10) === todayUtc();
+  a.status === "approved" && isScrapedToday(a);
 
 // ---------- state ----------
 const state = {
@@ -353,7 +360,7 @@ function uniqueTopics() {
 function approvedDailyTopics() {
   const topics = new Set();
   state.articles
-    .filter((a) => isApprovedToday(a) || a.status === "summarized")
+    .filter((a) => isApprovedToday(a) || (a.status === "summarized" && isScrapedToday(a)))
     .forEach((a) => {
     if (a.topic) topics.add(a.topic);
   });
@@ -371,7 +378,7 @@ function sortedApprovedDailyArticles(category = "") {
 
 function sortedSummarizedDailyArticles(category = "") {
   return state.articles
-    .filter((a) => a.status === "summarized" && (!category || a.topic === category))
+    .filter((a) => a.status === "summarized" && isScrapedToday(a) && (!category || a.topic === category))
     .sort((a, b) =>
       (Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0)) ||
       (new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime())

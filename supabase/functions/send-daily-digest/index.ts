@@ -17,7 +17,11 @@ type Article = {
   source: string | null;
   topic: string | null;
   section: string | null;
+  status: string;
   rank_score: number;
+  scraped_at: string;
+  summarized_at: string | null;
+  reviewed_at: string | null;
 };
 
 type Subscriber = { id: string; email: string; full_name: string | null; topics?: string[] | null };
@@ -32,14 +36,8 @@ const FOOTER_LOGO_URL =
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/footer-logo.png";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
 const AUTO_DIGEST_ENABLED = (Deno.env.get("SHORTLY_AUTO_DIGEST_ENABLED") ?? "false").toLowerCase() === "true";
-
-function utcDayWindow() {
-  const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 1);
-  return { start: start.toISOString(), end: end.toISOString() };
-}
+const ARTICLE_SELECT =
+  "id,title,edited_title,url,summary,edited_summary,source,topic,section,status,rank_score,scraped_at,summarized_at,reviewed_at";
 
 function istDayWindow() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -67,6 +65,19 @@ function isFinance(a: Article): boolean {
   return FINANCE_TOPICS.includes((a.topic ?? "").toLowerCase());
 }
 
+function isFreshArticle(article: Article, start: string, end: string): boolean {
+  return article.scraped_at >= start && article.scraped_at < end;
+}
+
+function uniqueById(articles: Article[]): Article[] {
+  const seen = new Set<string>();
+  return articles.filter((article) => {
+    if (seen.has(article.id)) return false;
+    seen.add(article.id);
+    return true;
+  });
+}
+
 function normalizeWrapped(articles: Article[]): Article[] {
   const wrapped = articles.slice(0, TOTAL_ARTICLES);
   if (wrapped.some(isFinance)) return wrapped;
@@ -82,7 +93,7 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
-  const { start: todayStart, end: todayEnd } = utcDayWindow();
+  const { start: todayStart, end: todayEnd } = istDayWindow();
   let subscriberIds: string[] = [];
   let articleIds: string[] = [];
   let isManual = false;
@@ -129,27 +140,34 @@ Deno.serve(async (request) => {
 
   let articles: Article[] = [];
   let autoSelected = false;
+  let ignoredOldSelected = 0;
 
   if (articleIds.length > 0) {
     const { data: selectedArticles, error: selectedError } = await supabase
       .from("articles")
-      .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
+      .select(ARTICLE_SELECT)
       .in("id", articleIds);
 
     if (selectedError) return json({ error: selectedError.message }, 500);
     const byId = new Map(((selectedArticles ?? []) as Article[]).map((article) => [article.id, article]));
-    articles = articleIds.map((id) => byId.get(id)).filter((article): article is Article => Boolean(article));
+    const orderedSelected = articleIds
+      .map((id) => byId.get(id))
+      .filter((article): article is Article => Boolean(article));
+    articles = orderedSelected.filter((article) =>
+      ["approved", "summarized"].includes(article.status) && isFreshArticle(article, todayStart, todayEnd)
+    );
+    ignoredOldSelected = orderedSelected.length - articles.length;
   } else {
     // 1. Try approved articles first
     const { data: approved, error: approvedError } = await supabase
       .from("articles")
-      .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
+      .select(ARTICLE_SELECT)
       .eq("status", "approved")
-      .gte("reviewed_at", todayStart)
-      .lt("reviewed_at", todayEnd)
+      .gte("scraped_at", todayStart)
+      .lt("scraped_at", todayEnd)
       .order("rank_score", { ascending: false })
       .order("scraped_at", { ascending: false })
-      .limit(20);
+      .limit(30);
 
     if (approvedError) return json({ error: approvedError.message }, 500);
     articles = (approved ?? []) as Article[];
@@ -162,34 +180,37 @@ Deno.serve(async (request) => {
 
     const { data: approvedFill } = await supabase
       .from("articles")
-      .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
+      .select(ARTICLE_SELECT)
       .eq("status", "approved")
-      .gte("reviewed_at", todayStart)
-      .lt("reviewed_at", todayEnd)
+      .gte("scraped_at", todayStart)
+      .lt("scraped_at", todayEnd)
       .order("rank_score", { ascending: false })
       .order("scraped_at", { ascending: false })
       .limit(need + 10);
 
     const approvedExtras = ((approvedFill ?? []) as Article[]).filter((a) => !usedIds.includes(a.id));
-    articles = [...articles, ...approvedExtras].slice(0, TOTAL_ARTICLES);
+    articles = uniqueById([...articles, ...approvedExtras]).slice(0, TOTAL_ARTICLES);
     const usedAfterApproved = articles.map((a) => a.id);
     const stillNeed = TOTAL_ARTICLES - articles.length;
 
     const { data: fallback } = stillNeed > 0 ? await supabase
       .from("articles")
-      .select("id,title,edited_title,url,summary,edited_summary,source,topic,section,rank_score")
+      .select(ARTICLE_SELECT)
       .eq("status", "summarized")
+      .gte("scraped_at", todayStart)
+      .lt("scraped_at", todayEnd)
       .order("rank_score", { ascending: false })
       .order("scraped_at", { ascending: false })
       .limit(stillNeed + 10) : { data: [] };
 
     const extras = ((fallback ?? []) as Article[]).filter((a) => !usedAfterApproved.includes(a.id));
-    articles = [...articles, ...extras].slice(0, TOTAL_ARTICLES);
+    const usedFallback = extras.slice(0, stillNeed);
+    articles = uniqueById([...articles, ...usedFallback]).slice(0, TOTAL_ARTICLES);
     autoSelected = approvedExtras.length > 0 || extras.length > 0;
 
     // Auto-approve the fallback articles
-    if (extras.length > 0) {
-      const extraIds = extras.map((a) => a.id).slice(0, need);
+    if (usedFallback.length > 0) {
+      const extraIds = usedFallback.map((a) => a.id);
       await supabase
         .from("articles")
         .update({ status: "approved", reviewed_at: new Date().toISOString(), reviewed_by: "auto-fallback" })
@@ -273,6 +294,8 @@ Deno.serve(async (request) => {
     sent,
     failed,
     autoSelected,
+    ignoredOldSelected,
+    freshWindow: { start: todayStart, end: todayEnd },
   });
 });
 

@@ -40,12 +40,17 @@ const FORMATS = {
 
 type DigestFormat = keyof typeof FORMATS;
 
-function utcDayWindow() {
-  const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 1);
-  return { start: start.toISOString(), end: end.toISOString() };
+function istDayWindow() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const startMs = Date.UTC(value("year"), value("month") - 1, value("day")) - (5.5 * 60 * 60 * 1000);
+  const endMs = startMs + (24 * 60 * 60 * 1000);
+  return { start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString() };
 }
 
 Deno.serve(async (request) => {
@@ -77,7 +82,7 @@ Deno.serve(async (request) => {
   }
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
-  const { start, end } = utcDayWindow();
+  const { start, end } = istDayWindow();
 
   const dailyArticles = config.dailyLimit > 0
     ? await resolveDailyArticles(supabase, {
@@ -207,6 +212,8 @@ async function resolveDailyArticles(
   const fallback = await fetchDailyPool(supabase, {
     status: "summarized",
     category: input.category,
+    start: input.start,
+    end: input.end,
     limit: input.limit + 10
   });
   const needed = input.limit - current.length;
@@ -230,8 +237,8 @@ async function fetchSelectedDailyArticles(
     .select("id,title,edited_title,summary,edited_summary,url,source,topic,rank_score,scraped_at")
     .in("id", input.articleIds)
     .eq("status", "approved")
-    .gte("reviewed_at", input.start)
-    .lt("reviewed_at", input.end);
+    .gte("scraped_at", input.start)
+    .lt("scraped_at", input.end);
   if (input.category) query = query.eq("topic", input.category);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -251,8 +258,8 @@ async function fetchDailyPool(
     .order("scraped_at", { ascending: false })
     .limit(input.limit);
   if (input.category) query = query.eq("topic", input.category);
-  if (input.start) query = query.gte("reviewed_at", input.start);
-  if (input.end) query = query.lt("reviewed_at", input.end);
+  if (input.start) query = query.gte("scraped_at", input.start);
+  if (input.end) query = query.lt("scraped_at", input.end);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   return (data ?? []) as DailyArticle[];
