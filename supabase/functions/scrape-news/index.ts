@@ -6,6 +6,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { cleanArticleText } from "../_shared/article-text.ts";
 import { SOURCES } from "../_shared/sources.ts";
 import { parseFeed } from "../_shared/rss.ts";
+import { looksLikeJunk, qualityScore } from "../_shared/quality.ts";
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -16,6 +17,7 @@ Deno.serve(async (request) => {
 
   const scraped: Array<Record<string, unknown>> = [];
   const errors: Array<{ source: string; error: string }> = [];
+  let dropped = 0;
 
   await Promise.all(
     SOURCES.map(async (src) => {
@@ -27,6 +29,11 @@ Deno.serve(async (request) => {
         const xml = await response.text();
         const items = parseFeed(xml);
         for (const item of items) {
+          // Quality gate: skip sports/celebrity/horoscope/listicle/viral filler.
+          if (looksLikeJunk(item.title, item.url)) {
+            dropped += 1;
+            continue;
+          }
           const cleanedDescription = cleanArticleText(item.description ?? "");
           scraped.push({
             title: item.title.slice(0, 500),
@@ -34,7 +41,7 @@ Deno.serve(async (request) => {
             raw_content: cleanedDescription.slice(0, 4000),
             source: src.name,
             topic: src.topic ?? null,
-            rank_score: src.weight,
+            rank_score: src.weight * qualityScore(item.title, item.url),
             status: "pending"
           });
         }
@@ -64,5 +71,5 @@ Deno.serve(async (request) => {
     inserted = data?.length ?? 0;
   }
 
-  return json({ scraped: scraped.length, unique: unique.length, inserted, errors });
+  return json({ scraped: scraped.length, dropped, unique: unique.length, inserted, errors });
 });

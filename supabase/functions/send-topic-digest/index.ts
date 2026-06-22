@@ -76,6 +76,7 @@ Deno.serve(async (request) => {
   const topic = normalizeTopic(body?.topic ?? "all-topics");
   const isManual = body?.manual === true;
   const dryRun = body?.dry_run === true;
+  const forceSend = body?.force === true;
   const subscriberIds = Array.isArray(body?.subscriber_ids)
     ? body.subscriber_ids.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
     : [];
@@ -90,6 +91,16 @@ Deno.serve(async (request) => {
   let subscribers: Subscriber[] = [];
   try {
     supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
+
+    // Duplicate guard: skip if a real digest was sent in the last 2 minutes.
+    if (!dryRun && !forceSend) {
+      const recentCutoff = new Date(Date.now() - 120 * 1000).toISOString();
+      const { data: recent } = await supabase
+        .from("digests").select("id").gt("recipients", 0).gte("sent_at", recentCutoff)
+        .order("sent_at", { ascending: false }).limit(1).maybeSingle();
+      if (recent) return json({ skipped: true, reason: "A digest was already sent in the last 2 minutes.", digestId: recent.id });
+    }
+
     [items, subscribers] = await Promise.all([
       loadDigestItems(supabase, topic),
       loadSubscribers(supabase, topic, subscriberIds),
@@ -102,13 +113,7 @@ Deno.serve(async (request) => {
   if (subscribers.length === 0) return json({ error: "No subscribers" }, 400);
 
   if (dryRun) {
-    return json({
-      dryRun: true,
-      topic,
-      topicLabel: topicLabel(topic),
-      items: items.length,
-      recipients: subscribers.length,
-    });
+    return json({ dryRun: true, topic, topicLabel: topicLabel(topic), items: items.length, recipients: subscribers.length });
   }
 
   const dailyIds = items.filter((item) => item.topic === "daily-wrap").map((item) => item.id);
@@ -132,11 +137,7 @@ Deno.serve(async (request) => {
   for (let i = 0; i < subscribers.length; i += batchSize) {
     const batch = subscribers.slice(i, i + batchSize);
     const results = await Promise.all(batch.map(async (sub) => {
-      const result = await sendEmail({
-        to: sub.email,
-        subject,
-        html: renderDigest(items, sub, topic),
-      });
+      const result = await sendEmail({ to: sub.email, subject, html: renderDigest(items, sub, topic) });
       await supabase.from("article_deliveries").insert({
         digest_id: digestId,
         subscriber_id: sub.id,
@@ -153,14 +154,7 @@ Deno.serve(async (request) => {
 
   await supabase.from("digests").update({ sent, failed }).eq("id", digestId);
 
-  return json({
-    digestId,
-    topic,
-    items: items.length,
-    recipients: subscribers.length,
-    sent,
-    failed,
-  });
+  return json({ digestId, topic, items: items.length, recipients: subscribers.length, sent, failed });
 });
 
 function normalizeTopic(value: unknown): string {
@@ -214,6 +208,7 @@ async function loadDailyItems(supabase: any): Promise<DigestItem[]> {
     .from("articles")
     .select("id,title,edited_title,summary,edited_summary,url,source,topic")
     .eq("status", "approved")
+    .is("category", null)
     .order("rank_score", { ascending: false })
     .order("scraped_at", { ascending: false })
     .limit(10);
@@ -222,7 +217,7 @@ async function loadDailyItems(supabase: any): Promise<DigestItem[]> {
   return ((data ?? []) as DailyArticle[]).map((article) => ({
     id: article.id,
     topic: "daily-wrap",
-    section: article.topic || "Daily Wrap",
+    section: "Daily Wrap",
     headline: article.edited_title || article.title,
     body: article.edited_summary || article.summary || "",
     sourceUrl: article.url,
@@ -329,15 +324,11 @@ function renderItems(items: DigestItem[]): string {
       <div style="background:#ffffff;border:3px solid #111111;border-radius:12px;padding:18px 18px 18px 16px">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
           <td style="width:44px;vertical-align:top;padding-top:2px">
-            <div style="width:36px;height:36px;border-radius:50%;background:#efe7ff;color:#6d28d9;border:2px solid #6d28d9;font-size:15px;font-weight:700;text-align:center;line-height:32px">
-              ${index + 1}
-            </div>
+            <div style="width:36px;height:36px;border-radius:50%;background:#efe7ff;color:#6d28d9;border:2px solid #6d28d9;font-size:15px;font-weight:700;text-align:center;line-height:32px">${index + 1}</div>
           </td>
           <td style="padding-left:14px">
             <p style="margin:0 0 6px;color:#6d28d9;font-size:11px;line-height:1.2;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;font-family:Roboto,Arial,sans-serif">${escapeHtml(item.section)}</p>
-            <h2 style="font-size:18px;line-height:1.28;margin:0 0 10px;color:#191919;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">
-              ${escapeHtml(item.headline)}
-            </h2>
+            <h2 style="font-size:18px;line-height:1.28;margin:0 0 10px;color:#191919;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(item.headline)}</h2>
             <p style="font-size:15px;line-height:1.72;color:#2f2f39;margin:0 0 10px;font-family:Roboto,Arial,sans-serif">${escapeHtml(item.body)}</p>
             ${item.sourceUrl ? `<a href="${escapeHtml(item.sourceUrl)}" style="font-size:12px;color:#6d28d9;font-family:Roboto,Arial,sans-serif;text-decoration:none">Read source</a>` : ""}
           </td>
@@ -374,12 +365,10 @@ function renderDigest(items: DigestItem[], sub: Subscriber, topic: string): stri
     : `Here is today's approved ${topicLabel(topic)} edition from Shortly, written for a fast and useful read.`;
 
   return `
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <div style="margin:0;background:#fcfbf7;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
     <div style="max-width:640px;margin:0 auto">
-      <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
+      <img src="${BANNER_URL}" alt="Shortly" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
       ${renderLabelBar("From the Shortly Team", "#0f9d69")}
       <div style="background:#ffffff;border-radius:12px;padding:26px 28px;margin:0 0 24px;border:3px solid #111111">
         <p style="margin:0 0 12px;color:#191919;font-size:18px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${greeting}</p>
@@ -389,11 +378,7 @@ function renderDigest(items: DigestItem[], sub: Subscriber, topic: string): stri
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:4px;margin-bottom:20px">
         <tr><td style="text-align:center;padding:10px 20px 14px">
           <img src="${FOOTER_LOGO_URL}" alt="Shortly" width="96" style="display:block;width:96px;max-width:100%;height:auto;margin:0 auto 8px">
-          <p style="margin:0 0 10px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
-            Curated news, summarized daily.<br>
-            You're receiving this because you subscribed to Shortly.
-          </p>
-          <p style="margin:0 0 8px;font-size:12px;color:#9a9ab0;font-family:Roboto,Arial,sans-serif">Can be forwarded to others.</p>
+          <p style="margin:0 0 10px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">Curated news, summarized daily.<br>You're receiving this because you subscribed to Shortly.</p>
           <div style="text-align:center">
             <a href="${twitterUrl}" style="display:inline-block;margin:0 8px;color:#6d28d9;font-size:12px;font-family:Roboto,Arial,sans-serif">X</a>
             <a href="${linkedinUrl}" style="display:inline-block;margin:0 8px;color:#6d28d9;font-size:12px;font-family:Roboto,Arial,sans-serif">LinkedIn</a>

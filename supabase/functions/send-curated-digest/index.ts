@@ -40,12 +40,11 @@ const FORMATS = {
 
 type DigestFormat = keyof typeof FORMATS;
 
-function utcDayWindow() {
-  const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 1);
-  return { start: start.toISOString(), end: end.toISOString() };
+// Selected articles older than this are treated as stale and dropped.
+const FRESH_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
+function isFresh(scrapedAt: string): boolean {
+  const t = new Date(scrapedAt).getTime();
+  return Number.isFinite(t) && (Date.now() - t) <= FRESH_WINDOW_MS;
 }
 
 Deno.serve(async (request) => {
@@ -71,32 +70,33 @@ Deno.serve(async (request) => {
     ? body.corporate_case_id.trim()
     : "";
   const dryRun = body?.dry_run === true;
+  const forceSend = body?.force === true;
 
   if (config.requiresCategory && !category) {
     return json({ error: "Category is required for this format" }, 400);
   }
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
-  const { start, end } = utcDayWindow();
 
+  // Duplicate guard: skip if a real digest was sent in the last 2 minutes.
+  if (!dryRun && !forceSend) {
+    const recentCutoff = new Date(Date.now() - 120 * 1000).toISOString();
+    const { data: recent } = await supabase
+      .from("digests").select("id").gt("recipients", 0).gte("sent_at", recentCutoff)
+      .order("sent_at", { ascending: false }).limit(1).maybeSingle();
+    if (recent) return json({ skipped: true, reason: "A digest was already sent in the last 2 minutes.", digestId: recent.id });
+  }
+
+  // Send EXACTLY what QA selected. No auto-fill, no auto-approve.
   const dailyArticles = config.dailyLimit > 0
-    ? await resolveDailyArticles(supabase, {
-        limit: config.dailyLimit,
-        articleIds,
-        category,
-        start,
-        end
-      })
+    ? await resolveSelectedArticles(supabase, articleIds, config.dailyLimit)
     : [];
   const corporateCases = config.caseLimit > 0
-    ? await resolveCorporateCases(supabase, {
-        limit: config.caseLimit,
-        corporateCaseId
-      })
+    ? await resolveCorporateCases(supabase, { limit: config.caseLimit, corporateCaseId })
     : [];
 
-  if (dailyArticles.length < config.dailyLimit) {
-    return json({ error: "Not enough daily articles available for this format" }, 400);
+  if (config.dailyLimit > 0 && dailyArticles.length === 0) {
+    return json({ error: "Select the daily articles to send for this format" }, 400);
   }
   if (corporateCases.length < config.caseLimit) {
     return json({ error: "No approved corporate case study available" }, 400);
@@ -106,14 +106,7 @@ Deno.serve(async (request) => {
   if (subscribers.length === 0) return json({ error: "No subscribers" }, 400);
 
   if (dryRun) {
-    return json({
-      dryRun: true,
-      format,
-      category,
-      recipients: subscribers.length,
-      daily: dailyArticles.length,
-      corporate: corporateCases.length
-    });
+    return json({ dryRun: true, format, category, recipients: subscribers.length, daily: dailyArticles.length, corporate: corporateCases.length });
   }
 
   const { data: digest, error: digestError } = await supabase
@@ -166,16 +159,7 @@ Deno.serve(async (request) => {
 
   await supabase.from("digests").update({ sent, failed }).eq("id", digestId);
 
-  return json({
-    digestId,
-    format,
-    category,
-    recipients: subscribers.length,
-    daily: dailyArticles.length,
-    corporate: corporateCases.length,
-    sent,
-    failed
-  });
+  return json({ digestId, format, category, recipients: subscribers.length, daily: dailyArticles.length, corporate: corporateCases.length, sent, failed });
 });
 
 function normalizeFormat(value: unknown): DigestFormat | null {
@@ -183,88 +167,25 @@ function normalizeFormat(value: unknown): DigestFormat | null {
   return format in FORMATS ? format as DigestFormat : null;
 }
 
-async function resolveDailyArticles(
-  supabase: any,
-  input: { limit: number; articleIds: string[]; category: string; start: string; end: string }
-): Promise<DailyArticle[]> {
-  const selected = await fetchSelectedDailyArticles(supabase, input);
-  if (selected.length >= input.limit) return selected.slice(0, input.limit);
-
-  const usedIds = new Set(selected.map((article) => article.id));
-  const approvedExtras = await fetchDailyPool(supabase, {
-    status: "approved",
-    category: input.category,
-    start: input.start,
-    end: input.end,
-    limit: input.limit + 10
-  });
-  const approvedFill = approvedExtras.filter((article) => !usedIds.has(article.id));
-  const current = [...selected, ...approvedFill].slice(0, input.limit);
-  const currentIds = new Set(current.map((article) => article.id));
-
-  if (current.length >= input.limit) return current;
-
-  const fallback = await fetchDailyPool(supabase, {
-    status: "summarized",
-    category: input.category,
-    limit: input.limit + 10
-  });
-  const needed = input.limit - current.length;
-  const autoFill = fallback.filter((article) => !currentIds.has(article.id)).slice(0, needed);
-  if (autoFill.length > 0) {
-    await supabase
-      .from("articles")
-      .update({ status: "approved", reviewed_at: new Date().toISOString(), reviewed_by: "auto-fallback" })
-      .in("id", autoFill.map((article) => article.id));
-  }
-  return [...current, ...autoFill];
-}
-
-async function fetchSelectedDailyArticles(
-  supabase: any,
-  input: { limit: number; articleIds: string[]; category: string; start: string; end: string }
-): Promise<DailyArticle[]> {
-  if (input.articleIds.length === 0) return [];
-  let query = supabase
+// Exactly the QA-selected approved articles, in selection order. No padding.
+async function resolveSelectedArticles(supabase: any, articleIds: string[], limit: number): Promise<DailyArticle[]> {
+  if (articleIds.length === 0) return [];
+  const { data, error } = await supabase
     .from("articles")
     .select("id,title,edited_title,summary,edited_summary,url,source,topic,rank_score,scraped_at")
-    .in("id", input.articleIds)
-    .eq("status", "approved")
-    .gte("reviewed_at", input.start)
-    .lt("reviewed_at", input.end);
-  if (input.category) query = query.eq("topic", input.category);
-  const { data, error } = await query;
+    .in("id", articleIds)
+    .eq("status", "approved");
   if (error) throw new Error(error.message);
   const byId = new Map(((data ?? []) as DailyArticle[]).map((article) => [article.id, article]));
-  return input.articleIds.map((id) => byId.get(id)).filter((article): article is DailyArticle => Boolean(article)).slice(0, input.limit);
+  return articleIds
+    .map((id) => byId.get(id))
+    .filter((article): article is DailyArticle => Boolean(article))
+    .filter((article) => isFresh(article.scraped_at))
+    .slice(0, limit);
 }
 
-async function fetchDailyPool(
-  supabase: any,
-  input: { status: "approved" | "summarized"; category: string; limit: number; start?: string; end?: string }
-): Promise<DailyArticle[]> {
-  let query = supabase
-    .from("articles")
-    .select("id,title,edited_title,summary,edited_summary,url,source,topic,rank_score,scraped_at")
-    .eq("status", input.status)
-    .order("rank_score", { ascending: false })
-    .order("scraped_at", { ascending: false })
-    .limit(input.limit);
-  if (input.category) query = query.eq("topic", input.category);
-  if (input.start) query = query.gte("reviewed_at", input.start);
-  if (input.end) query = query.lt("reviewed_at", input.end);
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return (data ?? []) as DailyArticle[];
-}
-
-async function resolveCorporateCases(
-  supabase: any,
-  input: { limit: number; corporateCaseId: string }
-): Promise<CorporateCase[]> {
-  const selected = input.corporateCaseId
-    ? await fetchSelectedCorporateCase(supabase, input.corporateCaseId)
-    : [];
+async function resolveCorporateCases(supabase: any, input: { limit: number; corporateCaseId: string }): Promise<CorporateCase[]> {
+  const selected = input.corporateCaseId ? await fetchSelectedCorporateCase(supabase, input.corporateCaseId) : [];
   if (selected.length >= input.limit) return selected.slice(0, input.limit);
 
   const usedIds = new Set(selected.map((item) => item.id));
@@ -305,16 +226,7 @@ async function loadSubscribers(supabase: any, format: DigestFormat, subscriberId
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  const subscribers = (data ?? []) as Subscriber[];
-  if (subscribers.length === 0 && subscriberIds.length === 0 && format === "case-study-only") {
-    const fallback = await supabase
-      .from("subscribers")
-      .select("id,email,full_name")
-      .eq("status", "subscribed");
-    if (fallback.error) throw new Error(fallback.error.message);
-    return (fallback.data ?? []) as Subscriber[];
-  }
-  return subscribers;
+  return (data ?? []) as Subscriber[];
 }
 
 function escapeHtml(value = ""): string {
@@ -377,7 +289,7 @@ function renderDigest(input: {
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`.trim())}`;
 
   const intro = input.format === "daily-wrap-10"
-    ? "Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee - you'll be caught up SHORTLY!"
+    ? "Here are the stories that deserve your attention. The biggest news, minus the noise. Grab your coffee - you'll be caught up SHORTLY!"
     : input.format === "category-5-case-1"
       ? `Here are 5 stories from ${escapeHtml(input.category)} plus one case study that adds the deeper business angle.`
       : "Here is today's Shortly case study, designed as one focused long-form read.";
@@ -395,27 +307,21 @@ function renderDigest(input: {
     : "Quick Hits. Daily Wrap";
 
   return `
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <div style="margin:0;background:#fcfbf7;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
     <div style="max-width:640px;margin:0 auto">
-      <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
+      <img src="${BANNER_URL}" alt="Shortly" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
       ${renderLabelBar("From the Shortly Team", "#0f9d69")}
       <div style="background:#ffffff;border-radius:12px;padding:26px 28px;margin:0 0 24px;border:3px solid #111111">
         <p style="margin:0 0 12px;color:#191919;font-size:18px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${greeting}</p>
         <p style="margin:0;color:#2f2f39;font-size:16px;line-height:1.7;font-weight:400;font-family:Roboto,Arial,sans-serif">${intro}</p>
       </div>
       ${renderSection(dailyLabel, dailyCards, "#6d28d9")}
-      ${renderSection("Corporate Case", caseCards, "#0f9d69")}
+      ${renderSection("Case Study", caseCards, "#0f9d69")}
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:4px;margin-bottom:20px">
         <tr><td style="text-align:center;padding:10px 20px 14px">
           <img src="${FOOTER_LOGO_URL}" alt="Shortly" width="96" style="display:block;width:96px;max-width:100%;height:auto;margin:0 auto 8px">
-          <p style="margin:0 0 10px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
-            Curated news, summarized daily.<br>
-            You're receiving this because you subscribed to Shortly.
-          </p>
-          <p style="margin:0 0 8px;font-size:12px;color:#9a9ab0;font-family:Roboto,Arial,sans-serif">Can be forwarded to others.</p>
+          <p style="margin:0 0 10px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">Curated news, summarized daily.<br>You're receiving this because you subscribed to Shortly.</p>
           <div style="text-align:center">
             <a href="${twitterUrl}" style="display:inline-block;margin:0 8px;color:#6d28d9;font-size:12px;font-family:Roboto,Arial,sans-serif">X</a>
             <a href="${linkedinUrl}" style="display:inline-block;margin:0 8px;color:#6d28d9;font-size:12px;font-family:Roboto,Arial,sans-serif">LinkedIn</a>

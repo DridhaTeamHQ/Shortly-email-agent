@@ -2188,8 +2188,8 @@ async function sendDailyDigest() {
     .map((article) => article.id);
   const subCount = selectedIds.length || dailyWrapSubscriberCount();
   const sendMsg = selectedArticleIds.length
-    ? `\n\nSending ${selectedArticleIds.length} selected article${selectedArticleIds.length === 1 ? "" : "s"} first, then filling the remaining slots.`
-    : `\n\nNo articles selected, so the digest will use approved articles and fill remaining slots automatically.`;
+    ? `\n\nSending exactly the ${selectedArticleIds.length} article${selectedArticleIds.length === 1 ? "" : "s"} you selected — nothing else is added.`
+    : `\n\nNo articles selected, so today's already-approved articles will be sent as-is.`;
   if (!confirm(`Send digest to ${subCount} subscribers?${sendMsg}`)) return;
   try {
     const res = await api("POST", cfg.digest, {
@@ -2197,10 +2197,9 @@ async function sendDailyDigest() {
       ...(selectedArticleIds.length ? { article_ids: selectedArticleIds } : {}),
       ...(selectedIds.length ? { subscriber_ids: selectedIds } : {})
     });
-    const autoMsg = res.autoSelected ? " (with auto-selected articles)" : "";
     state.selectedSubscribers.clear();
     state.selected.clear();
-    toast(`Sent to ${res.sent ?? 0} subscribers${autoMsg}.`);
+    toast(`Sent to ${res.sent ?? 0} subscribers.`);
     await reload();
     showSection("review");
   } catch (e) {

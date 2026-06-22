@@ -23,9 +23,10 @@ const decode = (s: string) =>
     .replaceAll("&nbsp;", " ");
 
 function tagValue(block: string, tag: string): string {
-  // Try element form
+  // Try element form. Strip CDATA both before AND after decoding, because some feeds
+  // encode the closing bracket as `]]&gt;`, which only becomes `]]>` after decode.
   const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
-  if (m) return decode(stripTags(stripCdata(m[1]))).trim();
+  if (m) return stripCdata(decode(stripTags(stripCdata(m[1])))).trim();
   // Self-closing href attr (Atom <link href="..." />)
   const m2 = block.match(new RegExp(`<${tag}[^>]*href=["']([^"']+)["']`, "i"));
   if (m2) return m2[1];
