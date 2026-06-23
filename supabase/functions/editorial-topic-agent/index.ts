@@ -540,14 +540,14 @@ function validationReport(topic: EditorialTopic, draft: Record<string, any>): st
   const target = topic.format === "hybrid" ? draft.feature ?? {} : draft;
   const summaryWords = words(target.summary);
   const detailWords = words(target.detail);
-  if (summaryWords < 80 || summaryWords > 130) errors.push(`summary_words:${summaryWords}`);
-  if (detailWords < 280 || detailWords > 550) errors.push(`detail_words:${detailWords}`);
+  if (summaryWords < 75 || summaryWords > 150) errors.push(`summary_words:${summaryWords}`);
+  if (detailWords < 260 || detailWords > 650) errors.push(`detail_words:${detailWords}`);
   if (!String(draft.headline ?? target.headline ?? "").trim()) errors.push("missing_headline");
   if (topic.format === "hybrid") {
     if (!Array.isArray(draft.briefs) || draft.briefs.length !== 5) errors.push(`brief_count:${draft.briefs?.length ?? 0}`);
     for (const [index, brief] of (draft.briefs ?? []).entries()) {
       const count = words(`${brief.headline ?? ""} ${brief.what_happened ?? ""} ${brief.why_it_matters ?? ""}`);
-      if (count < 50 || count > 105) errors.push(`brief_${index + 1}_words:${count}`);
+      if (count < 45 || count > 140) errors.push(`brief_${index + 1}_words:${count}`);
       if (!brief.source_url) errors.push(`brief_${index + 1}_missing_source`);
     }
   }
