@@ -853,13 +853,23 @@ function topicDraftCardHtml(card, options = {}) {
   const cardId = `${card.kind}:${card.id}:${card.cardType}:${card.briefIndex ?? ""}`;
   const allowSelect = options.selectable === true && card.kind === "corporate";
   const selected = allowSelect && state.digestSelections.corporate.has(card.id);
-  const draftActions = card.status === "approved"
+  // A hybrid draft renders as several cards (5 briefs + 1 feature) that ALL share
+  // one draft id, and approve/reject act on the whole draft. So only the
+  // feature/single card carries the draft-level Approve/Reject; brief cards get
+  // Save only. This stops "reject one card" from silently removing its siblings.
+  const isBrief = card.cardType === "brief";
+  const rejectLabel = card.cardType === "feature" ? "Reject whole draft" : "Reject draft";
+  const draftActions = isBrief
     ? `
         <button class="btn-save" data-action="update">Save</button>
-        <button class="btn-reject" data-action="reject">Reject draft</button>`
-    : `
+        <span class="muted draft-hint">Approve / reject is on this draft's feature card.</span>`
+    : card.status === "approved"
+      ? `
         <button class="btn-save" data-action="update">Save</button>
-        <button class="btn-reject" data-action="reject">Reject draft</button>
+        <button class="btn-reject" data-action="reject">${rejectLabel}</button>`
+      : `
+        <button class="btn-save" data-action="update">Save</button>
+        <button class="btn-reject" data-action="reject">${rejectLabel}</button>
         <button class="btn-approve" data-action="approve">Approve draft</button>`;
   return `
     <article class="card topic-draft-card ${selected ? "selected" : ""}" data-kind="${esc(card.kind)}" data-id="${esc(card.id)}" data-card-type="${esc(card.cardType)}" data-brief-index="${card.briefIndex ?? ""}" data-select-kind="${allowSelect ? "corporate" : ""}" data-preview-key="${allowSelect ? corporateDigestKey(card.id) : `${card.kind}:${card.id}:${card.cardType}`}">
@@ -1376,6 +1386,12 @@ async function handleTopicDraftAction(card, action) {
   if (!endpoint) return toast(`Missing ${kind} endpoint`);
   const id = card.dataset.id;
   const cardType = card.dataset.cardType;
+
+  // A hybrid draft is one record (5 briefs + 1 feature). Rejecting it removes
+  // every card from that draft, so confirm before nuking the whole thing.
+  if (action === "reject" && cardType === "feature") {
+    if (!confirm("Reject the entire draft? This removes all of its briefs and the feature together.")) return;
+  }
 
   // QA may approve only 1 case study (long-form) per category per day.
   if (action === "approve") {

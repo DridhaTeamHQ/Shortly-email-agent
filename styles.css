@@ -291,6 +291,7 @@ a:hover { text-decoration: underline; }
 .card .meta a { color: var(--purple); text-decoration: none; }
 .card textarea { min-height: 110px; background: var(--soft); font-size: 13px; line-height: 1.6; }
 .card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
+.card .actions .draft-hint { font-size: 12px; margin-right: auto; }
 
 /* Chips & Tags */
 .source-pill {
