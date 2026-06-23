@@ -94,7 +94,7 @@ async function handleRequest(request: Request): Promise<Response> {
   const sourceErrors: Array<{ source: string; error: string }> = [];
   const candidates = await collectCandidates(topic, sourceErrors);
   const citedCandidates = candidates.filter((item) => !item.compassOnly);
-  const minimum = topic.format === "hybrid" ? 5 : 1;
+  const minimum = topic.format === "hybrid" ? 4 : 1;
   if (citedCandidates.length < minimum) {
     return json({ error: `Only ${citedCandidates.length} usable cited candidates were found; ${minimum} required.`, sourceErrors }, 422);
   }

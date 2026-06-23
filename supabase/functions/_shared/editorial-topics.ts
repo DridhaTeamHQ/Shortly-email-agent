@@ -43,7 +43,13 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
     ],
     sources: [
       { name: "ET Realty", url: "https://realty.economictimes.indiatimes.com/rss/topstories", weight: 1 },
-      { name: "Moneycontrol Real Estate", url: moneycontrolLatest, weight: 0.95, accepts: (url) => /moneycontrol\.com\/news\/(business\/real-estate|real-estate)/i.test(url) }
+      { name: "ET Realty Residential", url: "https://realty.economictimes.indiatimes.com/rss/residential", weight: 0.95 },
+      { name: "ET Realty Commercial", url: "https://realty.economictimes.indiatimes.com/rss/commercial", weight: 0.9 },
+      { name: "Moneycontrol Real Estate", url: moneycontrolLatest, weight: 0.9, accepts: (url) => /moneycontrol\.com\/news\/(business\/real-estate|real-estate)/i.test(url) },
+      { name: "Financial Express Real Estate", url: "https://www.financialexpress.com/money/real-estate/feed/", weight: 0.85 },
+      { name: "Hindustan Times Real Estate", url: "https://www.hindustantimes.com/feeds/rss/real-estate/rssfeed.xml", weight: 0.8 },
+      { name: "Times of India Real Estate", url: "https://timesofindia.indiatimes.com/rssfeeds/54829575.cms", weight: 0.8 },
+      { name: "Business Standard Real Estate", url: "https://www.business-standard.com/rss/industry/real-estate-10303.rss", weight: 0.8 }
     ]
   },
   "policy-partner": {
