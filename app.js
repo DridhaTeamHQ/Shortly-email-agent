@@ -104,6 +104,42 @@ function normalizeTopicList(value) {
 }
 
 const AI_PIPELINE_TOPICS = ["real-estate", "policy-partner", "money-matters", "wellness-daily"];
+
+// Short-article category label -> topic slug (for per-topic scraping).
+const CATEGORY_TO_SLUG = {
+  "Real Estate": "real-estate",
+  "Policy Partner": "policy-partner",
+  "Money Matters": "money-matters",
+  "Wellness Daily": "wellness-daily",
+  "Corporate Case": "corporate-case",
+};
+
+// Scrape fresh content for one category/topic on demand.
+//  - "" / Daily Wrap  -> general scrape-news + summarize
+//  - corporate-case   -> corporate-case-agent
+//  - editorial topics -> editorial-topic-agent { topic }
+async function scrapeForCategory(category) {
+  if (!category) {
+    const scrapeRes = await api("POST", cfg.scrape, {});
+    const sumRes = await api("POST", cfg.summarize, {});
+    return `Daily Wrap: scraped ${scrapeRes.inserted ?? scrapeRes.scraped ?? 0} new, summarized ${sumRes.summarized ?? 0}.`;
+  }
+  const slug = CATEGORY_TO_SLUG[category] || category;
+  if (slug === "corporate-case") {
+    if (!cfg.corporateCase) throw new Error("Missing corporate case endpoint");
+    await api("POST", cfg.corporateCase, {});
+    return "Corporate Case draft created.";
+  }
+  if (!cfg.editorialTopics) throw new Error("Missing editorial topics endpoint");
+  const res = await api("POST", cfg.editorialTopics, { topic: slug });
+  const inserted = res.shortArticlesInserted;
+  return `${topicLabel(slug)} draft created${typeof inserted === "number" ? `, ${inserted} short articles inserted` : ""}.`;
+}
+
+function updateScrapeReviewLabel() {
+  const txt = document.querySelector("#scrapeReviewText");
+  if (txt) txt.textContent = state.shortCategory ? `Scrape ${state.shortCategory}` : "Scrape news";
+}
 const AUTO_PIPELINE_LAST_RUN_KEY = "shortly-auto-pipeline-last-run";
 const AUTO_PIPELINE_LOCK_KEY = "shortly-auto-pipeline-running";
 const AUTO_PIPELINE_INTERVAL_MS = 3 * 60 * 60 * 1000;
@@ -899,6 +935,8 @@ function topicDraftCardHtml(card, options = {}) {
 }
 
 function renderTopicDrafts() {
+  const buildText = $("#buildActiveTopicText");
+  if (buildText) buildText.textContent = `Scrape ${topicLabel(state.activeTopicDraft)}`;
   const tabs = $("#topicTabs");
   if (tabs) {
     tabs.querySelectorAll(".topic-tab").forEach((tab) => {
@@ -1881,12 +1919,33 @@ $$(".short-cat-tabs").forEach((bar) => bar.addEventListener("click", (e) => {
   state.shortCategory = tab.dataset.cat || "";
   state.selected.clear(); // clear stale bulk selection when switching category
   $$(".short-cat-tabs .topic-tab").forEach((t) => t.classList.toggle("active", (t.dataset.cat || "") === state.shortCategory));
+  updateScrapeReviewLabel();
   renderReview();
   renderApproved();
   renderRejected();
   refreshChrome();
   updateBulkBar();
 }));
+
+// Per-topic scrape from the Review header.
+$("#scrapeReviewBtn")?.addEventListener("click", async () => {
+  const btn = $("#scrapeReviewBtn");
+  const txt = $("#scrapeReviewText");
+  const label = state.shortCategory || "Daily Wrap";
+  const restore = state.shortCategory ? `Scrape ${state.shortCategory}` : "Scrape news";
+  btn.disabled = true;
+  txt.innerHTML = `<span class="spinner"></span> Scraping ${esc(label)}...`;
+  try {
+    const msg = await scrapeForCategory(state.shortCategory);
+    await reload();
+    toast(msg);
+  } catch (e) {
+    toast(`Scrape failed: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    txt.textContent = restore;
+  }
+});
 
 // Bulk actions
 $("#bulkApprove").addEventListener("click", () => bulkAction("approve"));
@@ -2166,7 +2225,7 @@ $("#buildActiveTopic").addEventListener("click", async () => {
     toast("Failed: " + e.message);
   } finally {
     btn.disabled = false;
-    btnText.textContent = "Build selected topic";
+    btnText.textContent = `Scrape ${topicLabel(state.activeTopicDraft)}`;
   }
 });
 
