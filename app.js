@@ -21,13 +21,15 @@ const DEFAULT_SECTION = { short: "review", cases: "topics" };
 function defaultSectionFor(ws) { return DEFAULT_SECTION[ws] || "review"; }
 const DIGEST_FORMATS = {
   "daily-wrap-10": {
-    label: "Daily Wrap 10",
-    dailyLimit: 10,
-    caseLimit: 0,
-    hint: "Pick up to 10 approved daily articles. If you leave some slots open, Shortly fills them with the top-ranked approved stories.",
+    label: "Daily Wrap + Case Study",
+    dailyMin: 5,
+    dailyLimit: 30,
+    caseLimit: 1,
+    hint: "5 approved stories are pre-filled by default. Add as many as you like (up to 30), plus one approved case study.",
   },
   "category-5-case-1": {
     label: "Category 5 + Case Study 1",
+    dailyMin: 5,
     dailyLimit: 5,
     caseLimit: 1,
     needsCategory: true,
@@ -483,33 +485,36 @@ function resolveDigestComposition() {
   const pickedDailyIds = new Set(selectedDaily.map((article) => article.id));
   const pickedCorporateIds = new Set(selectedCorporate.map((item) => item.id));
 
+  // Auto-fill ONLY up to the minimum (default 5), and ONLY from APPROVED stories.
+  // Never auto-fill from un-approved/summarized articles — that is what leaked old
+  // and unreviewed content into past sends.
+  const fillTarget = Math.max(0, (format.dailyMin || 0) - selectedDaily.length);
   const approvedAutoDaily = sortedApprovedDailyArticles(category)
     .filter((article) => !pickedDailyIds.has(article.id))
-    .slice(0, Math.max(0, (format.dailyLimit || 0) - selectedDaily.length));
-  const autoDailyIds = new Set([...pickedDailyIds, ...approvedAutoDaily.map((article) => article.id)]);
-  const summarizedAutoDaily = sortedSummarizedDailyArticles(category)
-    .filter((article) => !autoDailyIds.has(article.id))
-    .slice(0, Math.max(0, (format.dailyLimit || 0) - selectedDaily.length - approvedAutoDaily.length));
+    .slice(0, fillTarget);
   const autoCorporate = sortedApprovedCorporateCases()
     .filter((item) => !pickedCorporateIds.has(item.id))
     .slice(0, Math.max(0, (format.caseLimit || 0) - selectedCorporate.length));
 
-  const dailyArticles = [...selectedDaily, ...approvedAutoDaily, ...summarizedAutoDaily];
+  const dailyArticles = [...selectedDaily, ...approvedAutoDaily];
   const corporateCases = [...selectedCorporate, ...autoCorporate];
+  const dailyMin = format.dailyMin || 0;
 
   return {
     format: state.digestFormat,
     formatLabel: format.label,
     category,
     dailyLimit: format.dailyLimit || 0,
+    dailyMin,
     caseLimit: format.caseLimit || 0,
     dailySelected: selectedDaily.length,
     caseSelected: selectedCorporate.length,
-    dailyAutoFilled: approvedAutoDaily.length + summarizedAutoDaily.length,
+    dailyAutoFilled: approvedAutoDaily.length,
     caseAutoFilled: autoCorporate.length,
     dailyArticles,
     corporateCases,
-    isReady: dailyArticles.length >= (format.dailyLimit || 0) && corporateCases.length >= (format.caseLimit || 0),
+    // Ready once we have at least the minimum daily stories (case study optional).
+    isReady: dailyArticles.length >= dailyMin && dailyArticles.length > 0,
   };
 }
 
@@ -661,7 +666,7 @@ function renderDigestComposerControls() {
 
   const plan = resolveDigestComposition();
   const dailyText = plan.dailyLimit
-    ? `${plan.dailySelected}/${plan.dailyLimit} daily picks${plan.dailyAutoFilled ? `, ${plan.dailyAutoFilled} auto-fill ready` : ""}`
+    ? `${plan.dailyArticles.length} ${plan.dailyArticles.length === 1 ? "story" : "stories"} (min ${plan.dailyMin}, up to ${plan.dailyLimit})${plan.dailyAutoFilled ? `, ${plan.dailyAutoFilled} auto-filled` : ""}`
     : "No daily picks needed";
   const caseText = plan.caseLimit
     ? `${plan.caseSelected}/${plan.caseLimit} case study picked${plan.caseAutoFilled ? `, ${plan.caseAutoFilled} auto-fill ready` : ""}`
@@ -2313,8 +2318,10 @@ async function sendCuratedDigest() {
       manual: true,
       format: plan.format,
       category: plan.category,
-      article_ids: [...state.digestSelections.daily],
-      corporate_case_id: [...state.digestSelections.corporate][0] || null,
+      // Send the resolved composition: the QA's picks plus auto-fill up to the
+      // minimum (5), capped at 30 — all today's approved only.
+      article_ids: plan.dailyArticles.map((article) => article.id),
+      corporate_case_id: plan.corporateCases[0]?.id || null,
       ...(selectedIds.length ? { subscriber_ids: selectedIds } : {})
     });
     clearDigestSelections();
