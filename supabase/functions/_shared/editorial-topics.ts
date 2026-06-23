@@ -128,9 +128,12 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
       "Medical-advice line is included when a condition is mentioned."
     ],
     sources: [
-      { name: "Washington Post Well+Being", url: "https://www.washingtonpost.com/wellness/", weight: 1, kind: "html", accepts: (url) => /washingtonpost\.com\/wellness\//i.test(url) },
-      { name: "The Guardian Wellness", url: "https://www.theguardian.com/lifeandstyle/health-and-wellbeing/rss", weight: 0.95 },
-      { name: "Harvard Business Review", url: "https://feeds.hbr.org/harvardbusiness", weight: 0.9 },
+      { name: "The Hindu Health", url: "https://www.thehindu.com/sci-tech/health/feeder/default.rss", weight: 1 },
+      { name: "Indian Express Health", url: "https://indianexpress.com/section/lifestyle/health/feed/", weight: 0.95 },
+      { name: "Hindustan Times Lifestyle", url: "https://www.hindustantimes.com/feeds/rss/lifestyle/rssfeed.xml", weight: 0.9 },
+      { name: "Times of India Health", url: "https://timesofindia.indiatimes.com/rssfeeds/3908999.cms", weight: 0.9 },
+      { name: "The Guardian Wellness", url: "https://www.theguardian.com/lifeandstyle/health-and-wellbeing/rss", weight: 0.8 },
+      { name: "Harvard Business Review", url: "https://feeds.hbr.org/harvardbusiness", weight: 0.75 },
       { name: "IndianWorkplace Reddit", url: "https://www.reddit.com/r/IndianWorkplace/new.json?limit=20", weight: 0.45, kind: "reddit" },
       { name: "AskDocs Reddit", url: "https://www.reddit.com/r/AskDocs/new.json?limit=20", weight: 0.35, kind: "reddit" },
       { name: "Fitness Reddit", url: "https://www.reddit.com/r/Fitness/new.json?limit=20", weight: 0.3, kind: "reddit" },

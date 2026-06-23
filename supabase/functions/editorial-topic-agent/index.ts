@@ -404,8 +404,8 @@ async function buildEvidence(candidates: Candidate[], limit: number): Promise<Ev
       continue;
     }
     const article = await fetchPublicArticleText(candidate.url).catch(() => "");
-    const text = article.length >= 900 ? article : candidate.excerpt;
-    if (text.length >= 250) evidence.push({ ...candidate, text });
+    const text = article.length >= 400 ? article : candidate.excerpt;
+    if (text.length >= 120) evidence.push({ ...candidate, text });
   }
   return evidence;
 }
