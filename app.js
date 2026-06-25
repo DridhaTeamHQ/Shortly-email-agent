@@ -21,19 +21,19 @@ const DEFAULT_SECTION = { short: "review", cases: "topics" };
 function defaultSectionFor(ws) { return DEFAULT_SECTION[ws] || "review"; }
 const DIGEST_FORMATS = {
   "daily-wrap-10": {
-    label: "Daily Wrap 5 + Case Study",
+    label: "Daily Wrap 5",
     dailyMin: 5,
     dailyLimit: 5,
-    caseLimit: 1,
-    hint: "Email sends up to 5 approved stories plus one approved case study. The approved pool can hold more for QA choice.",
+    caseLimit: 0,
+    hint: "Email sends up to 5 approved stories. Case studies are sent separately from the Case Studies workspace.",
   },
   "category-5-case-1": {
-    label: "Category 5 + Case Study 1",
+    label: "Category 5 Articles",
     dailyMin: 5,
     dailyLimit: 5,
-    caseLimit: 1,
+    caseLimit: 0,
     needsCategory: true,
-    hint: "Pick 5 approved daily articles from one category and 1 approved case study. Shortly fills missing slots from the same category.",
+    hint: "Pick a category bucket. Email sends up to 5 approved articles from that category only.",
   },
   "case-study-only": {
     label: "Case Study Only",
@@ -537,6 +537,9 @@ function defaultDigestAudienceCount() {
     const corporateAudience = topicSubscriberCount("corporate-case");
     return corporateAudience > 0 ? corporateAudience : state.subscribers.filter((s) => s.status === "subscribed").length;
   }
+  if (digestFormatConfig().needsCategory && state.digestCategory) {
+    return topicSubscriberCount(normalizeTopicSlug(state.digestCategory));
+  }
   return dailyWrapSubscriberCount();
 }
 
@@ -548,6 +551,8 @@ function updateSubscriberSelectionUi() {
   if (label) {
     const defaultAudienceLabel = state.section === "approved" && state.digestFormat === "case-study-only"
       ? "All Corporate Case subscribers will receive this digest"
+      : state.section === "approved" && digestFormatConfig().needsCategory && state.digestCategory
+        ? `All ${state.digestCategory} subscribers will receive this article email`
       : "All Daily Wrap subscribers will receive the digest";
     label.textContent = count > 0
       ? `${count} recipient${count === 1 ? "" : "s"} selected`
@@ -778,18 +783,10 @@ function renderReview() {
 }
 
 // Approved = the QA's selected short articles, shown per category section.
-const SHORT_CATEGORIES = ["Real Estate", "Policy Partner", "Money Matters", "Wellness Daily", "Corporate Case"];
+const SHORT_CATEGORIES = ["Real Estate", "Policy Partner", "Money Matters", "Wellness Daily"];
 function renderApproved() {
   const node = $("#approvedList");
   if (!node) return;
-  if (state.approvedTopic !== "daily-wrap") {
-    const cards = topicDraftCards(state.approvedTopic, "approved");
-    const selectable = state.approvedTopic === "corporate-case";
-    node.innerHTML = cards.length
-      ? cards.map((card) => topicDraftCardHtml(card, { selectable, showSendPlan: selectable })).join("")
-      : `<p class="muted">No approved ${esc(topicLabel(state.approvedTopic))} items yet.</p>`;
-    return;
-  }
   const approved = state.articles.filter(isApprovedToday);
   const cats = state.shortCategory ? [state.shortCategory] : SHORT_CATEGORIES;
   let html = "";
@@ -1008,7 +1005,7 @@ function renderCasesSendControls() {
   if (hint) {
     hint.textContent = state.casesSendMode === "case-study-only"
       ? "Sends the latest approved corporate case study to Corporate Case subscribers."
-      : "Sends all approved drafts for the chosen topic to that topic's subscribers.";
+      : "Sends the latest approved case-study draft for the chosen topic bucket to that topic's subscribers.";
   }
   const status = $("#casesSendStatus");
   if (status) {
@@ -1764,8 +1761,8 @@ function generatePreviewHtml() {
 
   const introText = state.section === "approved"
     ? {
-        "daily-wrap-10": "Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!",
-        "category-5-case-1": `Here are 5 stories from ${esc(plan.category || "today's focus")} plus one case study that adds the deeper business angle.`,
+        "daily-wrap-10": "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!",
+        "category-5-case-1": `Here are 5 stories from ${esc(plan.category || "today's focus")}. The biggest updates from this bucket, minus the noise.`,
         "case-study-only": "Here is today's Shortly case study, designed as one focused long-form read."
       }[state.digestFormat]
     : "Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!";
@@ -2006,8 +2003,7 @@ $("#bulkClear").addEventListener("click", () => {
 $("#digestFormatSelect").addEventListener("change", (e) => {
   state.digestFormat = e.target.value;
   clearDigestSelections();
-  if (state.digestFormat === "case-study-only") state.approvedTopic = "corporate-case";
-  else state.approvedTopic = "daily-wrap";
+  state.approvedTopic = "daily-wrap";
   renderApproved();
   refreshChrome();
 });

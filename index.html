@@ -93,7 +93,6 @@
             <button class="topic-tab" data-cat="Policy Partner">Policy Partner</button>
             <button class="topic-tab" data-cat="Money Matters">Money Matters</button>
             <button class="topic-tab" data-cat="Wellness Daily">Wellness Daily</button>
-            <button class="topic-tab" data-cat="Corporate Case">Corporate Case</button>
           </div>
           <div class="toolbar">
             <input type="search" id="searchArticles" placeholder="Search articles..." />
@@ -126,7 +125,6 @@
             <button class="topic-tab" data-cat="Policy Partner">Policy Partner</button>
             <button class="topic-tab" data-cat="Money Matters">Money Matters</button>
             <button class="topic-tab" data-cat="Wellness Daily">Wellness Daily</button>
-            <button class="topic-tab" data-cat="Corporate Case">Corporate Case</button>
           </div>
           <div class="topic-workbench approved-workbench" style="display:none">
             <div class="digest-composer-card">
@@ -134,9 +132,8 @@
                 <label class="digest-field">
                   <span>Format</span>
                   <select id="digestFormatSelect">
-                    <option value="daily-wrap-10">Daily Wrap 5 + Case Study</option>
-                    <option value="category-5-case-1">Category 5 + Case Study 1</option>
-                    <option value="case-study-only">Case Study Only</option>
+                    <option value="daily-wrap-10">Daily Wrap 5</option>
+                    <option value="category-5-case-1">Category 5 Articles</option>
                   </select>
                 </label>
                 <label class="digest-field" id="digestCategoryWrap">
@@ -149,17 +146,11 @@
               </div>
               <p class="muted" id="digestComposerHint" style="margin:0 0 8px;font-size:13px"></p>
               <div class="digest-slot-bar">
-                <span id="digestSlotStatus">Email sends up to 5 approved stories plus one approved case study. The approved pool can hold more.</span>
+                <span id="digestSlotStatus">Article emails send up to 5 approved stories. Case studies are sent separately.</span>
               </div>
             </div>
             <div class="topic-tabs" id="approvedTopicTabs">
               <button class="topic-tab active" data-topic="daily-wrap">Daily Wrap</button>
-              <button class="topic-tab" data-topic="corporate-case">Corporate Case</button>
-              <button class="topic-tab" data-topic="real-estate">Real Estate</button>
-              <button class="topic-tab" data-topic="policy-partner">Policy Partner</button>
-              <button class="topic-tab" data-topic="money-matters">Money Matters</button>
-              <button class="topic-tab" data-topic="wellness-daily">Wellness Daily</button>
-              <button class="topic-tab" data-topic="all-topics">All Topics</button>
             </div>
           </div>
           <div class="list" id="approvedList"><div class="skeleton skeleton-card"></div></div>

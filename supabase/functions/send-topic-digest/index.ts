@@ -250,13 +250,29 @@ async function loadEditorialItems(supabase: any, topic: string): Promise<DigestI
     .from("editorial_drafts")
     .select("id,topic_slug,topic_name,format,headline,summary,detail,content,source_links,primary_source_url,status,generated_at")
     .eq("status", "approved")
-    .order("generated_at", { ascending: false })
-    .limit(12);
-  if (topic !== "all-topics") query = query.eq("topic_slug", topic);
+    .order("generated_at", { ascending: false });
+  if (topic !== "all-topics") {
+    query = query.eq("topic_slug", topic).limit(1);
+  } else {
+    query = query.limit(50);
+  }
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return ((data ?? []) as EditorialDraft[]).flatMap(expandEditorialDraft);
+  const drafts = (data ?? []) as EditorialDraft[];
+  const selectedDrafts = topic === "all-topics"
+    ? latestDraftPerTopic(drafts)
+    : drafts.slice(0, 1);
+  return selectedDrafts.flatMap(expandEditorialDraft);
+}
+
+function latestDraftPerTopic(drafts: EditorialDraft[]): EditorialDraft[] {
+  const seen = new Set<string>();
+  return drafts.filter((draft) => {
+    if (seen.has(draft.topic_slug)) return false;
+    seen.add(draft.topic_slug);
+    return true;
+  });
 }
 
 function expandEditorialDraft(draft: EditorialDraft): DigestItem[] {

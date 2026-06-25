@@ -33,8 +33,8 @@ const FOOTER_LOGO_URL =
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/footer-logo.png";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
 const FORMATS = {
-  "daily-wrap-10": { dailyLimit: 5, caseLimit: 1, label: "Daily Wrap 5 + Case Study" },
-  "category-5-case-1": { dailyLimit: 5, caseLimit: 1, label: "Category 5 + Case Study 1", requiresCategory: true },
+  "daily-wrap-10": { dailyLimit: 5, caseLimit: 0, label: "Daily Wrap 5" },
+  "category-5-case-1": { dailyLimit: 5, caseLimit: 0, label: "Category 5 Articles", requiresCategory: true },
   "case-study-only": { dailyLimit: 0, caseLimit: 1, label: "Case Study Only" }
 } as const;
 
@@ -102,7 +102,7 @@ Deno.serve(async (request) => {
     return json({ error: "No approved corporate case study available" }, 400);
   }
 
-  const subscribers = await loadSubscribers(supabase, format, subscriberIds);
+  const subscribers = await loadSubscribers(supabase, format, subscriberIds, category);
   if (subscribers.length === 0) return json({ error: "No subscribers" }, 400);
 
   if (dryRun) {
@@ -121,7 +121,7 @@ Deno.serve(async (request) => {
   const subject = format === "daily-wrap-10"
     ? `${subjectDate} - Shortly Daily Wrap is here!`
     : format === "category-5-case-1"
-      ? `${subjectDate} - ${category} + Case Study from Shortly`
+      ? `${subjectDate} - ${category} from Shortly`
       : `${subjectDate} - Shortly Case Study`;
 
   let sent = 0;
@@ -210,7 +210,18 @@ async function fetchSelectedCorporateCase(supabase: any, id: string): Promise<Co
   return (data ?? []) as CorporateCase[];
 }
 
-async function loadSubscribers(supabase: any, format: DigestFormat, subscriberIds: string[]): Promise<Subscriber[]> {
+function normalizeTopicSlug(value = ""): string {
+  const slug = String(value).trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (["daily", "shortly", "shortly-daily-wrap"].includes(slug)) return "daily-wrap";
+  if (["corporate", "case-study"].includes(slug)) return "corporate-case";
+  if (["realestate", "property"].includes(slug)) return "real-estate";
+  if (slug === "policy") return "policy-partner";
+  if (["money", "finance"].includes(slug)) return "money-matters";
+  if (["wellness", "health"].includes(slug)) return "wellness-daily";
+  return slug;
+}
+
+async function loadSubscribers(supabase: any, format: DigestFormat, subscriberIds: string[], category = ""): Promise<Subscriber[]> {
   let query = supabase
     .from("subscribers")
     .select("id,email,full_name")
@@ -220,6 +231,8 @@ async function loadSubscribers(supabase: any, format: DigestFormat, subscriberId
     query = query.in("id", subscriberIds);
   } else if (format === "case-study-only") {
     query = query.contains("topics", ["corporate-case"]);
+  } else if (format === "category-5-case-1") {
+    query = query.contains("topics", [normalizeTopicSlug(category)]);
   } else {
     query = query.contains("topics", ["daily-wrap"]);
   }
@@ -291,7 +304,7 @@ function renderDigest(input: {
   const intro = input.format === "daily-wrap-10"
     ? "Here are the stories that deserve your attention. The biggest news, minus the noise. Grab your coffee - you'll be caught up SHORTLY!"
     : input.format === "category-5-case-1"
-      ? `Here are 5 stories from ${escapeHtml(input.category)} plus one case study that adds the deeper business angle.`
+      ? `Here are 5 stories from ${escapeHtml(input.category)}. The biggest updates from this bucket, minus the noise.`
       : "Here is today's Shortly case study, designed as one focused long-form read.";
 
   const dailyCards = input.dailyArticles.map((article) => ({
