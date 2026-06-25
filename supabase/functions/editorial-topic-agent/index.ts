@@ -16,6 +16,7 @@ type Candidate = {
 };
 
 type Evidence = Candidate & { text: string };
+const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 40;
 
 async function handleRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -182,7 +183,10 @@ async function upsertSourceCandidateArticles(
   candidates: Candidate[]
 ): Promise<string[]> {
   const category = shortArticleCategory(topic);
-  const rows = await mapWithConcurrency(candidates, 6, async (candidate) => {
+  const eligibleCandidates = candidates
+    .filter((candidate) => isEligibleSmallArticleSource(topic, candidate))
+    .slice(0, MAX_SMALL_ARTICLE_CARDS_PER_RUN);
+  const rows = await mapWithConcurrency(eligibleCandidates, 3, async (candidate) => {
     const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
     const rawContent = articleText.length >= 500 ? articleText : candidate.excerpt;
     const summary = summarizeSourceText(rawContent, candidate.excerpt);
@@ -214,14 +218,7 @@ async function upsertSourceCandidateArticles(
 
 function isGoodSmallArticleCandidate(topic: EditorialTopic, candidate: Candidate, rawContent: string, summary: string): boolean {
   if (candidate.compassOnly) return false;
-  if (topic.slug === "money-matters") {
-    const allowed = new Set(["Mint Money", "Moneycontrol", "Business Standard Finance"]);
-    if (!allowed.has(candidate.source)) return false;
-  }
-  if (topic.slug === "policy-partner") {
-    const allowed = new Set(["Bar & Bench", "Indian Express Explained", "LiveLaw", "ThePrint Explained"]);
-    if (!allowed.has(candidate.source)) return false;
-  }
+  if (!isEligibleSmallArticleSource(topic, candidate)) return false;
   const title = candidate.title.toLowerCase();
   const url = candidate.url.toLowerCase();
   const blockedTitle = /\b(note of gratitude|obituary|tribute|vacancy|recruitment|tender|invites applications?|phone number|contact us|newsletter|podcast|webinar|event|press release|notification no\.?|circular no\.?)\b/i;
@@ -235,6 +232,17 @@ function isGoodSmallArticleCandidate(topic: EditorialTopic, candidate: Candidate
   }
   if (topic.slug === "policy-partner") {
     return /\b(court|supreme court|high court|government|policy|law|bill|act|rules?|regulation|regulator|rights?|order|ministry|rbi|sebi|tax|public|citizen|consumer)\b/i.test(`${title} ${summary}`);
+  }
+  return true;
+}
+
+function isEligibleSmallArticleSource(topic: EditorialTopic, candidate: Candidate): boolean {
+  if (candidate.compassOnly) return false;
+  if (topic.slug === "money-matters") {
+    return new Set(["Mint Money", "Moneycontrol", "Business Standard Finance"]).has(candidate.source);
+  }
+  if (topic.slug === "policy-partner") {
+    return new Set(["Bar & Bench", "Indian Express Explained", "LiveLaw", "ThePrint Explained"]).has(candidate.source);
   }
   return true;
 }
@@ -367,7 +375,7 @@ async function fetchHtmlListing(source: EditorialSource) {
 }
 
 async function selectEvidence(apiKey: string, model: string, topic: EditorialTopic, candidates: Candidate[]): Promise<string[]> {
-  const compact = candidates.map((item) => ({
+  const compact = candidates.slice(0, 80).map((item) => ({
     title: item.title, url: item.url, source: item.source, published_at: item.publishedAt,
     compass_only: item.compassOnly, excerpt: item.excerpt.slice(0, 550)
   }));
