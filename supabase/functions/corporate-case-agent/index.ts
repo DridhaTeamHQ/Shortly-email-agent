@@ -40,7 +40,7 @@ Deno.serve(async (request) => {
       .from("corporate_cases")
       .select("*")
       .order("generated_at", { ascending: false })
-      .limit(20);
+      .limit(200);
     if (error) return json({ error: error.message }, 500);
     return json({ cases: data ?? [] });
   }
@@ -99,50 +99,76 @@ Deno.serve(async (request) => {
     }, 422);
   }
 
-  let selected: Candidate | null = null;
-  let sourceText = "";
-  let selectionMeta: RankedCandidate = { url: "" };
-
+  const rows: Array<Record<string, unknown>> = [];
+  const failures: Array<{ url: string; error: string }> = [];
   for (const url of [...new Set(rankedUrls)]) {
     const candidate = candidatesByUrl.get(url);
     if (!candidate) continue;
-    const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
+    const articleText = await fetchPublicArticleText(candidate.url).catch((error) => {
+      failures.push({ url: candidate.url, error: String(error) });
+      return "";
+    });
     const usableText = articleText.length >= 1800 ? articleText : candidate.excerpt;
-    if (usableText.length < 1200) continue;
-    selected = candidate;
-    sourceText = usableText;
-    selectionMeta = ranked.find((item) => item.url === url) ?? { url };
-    break;
+    if (usableText.length < 1200) {
+      failures.push({ url: candidate.url, error: "Not enough public source text" });
+      continue;
+    }
+    const selectionMeta = ranked.find((item) => item.url === url) ?? { url };
+    try {
+      const row = await buildCaseRow(openAiKey, model, candidate, usableText, selectionMeta);
+      rows.push(row);
+    } catch (error) {
+      failures.push({ url: candidate.url, error: error instanceof Error ? error.message : String(error) });
+    }
   }
 
-  if (!selected) {
+  if (rows.length === 0) {
     return json({
       error: "Candidates were found, but none exposed enough public source text for an evidence-based case study.",
       scanned: selectionPool.length,
-      sourceErrors
+      sourceErrors,
+      failures: failures.slice(0, 10)
     }, 422);
   }
 
-  let draft = await writeCase(openAiKey, model, selected, sourceText, selectionMeta);
+  const { data, error } = await supabase
+    .from("corporate_cases")
+    .upsert(rows, { onConflict: "source_url" })
+    .select("*");
+  if (error) return json({ error: error.message }, 500);
+
+  return json({
+    cases: data ?? [],
+    inserted: data?.length ?? 0,
+    scanned: candidates.length,
+    freshCandidates: freshCandidates.length,
+    sourceErrors,
+    failures: failures.slice(0, 10)
+  });
+});
+
+async function buildCaseRow(
+  apiKey: string,
+  model: string,
+  selected: Candidate,
+  sourceText: string,
+  selectionMeta: RankedCandidate
+) {
+  let draft = await writeCase(apiKey, model, selected, sourceText, selectionMeta);
   if (!draftMeetsStructure(draft)) {
-    draft = await repairCase(openAiKey, model, selected, sourceText, selectionMeta, draft);
+    draft = await repairCase(apiKey, model, selected, sourceText, selectionMeta, draft);
   }
   if (needsExpansion(draft)) {
-    draft = await expandShortDetail(openAiKey, model, selected, sourceText, draft);
+    draft = await expandShortDetail(apiKey, model, selected, sourceText, draft);
   }
   if (!draftMeetsStructure(draft)) {
-    draft = await repairCase(openAiKey, model, selected, sourceText, selectionMeta, draft);
+    draft = await repairCase(apiKey, model, selected, sourceText, selectionMeta, draft);
   }
   if (needsExpansion(draft)) {
-    draft = await expandShortDetail(openAiKey, model, selected, sourceText, draft);
+    draft = await expandShortDetail(apiKey, model, selected, sourceText, draft);
   }
   if (!draftMeetsStructure(draft)) {
-    return json({
-      error: "The generated case did not meet the required 400-600 word editorial structure.",
-      company: selectionMeta.company ?? null,
-      summaryWords: wordCount(String(draft.summary ?? "")),
-      detailWords: wordCount(String(draft.detail ?? ""))
-    }, 422);
+    throw new Error(`Generated case failed structure for ${selectionMeta.company ?? selected.title}: summary_words=${wordCount(String(draft.summary ?? ""))}, detail_words=${wordCount(String(draft.detail ?? ""))}`);
   }
   const caseType = inferCaseType(draft.case_type, sourceText);
   const sourceCredit = `This case study draws on ${selected.source}'s reporting. Read the full piece here: ${selected.url}.`;
@@ -151,7 +177,7 @@ Deno.serve(async (request) => {
     ? detail
     : `${sourceCredit}\n\n${detail}`;
 
-  const row = {
+  return {
     source_url: selected.url,
     source_title: selected.title,
     source: selected.source,
@@ -173,21 +199,7 @@ Deno.serve(async (request) => {
     generated_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
-
-  const { data, error } = await supabase
-    .from("corporate_cases")
-    .upsert(row, { onConflict: "source_url" })
-    .select("*")
-    .single();
-  if (error) return json({ error: error.message }, 500);
-
-  return json({
-    case: data,
-    scanned: candidates.length,
-    freshCandidates: freshCandidates.length,
-    sourceErrors
-  });
-});
+}
 
 async function collectCandidates(sourceErrors: Array<{ source: string; error: string }>): Promise<Candidate[]> {
   const cutoff = Date.now() - 5 * 24 * 60 * 60 * 1000;

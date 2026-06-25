@@ -131,8 +131,9 @@ async function scrapeForCategory(category) {
   const slug = CATEGORY_TO_SLUG[category] || category;
   if (slug === "corporate-case") {
     if (!cfg.corporateCase) throw new Error("Missing corporate case endpoint");
-    await api("POST", cfg.corporateCase, {});
-    return "Corporate Case draft created.";
+    const res = await api("POST", cfg.corporateCase, {});
+    const count = res.inserted ?? res.cases?.length;
+    return `Corporate Case scrape complete${typeof count === "number" ? `, ${count} case studies created` : ""}.`;
   }
   if (!cfg.editorialTopics) throw new Error("Missing editorial topics endpoint");
   const res = await api("POST", cfg.editorialTopics, { topic: slug });
@@ -1238,8 +1239,8 @@ async function loadArticles() {
   // Load each relevant status separately to avoid high-rank pending articles
   // pushing summarized articles past the limit
   const [review, approved, rejected, sent] = await Promise.all([
-    api("GET", `${cfg.list}?status=summarized&limit=200`),
-    api("GET", `${cfg.list}?status=approved&limit=200`),
+    api("GET", `${cfg.list}?status=summarized&limit=500`),
+    api("GET", `${cfg.list}?status=approved&limit=500`),
     api("GET", `${cfg.list}?status=rejected&limit=50`),
     api("GET", `${cfg.list}?status=sent&limit=100`)
   ]);
@@ -1368,8 +1369,9 @@ async function runAiPipeline({ force = false, showProgress = true } = {}) {
     if (cfg.corporateCase) {
       setProgress("Building Corporate Case...");
       try {
-        await api("POST", cfg.corporateCase, {});
-        lines.push("Corporate Case: draft created.");
+        const caseRes = await api("POST", cfg.corporateCase, {});
+        const count = caseRes.inserted ?? caseRes.cases?.length;
+        lines.push(`Corporate Case: scrape complete${typeof count === "number" ? `, ${count} case studies created` : ""}.`);
       } catch (error) {
         lines.push(`Corporate Case: failed - ${error.message}`);
       }
@@ -2190,8 +2192,9 @@ $("#fetchToday").addEventListener("click", async () => {
     if (cfg.corporateCase) {
       btnText.innerHTML = `<span class="spinner"></span> Building Corporate Case...`;
       try {
-        await api("POST", cfg.corporateCase, {});
-        lines.push("Corporate Case: draft created.");
+        const caseRes = await api("POST", cfg.corporateCase, {});
+        const count = caseRes.inserted ?? caseRes.cases?.length;
+        lines.push(`Corporate Case: scrape complete${typeof count === "number" ? `, ${count} case studies created` : ""}.`);
       } catch (error) {
         lines.push(`Corporate Case: failed - ${error.message}`);
       }

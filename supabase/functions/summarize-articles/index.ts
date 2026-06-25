@@ -76,8 +76,7 @@ Deno.serve(async (request) => {
     .eq("status", "pending")
     .gte("scraped_at", since)
     .order("rank_score", { ascending: false })
-    .order("scraped_at", { ascending: false })
-    .limit(50);
+    .order("scraped_at", { ascending: false });
 
   if (error) return json({ error: error.message }, 500);
 
