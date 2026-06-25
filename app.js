@@ -555,9 +555,9 @@ function updateSubscriberSelectionUi() {
   const label = $("#subscriberBulkCount");
   const selectAll = $("#subSelectAll");
   if (label) {
-    const defaultAudienceLabel = state.section === "approved" && state.digestFormat === "case-study-only"
+    const defaultAudienceLabel = state.section === "email-builder" && state.digestFormat === "case-study-only"
       ? "All Corporate Case subscribers will receive this digest"
-      : state.section === "approved" && digestFormatConfig().needsCategory && state.digestCategory
+      : state.section === "email-builder" && digestFormatConfig().needsCategory && state.digestCategory
         ? `All ${state.digestCategory} subscribers will receive this article email`
       : "All Daily Wrap subscribers will receive the digest";
     label.textContent = count > 0
@@ -589,8 +589,10 @@ function refreshChrome() {
   const cat = state.shortCategory;
   const pendingHere = cat ? state.articles.filter((a) => a.status === "summarized" && articleCategory(a) === cat).length : pending;
   const approvedHere = cat ? approvedTodayInCategory(cat) : approved;
+  const emailSelectedCount = resolveDigestComposition().dailyArticles.length;
   $("#badgeReview").textContent = pendingHere;
   $("#badgeApproved").textContent = approvedHere;
+  if ($("#badgeEmailBuilder")) $("#badgeEmailBuilder").textContent = emailSelectedCount;
   $("#badgeRejected").textContent = rejected;
   $("#badgeSubs").textContent = subs;
   $("#badgeTopics").textContent = topicDrafts;
@@ -602,6 +604,7 @@ function refreshChrome() {
   const send = $("#sendDigest");
   const selectedSubs = selectedSubscriberCount();
   const digestPlan = resolveDigestComposition();
+  send.style.display = ["email-builder", "cases-send"].includes(state.section) ? "" : "none";
   if (state.section === "cases-send") {
     if (state.casesSendMode === "case-study-only") {
       const caseAudience = topicSubscriberCount("case-study-pool");
@@ -613,7 +616,7 @@ function refreshChrome() {
       send.textContent = `Send ${topicLabel(state.casesTopic)} digest`;
       send.disabled = count === 0 || !cfg.topicDigest;
     }
-  } else if (state.section === "approved") {
+  } else if (state.section === "email-builder") {
     send.textContent = selectedSubs > 0
       ? `Send ${digestPlan.formatLabel} to ${selectedSubs}`
       : `Send ${digestPlan.formatLabel}`;
@@ -626,18 +629,19 @@ function refreshChrome() {
   }
 
   const preview = $("#previewDigest");
-  preview.style.display = state.section === "approved"
+  preview.style.display = state.section === "email-builder"
     ? (digestPlan.dailyArticles.length > 0 || digestPlan.corporateCases.length > 0 ? "" : "none")
     : state.section === "cases-send"
       ? "none"
-      : (approved > 0 ? "" : "none");
+      : "none";
 
   const reviewSub = cat
     ? `${cat}: ${approvedHere} approved | ${pendingHere} pending`
     : `${approved} approved | ${pending} pending across all categories`;
   const titles = {
     review: ["Review queue", reviewSub],
-    approved: ["Approved", `${topicLabel(state.approvedTopic)} approved items ready`],
+    approved: ["Approved Pool", `${approvedHere} website-ready approved item${approvedHere === 1 ? "" : "s"}`],
+    "email-builder": ["Email Builder", `${digestPlan.dailyArticles.length} selected for today's email`],
     topics: ["Case Drafts", `${topicLabel(state.activeTopicDraft)} drafts in article-card format`],
     "cases-send": ["Approved Cases", `${topicLabel(state.casesApprovedTopic)} approved & ready to send`],
     rejected: ["Rejected", `${rejected} articles removed from queue`],
@@ -707,12 +711,12 @@ function cardHtml(a, mode) {
   const sec = "wrapped";
   const isReviewSelected = state.selected.has(a.id);
   const isDigestSelected = state.digestSelections.daily.has(a.id);
-  const plan = mode === "approved" ? resolveDigestComposition() : null;
+  const plan = mode === "email" ? resolveDigestComposition() : null;
   const isEmailSelected = Boolean(plan?.dailyArticles.some((article) => article.id === a.id));
   const isAutoSelected = Boolean(plan?.dailyAutoIds.includes(a.id));
-  const checked = mode === "approved" ? isDigestSelected : isReviewSelected;
-  const draggable = mode === "approved" ? 'draggable="true"' : "";
-  const sendChip = mode === "approved" && isEmailSelected
+  const checked = mode === "email" ? isDigestSelected : isReviewSelected;
+  const draggable = mode === "email" ? 'draggable="true"' : "";
+  const sendChip = mode === "email" && isEmailSelected
     ? `<span class="send-chip ${isAutoSelected ? "auto" : "picked"}">${isAutoSelected ? "Auto-selected for email" : "Selected for email"}</span>`
     : "";
 
@@ -725,9 +729,9 @@ function cardHtml(a, mode) {
       </select>
     </div>` : "";
 
-  const canSelect = mode === "review" || (mode === "approved" && digestFormatConfig().dailyLimit > 0);
+  const canSelect = mode === "review" || (mode === "email" && digestFormatConfig().dailyLimit > 0);
   const checkbox = canSelect
-    ? `<input type="checkbox" class="card-check" data-id="${a.id}" data-select-kind="${mode === "approved" ? "daily" : "review"}" ${checked ? "checked" : ""}>`
+    ? `<input type="checkbox" class="card-check" data-id="${a.id}" data-select-kind="${mode === "email" ? "daily" : "review"}" ${checked ? "checked" : ""}>`
     : "";
 
   let actions = "";
@@ -746,6 +750,8 @@ function cardHtml(a, mode) {
         <button class="btn-save" data-action="edit">Save</button>
         <button class="btn-reject" data-action="reject">Remove</button>
       </div>`;
+  } else if (mode === "email") {
+    actions = "";
   }
 
   const sectionTag = `<span class="tag section-${sec}">${sec}</span>`;
@@ -757,7 +763,7 @@ function cardHtml(a, mode) {
   const readTime = Math.max(1, Math.ceil(words / 200));
 
   return `
-    <article class="card ${checked ? "selected" : ""} ${isEmailSelected ? "email-selected" : ""} ${isAutoSelected ? "email-auto" : ""}" data-id="${a.id}" data-select-kind="${mode === "approved" ? "daily" : "review"}" data-preview-key="${dailyDigestKey(a.id)}" ${draggable}>
+    <article class="card ${checked ? "selected" : ""} ${isEmailSelected ? "email-selected" : ""} ${isAutoSelected ? "email-auto" : ""}" data-id="${a.id}" data-select-kind="${mode === "email" ? "daily" : "review"}" data-preview-key="${dailyDigestKey(a.id)}" ${draggable}>
       <header>
         ${checkbox}
           <div class="card-head">
@@ -810,6 +816,17 @@ function renderApproved() {
     if (unc.length) html += `<h3 class="approved-group-title">Uncategorised</h3>${unc.map((a) => cardHtml(a, "approved")).join("")}`;
   }
   node.innerHTML = html || `<p class="muted">Nothing approved yet.</p>`;
+}
+
+function renderEmailBuilder() {
+  const node = $("#emailBuilderList");
+  if (!node) return;
+  const plan = resolveDigestComposition();
+  const category = plan.category || state.digestCategory || "";
+  const items = sortedApprovedDailyArticles(category);
+  node.innerHTML = items.length
+    ? items.map((a) => cardHtml(a, "email")).join("")
+    : `<p class="muted">No approved ${category ? esc(category) : "article"} items available for email selection.</p>`;
 }
 
 function renderRejected() {
@@ -1224,6 +1241,7 @@ function renderAll() {
   renderDigestComposerControls();
   renderReview();
   renderApproved();
+  renderEmailBuilder();
   renderTopicDrafts();
   renderCasesApproved();
   renderCasesSendControls();
@@ -1616,7 +1634,7 @@ async function bulkAction(action) {
 
 // ---------- drag & drop ----------
 function attachDragListeners() {
-  const cards = $$("#approvedList .card[draggable]");
+  const cards = $$("#emailBuilderList .card[draggable]");
   cards.forEach((card) => {
     card.addEventListener("dragstart", (e) => {
       state.dragId = card.dataset.id;
@@ -1652,7 +1670,7 @@ function attachDragListeners() {
       list[fromIdx].rank_score = list[toIdx].rank_score;
       list[toIdx].rank_score = tempScore;
 
-      renderApproved();
+      renderEmailBuilder();
       Promise.all([
         api("POST", cfg.review, {
           id: list[fromIdx].id,
@@ -1703,13 +1721,13 @@ function generatePreviewHtml() {
   const liveHeadlines = collectLiveHeadlineOverrides();
   const liveSummaries = collectLiveSummaryOverrides();
   const plan = resolveDigestComposition();
-  if (state.section === "approved" && plan.dailyArticles.length === 0 && plan.corporateCases.length === 0) {
+  if (state.section === "email-builder" && plan.dailyArticles.length === 0 && plan.corporateCases.length === 0) {
     return "<p>No approved items ready for this format yet.</p>";
   }
   const approved = state.articles.filter(isApprovedToday);
-  if (state.section !== "approved" && approved.length === 0) return "<p>No articles approved yet.</p>";
+  if (state.section !== "email-builder" && approved.length === 0) return "<p>No articles approved yet.</p>";
 
-  const wrapped = state.section === "approved" ? plan.dailyArticles : approved.slice(0, DAILY_CAP);
+  const wrapped = state.section === "email-builder" ? plan.dailyArticles : approved.slice(0, DAILY_CAP);
   const previewBaseUrl =
     window.location.origin && window.location.origin !== "null"
       ? `${window.location.origin}/`
@@ -1770,7 +1788,7 @@ function generatePreviewHtml() {
     </div>`;
   }
 
-  const introText = state.section === "approved"
+  const introText = state.section === "email-builder"
     ? {
         "daily-wrap-10": "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!",
         "category-5-case-1": `Here are 5 stories from ${esc(plan.category || "today's focus")}. The biggest updates from this bucket, minus the noise.`,
@@ -1786,7 +1804,7 @@ function generatePreviewHtml() {
     .join(" ");
   const wordCount = allText.split(/\s+/).filter(Boolean).length;
   const categoryLabel = plan.category || "Daily Wrap";
-  const dailyLabel = state.section === "approved" && state.digestFormat === "category-5-case-1"
+  const dailyLabel = state.section === "email-builder" && state.digestFormat === "category-5-case-1"
     ? `Quick Hits. ${esc(categoryLabel)}`
     : "Quick Hits. Daily Wrap";
 
@@ -1946,6 +1964,7 @@ $$(".short-cat-tabs").forEach((bar) => bar.addEventListener("click", (e) => {
   updateScrapeReviewLabel();
   renderReview();
   renderApproved();
+  renderEmailBuilder();
   renderRejected();
   refreshChrome();
   updateBulkBar();
@@ -1981,15 +2000,15 @@ $("#bulkClear").addEventListener("click", () => {
 });
 
 // Article action delegation (+ checkbox handling)
-["#reviewList", "#approvedList", "#rejectedList"].forEach((sel) => {
+["#reviewList", "#approvedList", "#emailBuilderList", "#rejectedList"].forEach((sel) => {
   $(sel).addEventListener("click", (e) => {
     // Handle checkbox
     const check = e.target.closest(".card-check");
     if (check) {
       const id = check.dataset.id;
-      if (sel === "#approvedList") {
+      if (sel === "#emailBuilderList") {
         toggleDigestSelection(check.dataset.selectKind, id, check.checked);
-        renderApproved();
+        renderEmailBuilder();
         refreshChrome();
       } else {
         if (check.checked) state.selected.add(id);
@@ -2015,20 +2034,20 @@ $("#digestFormatSelect").addEventListener("change", (e) => {
   state.digestFormat = e.target.value;
   clearDigestSelections();
   state.approvedTopic = "daily-wrap";
-  renderApproved();
+  renderEmailBuilder();
   refreshChrome();
 });
 
 $("#digestCategorySelect").addEventListener("change", (e) => {
   state.digestCategory = e.target.value;
   syncDigestSelections();
-  renderApproved();
+  renderEmailBuilder();
   refreshChrome();
 });
 
 $("#clearDigestSelection").addEventListener("click", () => {
   clearDigestSelections();
-  renderApproved();
+  renderEmailBuilder();
   refreshChrome();
 });
 
@@ -2037,7 +2056,7 @@ $("#approvedTopicTabs").addEventListener("click", (e) => {
   if (!tab) return;
   state.approvedTopic = tab.dataset.topic;
   refreshChrome();
-  renderApproved();
+  renderEmailBuilder();
 });
 
 $("#topicTabs").addEventListener("click", (e) => {
@@ -2354,7 +2373,7 @@ async function sendCuratedDigest() {
 
 // Send digest
 $("#sendDigest").addEventListener("click", () => {
-  if (state.section === "approved") {
+  if (state.section === "email-builder") {
     return sendCuratedDigest();
   }
   if (state.section === "cases-send") {
