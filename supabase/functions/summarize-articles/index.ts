@@ -196,8 +196,7 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`OpenAI ${response.status}: ${text.slice(0, 200)}`);
+    throw new Error(await openAiErrorMessage(response));
   }
 
   const body = await response.json();
@@ -214,4 +213,15 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
     // Fallback: treat entire response as summary, default to wrapped
     return { summary: raw, section: "wrapped", prominence: 2 };
   }
+}
+
+async function openAiErrorMessage(response: Response): Promise<string> {
+  const body = await response.text().catch(() => "");
+  if (response.status === 429 && body.includes("insufficient_quota")) {
+    return "OpenAI quota exceeded. Add billing credits or replace OPENAI_API_KEY with a key from an account that has available quota, then run the scraper again.";
+  }
+  if (response.status === 401) {
+    return "OpenAI API key is invalid or expired. Update OPENAI_API_KEY in Supabase secrets.";
+  }
+  return `OpenAI ${response.status}: ${body.slice(0, 220)}`;
 }
