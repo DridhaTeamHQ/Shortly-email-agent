@@ -550,6 +550,15 @@ function defaultDigestAudienceCount() {
   return dailyWrapSubscriberCount();
 }
 
+function syncDigestCategoryFromControl() {
+  const select = $("#digestCategorySelect");
+  if (!select || !digestFormatConfig().needsCategory) return;
+  const selected = select.value;
+  if (selected && approvedDailyTopics().includes(selected)) {
+    state.digestCategory = selected;
+  }
+}
+
 function updateSubscriberSelectionUi() {
   const count = selectedSubscriberCount();
   const bar = $("#subscriberBulkBar");
@@ -578,6 +587,7 @@ function updateSubscriberSelectionUi() {
 
 // ---------- rendering ----------
 function refreshChrome() {
+  syncDigestCategoryFromControl();
   const approved = approvedTodayCount();
   const counts = sectionCounts();
   const pending = state.articles.filter((a) => a.status === "summarized").length;
@@ -665,6 +675,7 @@ function refreshChrome() {
 }
 
 function renderDigestComposerControls() {
+  syncDigestCategoryFromControl();
   syncDigestSelections();
   const format = digestFormatConfig();
   const categories = approvedDailyTopics();
@@ -2058,6 +2069,7 @@ $("#digestFormatSelect").addEventListener("change", (e) => {
   state.digestFormat = e.target.value;
   clearDigestSelections();
   state.approvedTopic = "daily-wrap";
+  renderDigestComposerControls();
   renderEmailBuilder();
   refreshChrome();
 });
@@ -2065,12 +2077,14 @@ $("#digestFormatSelect").addEventListener("change", (e) => {
 $("#digestCategorySelect").addEventListener("change", (e) => {
   state.digestCategory = e.target.value;
   syncDigestSelections();
+  renderDigestComposerControls();
   renderEmailBuilder();
   refreshChrome();
 });
 
 $("#clearDigestSelection").addEventListener("click", () => {
   clearDigestSelections();
+  renderDigestComposerControls();
   renderEmailBuilder();
   refreshChrome();
 });
