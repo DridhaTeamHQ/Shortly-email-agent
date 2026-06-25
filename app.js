@@ -823,7 +823,8 @@ function renderReview() {
 }
 
 // Approved = the QA's selected short articles, shown per category section.
-const SHORT_CATEGORIES = ["Corporate Case", "Real Estate", "Policy Partner", "Money Matters", "Wellness Daily"];
+// Corporate Case lives only in the Case Studies workspace, not the short-article pool.
+const SHORT_CATEGORIES = ["Real Estate", "Policy Partner", "Money Matters", "Wellness Daily"];
 function renderApproved() {
   const node = $("#approvedList");
   if (!node) return;
