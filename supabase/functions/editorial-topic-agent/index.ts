@@ -186,6 +186,7 @@ async function upsertSourceCandidateArticles(
     const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
     const rawContent = articleText.length >= 500 ? articleText : candidate.excerpt;
     const summary = summarizeSourceText(rawContent, candidate.excerpt);
+    if (!isGoodSmallArticleCandidate(topic, candidate, rawContent, summary)) return null;
     return {
       title: candidate.title.trim().slice(0, 500),
       url: candidate.url,
@@ -202,13 +203,40 @@ async function upsertSourceCandidateArticles(
     };
   });
   const validRows = rows
-    .filter((row) => row.title && row.url && row.summary);
+    .filter((row): row is NonNullable<typeof row> => Boolean(row?.title && row.url && row.summary));
   if (validRows.length === 0) return [];
   const { error } = await supabase
     .from("articles")
     .upsert(validRows, { onConflict: "url" });
   if (error) throw new Error(error.message);
   return validRows.map((row) => row.url);
+}
+
+function isGoodSmallArticleCandidate(topic: EditorialTopic, candidate: Candidate, rawContent: string, summary: string): boolean {
+  if (candidate.compassOnly) return false;
+  if (topic.slug === "money-matters") {
+    const allowed = new Set(["Mint Money", "Moneycontrol", "Business Standard Finance"]);
+    if (!allowed.has(candidate.source)) return false;
+  }
+  if (topic.slug === "policy-partner") {
+    const allowed = new Set(["Bar & Bench", "Indian Express Explained", "LiveLaw", "ThePrint Explained"]);
+    if (!allowed.has(candidate.source)) return false;
+  }
+  const title = candidate.title.toLowerCase();
+  const url = candidate.url.toLowerCase();
+  const blockedTitle = /\b(note of gratitude|obituary|tribute|vacancy|recruitment|tender|invites applications?|phone number|contact us|newsletter|podcast|webinar|event|press release|notification no\.?|circular no\.?)\b/i;
+  if (blockedTitle.test(title)) return false;
+  if (/\.(pdf|doc|docx|xls|xlsx)(\?|$)/i.test(url)) return false;
+  const wordCount = String(summary || rawContent || "").split(/\s+/).filter(Boolean).length;
+  if (wordCount < 45) return false;
+  if (rawContent.length < 500 && candidate.excerpt.length < 350) return false;
+  if (topic.slug === "money-matters") {
+    return /\b(money|tax|rbi|sebi|bank|mutual fund|insurance|loan|credit|debit|upi|invest|income|finance|market|stock|ipo|savings?|pension|fraud|scam)\b/i.test(`${title} ${summary}`);
+  }
+  if (topic.slug === "policy-partner") {
+    return /\b(court|supreme court|high court|government|policy|law|bill|act|rules?|regulation|regulator|rights?|order|ministry|rbi|sebi|tax|public|citizen|consumer)\b/i.test(`${title} ${summary}`);
+  }
+  return true;
 }
 
 async function mapWithConcurrency<T, R>(
