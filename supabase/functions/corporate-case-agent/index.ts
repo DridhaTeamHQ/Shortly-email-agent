@@ -171,16 +171,17 @@ async function buildCaseRow(
     throw new Error(`Generated case failed structure for ${selectionMeta.company ?? selected.title}: summary_words=${wordCount(String(draft.summary ?? ""))}, detail_words=${wordCount(String(draft.detail ?? ""))}`);
   }
   const caseType = inferCaseType(draft.case_type, sourceText);
-  // Clean, deterministic attribution appended once at the end (the model is told
-  // not to write its own). Strip any legacy/templated credit the model may still
-  // emit so we never double-credit or leave a raw URL mid-prose.
-  let detail = String(draft.detail ?? "").trim();
-  detail = detail
+  // No credit/link in the body. The source link is rendered separately — the
+  // email shows a "Read the full source" link and the website a "Read the
+  // source" button, both from source_url — so an inline credit is pure
+  // duplication. Strip any templated credit, "Source:" line, or stray source
+  // URL the model may still emit.
+  const creditedDetail = String(draft.detail ?? "")
     .replace(/This case study draws on [^\n]*?Read the full piece here:[^\n]*\n*/gi, "")
+    .replace(/^\s*Source:[^\n]*$/gim, "")
     .replace(new RegExp(`[^\\n]*${escapeRegExp(selected.url)}[^\\n]*\\n*`, "gi"), "")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
-  const sourceCredit = `Source: ${selected.source} — ${selected.url}`;
-  const creditedDetail = `${detail}\n\n${sourceCredit}`;
 
   return {
     source_url: selected.url,
@@ -287,7 +288,7 @@ async function writeCase(
 Required structure:
 - headline: precise and business-model led.
 - summary: 90-110 words. Who the company is, what it does, and the interesting business question. Complete on its own.
-- detail: 320-480 words of fresh analysis. Do NOT restate or paraphrase the summary's opening sentence — the reader has just read it; open the detail instead on the business model or the central strategic tension. Do NOT write your own source-credit, "according to", or "the article reports" sentence — the publication credit and link are appended automatically. Cover the business model, unit economics where the source provides them, the strategic call, luck versus skill, bull case, bear case, and the open question.
+- detail: 320-480 words of fresh analysis. Do NOT restate or paraphrase the summary's opening sentence — the reader has just read it; open the detail instead on the business model or the central strategic tension. Do NOT write a source-credit, "according to", or "the article reports" sentence, and do NOT include the source URL or a "read the full piece" line — the source link is shown separately by the app. Cover the business model, unit economics where the source provides them, the strategic call, luck versus skill, bull case, bear case, and the open question.
 - comparison_or_analogy: at least one direct comparable, historical parallel, counterfactual, or analogy. Write it as a plain declarative sentence; if it is your own inference rather than the source's, end it with "(our inference)" — never open with hedging scaffolding like "An inference can be made that".
 - bull_case and bear_case: weighted by evidence, not false balance.
 - open_question: one concrete thing to watch.
@@ -338,7 +339,7 @@ Requirements:
 - company must be the named company from the source, never Shortly.
 - preserve only facts and numbers present in the source text.
 - include business model, strategic call, luck versus skill, weighted bull/bear case, open question, and at least one clearly flagged inference/comparison.
-- the detail must not restate the summary's opening or write its own source-credit sentence (the credit/link is appended automatically), and must not close by restating the decision — end on the open question or forward-looking tension.
+- the detail must not restate the summary's opening, must not include any source-credit sentence, "read the full piece" line, or the source URL (the source link is shown separately by the app), and must not close by restating the decision — end on the open question or forward-looking tension.
 - flag any inference as a plain sentence ending in "(our inference)", never "An inference can be made that".
 - no founder worship, marketing language, exclamation marks, or entrepreneur lessons.
 
