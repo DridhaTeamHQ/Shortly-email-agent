@@ -149,17 +149,23 @@ async function handleRequest(request: Request): Promise<Response> {
   const { data, error } = await supabase.from("editorial_drafts").insert(row).select("*").single();
   if (error) return json({ error: error.message }, 500);
 
+  const shortArticles = topic.format === "hybrid"
+    ? buildShortArticlesFromBriefs(topic, content.briefs ?? [], sourceLinks, data.id)
+    : buildShortArticleFromSingleDraft(topic, content, sourceLinks, data.id);
   let shortArticlesInserted = 0;
-  if (topic.format === "hybrid") {
-    const shortArticles = buildShortArticlesFromBriefs(topic, content.briefs ?? [], sourceLinks, data.id);
-    if (shortArticles.length > 0) {
-      const { data: articleRows, error: articleError } = await supabase
-        .from("articles")
-        .upsert(shortArticles, { onConflict: "url", ignoreDuplicates: true })
-        .select("id");
-      if (articleError) return json({ error: articleError.message, draft: data }, 500);
-      shortArticlesInserted = articleRows?.length ?? 0;
-    }
+  if (shortArticles.length > 0) {
+    const articleUrls = shortArticles.map((article) => article.url);
+    const { error: articleError } = await supabase
+      .from("articles")
+      .upsert(shortArticles, { onConflict: "url", ignoreDuplicates: true })
+      .select("id");
+    if (articleError) return json({ error: articleError.message, draft: data }, 500);
+    const { data: articleRows, error: countError } = await supabase
+      .from("articles")
+      .select("id")
+      .in("url", articleUrls);
+    if (countError) return json({ error: countError.message, draft: data }, 500);
+    shortArticlesInserted = articleRows?.length ?? 0;
   }
 
   return json({ draft: data, shortArticlesInserted, scanned: candidates.length, sourcesUsed: sourceLinks.length, sourceErrors });
@@ -215,6 +221,35 @@ function buildShortArticlesFromBriefs(
       summarized_at: new Date().toISOString()
     };
   }).filter((row) => row.title && row.summary);
+}
+
+function buildShortArticleFromSingleDraft(
+  topic: EditorialTopic,
+  content: Record<string, unknown>,
+  sourceLinks: Array<{ title: string; source: string; url: string }>,
+  draftId: string
+) {
+  const category = shortArticleCategory(topic);
+  const sourceUrl = String(content.source_url || sourceLinks[0]?.url || "").trim();
+  const source = sourceLinks.find((item) => item.url === sourceUrl)?.source ?? sourceLinks[0]?.source ?? "Source";
+  const summary = String(content.summary ?? "").trim();
+  const detail = String(content.detail ?? "").trim();
+  const body = [summary, detail].filter(Boolean).join("\n\n").trim();
+  const row = {
+    title: String(content.headline ?? "").trim().slice(0, 500),
+    url: `${sourceUrl || `https://shortly.local/editorial/${draftId}`}#shortly-single`,
+    raw_content: body,
+    summary,
+    source,
+    topic: category,
+    category,
+    section: "wrapped",
+    status: "summarized",
+    rank_score: 0.88,
+    scraped_at: new Date().toISOString(),
+    summarized_at: new Date().toISOString()
+  };
+  return row.title && row.summary ? [row] : [];
 }
 
 async function collectCandidates(topic: EditorialTopic, sourceErrors: Array<{ source: string; error: string }>): Promise<Candidate[]> {

@@ -1238,8 +1238,8 @@ async function loadArticles() {
   // Load each relevant status separately to avoid high-rank pending articles
   // pushing summarized articles past the limit
   const [review, approved, rejected, sent] = await Promise.all([
-    api("GET", `${cfg.list}?status=summarized&limit=100`),
-    api("GET", `${cfg.list}?status=approved&limit=50`),
+    api("GET", `${cfg.list}?status=summarized&limit=200`),
+    api("GET", `${cfg.list}?status=approved&limit=200`),
     api("GET", `${cfg.list}?status=rejected&limit=50`),
     api("GET", `${cfg.list}?status=sent&limit=100`)
   ]);
