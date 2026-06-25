@@ -13,6 +13,7 @@ const NEWSLETTER_TOPICS = [
   { slug: "money-matters", label: "Money Matters" },
   { slug: "wellness-daily", label: "Wellness Daily" }
 ];
+const CASE_STUDY_TOPIC_SLUGS = ["corporate-case", "real-estate", "policy-partner", "money-matters", "wellness-daily"];
 const TOPIC_DRAFT_TABS = NEWSLETTER_TOPICS.filter((topic) => topic.slug !== "daily-wrap");
 
 // Two-workspace split: Short Articles (daily wrap) vs Case Studies (corporate + editorial).
@@ -71,6 +72,7 @@ function toast(msg) {
 }
 
 function topicLabel(slug) {
+  if (slug === "case-study-pool") return "Case Study";
   if (slug === "all-topics") return "All Topics";
   return NEWSLETTER_TOPICS.find((topic) => topic.slug === slug)?.label || slug;
 }
@@ -529,6 +531,9 @@ function dailyWrapSubscriberCount() {
 function topicSubscriberCount(topicSlug) {
   const subscribed = state.subscribers.filter((s) => s.status === "subscribed");
   if (topicSlug === "all-topics") return subscribed.length;
+  if (topicSlug === "case-study-pool") {
+    return subscribed.filter((s) => normalizeTopicList(s.topics).some((topic) => CASE_STUDY_TOPIC_SLUGS.includes(topic))).length;
+  }
   return subscribed.filter((s) => normalizeTopicList(s.topics).includes(topicSlug)).length;
 }
 
@@ -598,9 +603,10 @@ function refreshChrome() {
   const digestPlan = resolveDigestComposition();
   if (state.section === "cases-send") {
     if (state.casesSendMode === "case-study-only") {
-      const caseAudience = topicSubscriberCount("corporate-case") || subs;
+      const caseAudience = topicSubscriberCount("case-study-pool");
+      const poolCount = topicDraftCards("all-topics", "approved").length;
       send.textContent = "Send Case Study";
-      send.disabled = sortedApprovedCorporateCases().length === 0 || caseAudience === 0 || !cfg.curatedDigest;
+      send.disabled = poolCount === 0 || caseAudience === 0 || !cfg.topicDigest;
     } else {
       const count = topicSubscriberCount(state.casesTopic);
       send.textContent = `Send ${topicLabel(state.casesTopic)} digest`;
@@ -1004,13 +1010,16 @@ function renderCasesSendControls() {
   const hint = $("#casesSendHint");
   if (hint) {
     hint.textContent = state.casesSendMode === "case-study-only"
-      ? "Sends the latest approved corporate case study to Corporate Case subscribers."
+      ? "Sends one approved case study picked from the full case-study pool. Buckets stay for review and organization."
       : "Sends the latest approved case-study draft for the chosen topic bucket to that topic's subscribers.";
   }
   const status = $("#casesSendStatus");
   if (status) {
     const n = topicDraftCards(state.casesApprovedTopic, "approved").length;
-    status.textContent = `${n} approved ${topicLabel(state.casesApprovedTopic)} item${n === 1 ? "" : "s"} ready`;
+    const poolCount = topicDraftCards("all-topics", "approved").length;
+    status.textContent = state.casesSendMode === "case-study-only"
+      ? `${poolCount} approved case-study pool item${poolCount === 1 ? "" : "s"} ready`
+      : `${n} approved ${topicLabel(state.casesApprovedTopic)} item${n === 1 ? "" : "s"} ready`;
   }
 }
 
@@ -2354,15 +2363,19 @@ $("#sendDigest").addEventListener("click", () => {
 
 async function sendCasesDigest() {
   if (state.casesSendMode === "case-study-only") {
-    // Reuse the curated send path with the case-study-only format.
-    const prev = state.digestFormat;
-    state.digestFormat = "case-study-only";
-    syncDigestSelections();
+    if (!cfg.topicDigest) {
+      toast("Topic digest endpoint is missing.");
+      return;
+    }
+    const count = topicSubscriberCount("case-study-pool");
+    if (!confirm(`Send 1 random approved case study from the pool to ${count} subscribers?`)) return;
     try {
-      await sendCuratedDigest();
-    } finally {
-      state.digestFormat = prev;
-      syncDigestSelections();
+      const res = await api("POST", cfg.topicDigest, { manual: true, topic: "case-study-pool" });
+      toast(`Sent case study to ${res.sent ?? 0} subscribers.`);
+      await reload();
+      showSection("cases-send");
+    } catch (e) {
+      toast(`Failed: ${e.message}`);
     }
     return;
   }

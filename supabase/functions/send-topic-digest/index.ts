@@ -58,8 +58,10 @@ const TOPIC_LABELS: Record<string, string> = {
   "money-matters": "Money Matters",
   "wellness-daily": "Wellness Daily",
   "all-topics": "All Topics",
+  "case-study-pool": "Case Study",
 };
 const TOPIC_SLUGS = Object.keys(TOPIC_LABELS);
+const CASE_STUDY_TOPICS = ["corporate-case", "real-estate", "policy-partner", "money-matters", "wellness-daily"];
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";
@@ -126,7 +128,9 @@ Deno.serve(async (request) => {
   const digestId = digest!.id as string;
 
   const subjectDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
-  const subject = topic === "all-topics"
+  const subject = topic === "case-study-pool"
+    ? `${subjectDate} - Shortly Case Study`
+    : topic === "all-topics"
     ? `${subjectDate} - Shortly topic digest is here!`
     : `${subjectDate} - ${topicLabel(topic)} from Shortly`;
 
@@ -160,6 +164,7 @@ Deno.serve(async (request) => {
 function normalizeTopic(value: unknown): string {
   const slug = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
   if (["daily", "shortly", "shortly-daily-wrap"].includes(slug)) return "daily-wrap";
+  if (["case-study-pool", "case-pool", "case-study-daily", "daily-case-study"].includes(slug)) return "case-study-pool";
   if (["all", "all-topic", "all-topics", "default"].includes(slug)) return "all-topics";
   if (["corporate", "case-study"].includes(slug)) return "corporate-case";
   if (["realestate", "property"].includes(slug)) return "real-estate";
@@ -181,6 +186,8 @@ async function loadSubscribers(supabase: any, topic: string, subscriberIds: stri
 
   if (subscriberIds.length > 0) {
     query = query.in("id", subscriberIds);
+  } else if (topic === "case-study-pool") {
+    query = query.overlaps("topics", CASE_STUDY_TOPICS);
   } else if (topic !== "all-topics") {
     query = query.contains("topics", [topic]);
   }
@@ -192,6 +199,7 @@ async function loadSubscribers(supabase: any, topic: string, subscriberIds: stri
 
 async function loadDigestItems(supabase: any, topic: string): Promise<DigestItem[]> {
   if (topic === "daily-wrap") return loadDailyItems(supabase);
+  if (topic === "case-study-pool") return loadCaseStudyPoolItem(supabase);
   if (topic === "corporate-case") return loadCorporateItems(supabase);
   if (topic !== "all-topics") return loadEditorialItems(supabase, topic);
 
@@ -264,6 +272,53 @@ async function loadEditorialItems(supabase: any, topic: string): Promise<DigestI
     ? latestDraftPerTopic(drafts)
     : drafts.slice(0, 1);
   return selectedDrafts.flatMap(expandEditorialDraft);
+}
+
+async function loadCaseStudyPoolItem(supabase: any): Promise<DigestItem[]> {
+  const [corporate, editorial] = await Promise.all([
+    loadCorporateCasePool(supabase),
+    loadEditorialDraftPool(supabase),
+  ]);
+  const pool = [...corporate, ...editorial];
+  if (pool.length === 0) return [];
+  const picked = pool[Math.floor(Math.random() * pool.length)];
+  return picked.items;
+}
+
+async function loadCorporateCasePool(supabase: any): Promise<Array<{ generatedAt: string; items: DigestItem[] }>> {
+  const { data, error } = await supabase
+    .from("corporate_cases")
+    .select("id,headline,summary,detail,source_url,source,status,generated_at")
+    .eq("status", "approved")
+    .order("generated_at", { ascending: false })
+    .limit(100);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as CorporateCase[]).map((item) => ({
+    generatedAt: item.generated_at,
+    items: [{
+      id: item.id,
+      topic: "corporate-case",
+      section: "Corporate Case",
+      headline: item.headline,
+      body: `${item.summary}\n\n${item.detail}`.trim(),
+      sourceUrl: item.source_url,
+      source: item.source,
+    }],
+  }));
+}
+
+async function loadEditorialDraftPool(supabase: any): Promise<Array<{ generatedAt: string; items: DigestItem[] }>> {
+  const { data, error } = await supabase
+    .from("editorial_drafts")
+    .select("id,topic_slug,topic_name,format,headline,summary,detail,content,source_links,primary_source_url,status,generated_at")
+    .eq("status", "approved")
+    .order("generated_at", { ascending: false })
+    .limit(100);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as EditorialDraft[]).map((draft) => ({
+    generatedAt: draft.generated_at,
+    items: expandEditorialDraft(draft),
+  }));
 }
 
 function latestDraftPerTopic(drafts: EditorialDraft[]): EditorialDraft[] {
@@ -376,7 +431,9 @@ function renderDigest(items: DigestItem[], sub: Subscriber, topic: string): stri
     : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}`;
   const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl || BANNER_URL)}`;
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`.trim())}`;
-  const intro = topic === "all-topics"
+  const intro = topic === "case-study-pool"
+    ? "Here is today's Shortly case study, picked from the approved case-study pool."
+    : topic === "all-topics"
     ? "Here are the approved stories across Shortly's topic newsletters, minus the noise."
     : `Here is today's approved ${topicLabel(topic)} edition from Shortly, written for a fast and useful read.`;
 
