@@ -78,7 +78,7 @@ function topicLabel(slug) {
 }
 
 function digestFormatConfig() {
-  return DIGEST_FORMATS[state.digestFormat] || DIGEST_FORMATS["daily-wrap-10"];
+  return DIGEST_FORMATS[state.digestFormat] || DIGEST_FORMATS["category-5-case-1"];
 }
 
 function dailyDigestKey(id) {
@@ -325,7 +325,7 @@ const state = {
   casesSendMode: "case-study-only",
   casesTopic: "corporate-case",
   shortCategory: "",
-  digestFormat: "daily-wrap-10",
+  digestFormat: "category-5-case-1",
   digestCategory: "",
   search: "",
   filterTopic: "",
@@ -2058,7 +2058,7 @@ $("#clearDigestSelection").addEventListener("click", () => {
   refreshChrome();
 });
 
-$("#approvedTopicTabs").addEventListener("click", (e) => {
+$("#approvedTopicTabs")?.addEventListener("click", (e) => {
   const tab = e.target.closest(".topic-tab");
   if (!tab) return;
   state.approvedTopic = tab.dataset.topic;
