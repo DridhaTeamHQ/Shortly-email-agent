@@ -492,8 +492,8 @@ function resolveDigestComposition() {
     .filter((item) => !pickedCorporateIds.has(item.id))
     .slice(0, Math.max(0, (format.caseLimit || 0) - selectedCorporate.length));
 
-  const dailyArticles = [...selectedDaily, ...approvedAutoDaily];
-  const corporateCases = [...selectedCorporate, ...autoCorporate];
+  const dailyArticles = selectedDaily;
+  const corporateCases = selectedCorporate;
   const dailyMin = format.dailyMin || 0;
   const dailyReady = (format.dailyLimit || 0) === 0 || (dailyArticles.length >= dailyMin && dailyArticles.length > 0);
   const caseReady = corporateCases.length >= (format.caseLimit || 0);
@@ -508,11 +508,11 @@ function resolveDigestComposition() {
     dailySelected: selectedDaily.length,
     caseSelected: selectedCorporate.length,
     dailySelectedIds: selectedDaily.map((article) => article.id),
-    dailyAutoIds: approvedAutoDaily.map((article) => article.id),
+    dailyAutoIds: [],
     caseSelectedIds: selectedCorporate.map((item) => item.id),
-    caseAutoIds: autoCorporate.map((item) => item.id),
-    dailyAutoFilled: approvedAutoDaily.length,
-    caseAutoFilled: autoCorporate.length,
+    caseAutoIds: [],
+    dailyAutoFilled: 0,
+    caseAutoFilled: 0,
     dailyArticles,
     corporateCases,
     isReady: dailyReady && caseReady,
@@ -676,10 +676,10 @@ function renderDigestComposerControls() {
 
   const plan = resolveDigestComposition();
   const dailyText = plan.dailyLimit
-    ? `${plan.dailyArticles.length} ${plan.dailyArticles.length === 1 ? "story" : "stories"} (up to ${plan.dailyLimit})${plan.dailyAutoFilled ? `, ${plan.dailyAutoFilled} auto-filled` : ""}`
+    ? `${plan.dailyArticles.length} selected ${plan.dailyArticles.length === 1 ? "story" : "stories"} (up to ${plan.dailyLimit})`
     : "No daily picks needed";
   const caseText = plan.caseLimit
-    ? `${plan.caseSelected}/${plan.caseLimit} case study picked${plan.caseAutoFilled ? `, ${plan.caseAutoFilled} auto-fill ready` : ""}`
+    ? `${plan.caseSelected}/${plan.caseLimit} case study picked`
     : "No case study needed";
   $("#digestComposerHint").textContent = format.hint;
   $("#digestSlotStatus").textContent = format.needsCategory && plan.category
@@ -2337,8 +2337,7 @@ async function sendCuratedDigest() {
       manual: true,
       format: plan.format,
       category: plan.category,
-      // Send the resolved composition: QA picks plus approved auto-fill,
-      // capped at 5 stories for the email.
+      // Send only QA-selected items. No auto-fill.
       article_ids: plan.dailyArticles.map((article) => article.id),
       corporate_case_id: plan.corporateCases[0]?.id || null,
       ...(selectedIds.length ? { subscriber_ids: selectedIds } : {})
