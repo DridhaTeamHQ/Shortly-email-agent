@@ -171,11 +171,16 @@ async function buildCaseRow(
     throw new Error(`Generated case failed structure for ${selectionMeta.company ?? selected.title}: summary_words=${wordCount(String(draft.summary ?? ""))}, detail_words=${wordCount(String(draft.detail ?? ""))}`);
   }
   const caseType = inferCaseType(draft.case_type, sourceText);
-  const sourceCredit = `This case study draws on ${selected.source}'s reporting. Read the full piece here: ${selected.url}.`;
-  const detail = String(draft.detail ?? "").trim();
-  const creditedDetail = detail.startsWith("This case study draws on")
-    ? detail
-    : `${sourceCredit}\n\n${detail}`;
+  // Clean, deterministic attribution appended once at the end (the model is told
+  // not to write its own). Strip any legacy/templated credit the model may still
+  // emit so we never double-credit or leave a raw URL mid-prose.
+  let detail = String(draft.detail ?? "").trim();
+  detail = detail
+    .replace(/This case study draws on [^\n]*?Read the full piece here:[^\n]*\n*/gi, "")
+    .replace(new RegExp(`[^\\n]*${escapeRegExp(selected.url)}[^\\n]*\\n*`, "gi"), "")
+    .trim();
+  const sourceCredit = `Source: ${selected.source} — ${selected.url}`;
+  const creditedDetail = `${detail}\n\n${sourceCredit}`;
 
   return {
     source_url: selected.url,
@@ -282,8 +287,8 @@ async function writeCase(
 Required structure:
 - headline: precise and business-model led.
 - summary: 90-110 words. Who the company is, what it does, and the interesting business question. Complete on its own.
-- detail: 320-480 words. First paragraph must prominently credit and link the original publication. Explain the business model, unit economics where the source provides them, the strategic call, luck versus skill, bull case, bear case, and the open question.
-- comparison_or_analogy: at least one direct comparable, historical parallel, counterfactual, or analogy. Label it as agent inference unless the source itself makes it.
+- detail: 320-480 words of fresh analysis. Do NOT restate or paraphrase the summary's opening sentence — the reader has just read it; open the detail instead on the business model or the central strategic tension. Do NOT write your own source-credit, "according to", or "the article reports" sentence — the publication credit and link are appended automatically. Cover the business model, unit economics where the source provides them, the strategic call, luck versus skill, bull case, bear case, and the open question.
+- comparison_or_analogy: at least one direct comparable, historical parallel, counterfactual, or analogy. Write it as a plain declarative sentence; if it is your own inference rather than the source's, end it with "(our inference)" — never open with hedging scaffolding like "An inference can be made that".
 - bull_case and bear_case: weighted by evidence, not false balance.
 - open_question: one concrete thing to watch.
 - inference_notes: array of every inference or analogy the editor must verify.
@@ -293,7 +298,8 @@ Hard rules:
 - Do not use latent knowledge for company facts or numbers.
 - Do not invent missing unit economics. State that the source does not provide them.
 - Lead with the business model, never the founder. Open on what the company does, not who runs it; the founder appears only when relevant to a specific decision. No founder-quote openings ("As [founder] once said...").
-- Banned phrases: "disrupting", "10x growth", "category-defining", "rocketship", "legendary founder", "this is just the beginning". No "lessons for entrepreneurs" closer, no press-release language, no exclamation marks.
+- Banned phrases: "disrupting", "10x growth", "category-defining", "rocketship", "legendary founder", "this is just the beginning", "An inference can be made that". No "lessons for entrepreneurs" closer, no press-release language, no exclamation marks.
+- Do not repeat the summary's opening in the detail, and do not end the detail by restating the company's decision or summarising what you already said. Close on the open question or the specific forward-looking tension a reader should watch.
 - State which side (bull or bear) has the numbers and which has the vibes; weight by evidence, never "some say good, some say bad".
 - Be honest about luck versus skill; if you are guessing, say "we're guessing".
 - At most one source quote, under 15 words. Prefer no direct quote.
@@ -332,6 +338,8 @@ Requirements:
 - company must be the named company from the source, never Shortly.
 - preserve only facts and numbers present in the source text.
 - include business model, strategic call, luck versus skill, weighted bull/bear case, open question, and at least one clearly flagged inference/comparison.
+- the detail must not restate the summary's opening or write its own source-credit sentence (the credit/link is appended automatically), and must not close by restating the decision — end on the open question or forward-looking tension.
+- flag any inference as a plain sentence ending in "(our inference)", never "An inference can be made that".
 - no founder worship, marketing language, exclamation marks, or entrepreneur lessons.
 
 Return the same JSON keys as the current draft and no extra text.
@@ -398,6 +406,10 @@ function draftMeetsStructure(draft: Record<string, unknown>): boolean {
 
 function wordCount(value: string): number {
   return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function inferCaseType(value: unknown, sourceText: string): string {
