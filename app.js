@@ -37,10 +37,10 @@ const DIGEST_FORMATS = {
     hint: "Pick a category bucket. Email sends up to 5 approved articles from that category only.",
   },
   "case-study-only": {
-    label: "Case Study Only",
+    label: "1 Case Study",
     dailyLimit: 0,
     caseLimit: 1,
-    hint: "Pick one approved corporate case study, or leave it open and Shortly will send the latest approved case study.",
+    hint: "Pick exactly 1 approved corporate case study. Nothing is selected automatically.",
   }
 };
 
@@ -822,6 +822,13 @@ function renderEmailBuilder() {
   const node = $("#emailBuilderList");
   if (!node) return;
   const plan = resolveDigestComposition();
+  if (plan.caseLimit > 0 && plan.dailyLimit === 0) {
+    const cards = topicDraftCards("corporate-case", "approved");
+    node.innerHTML = cards.length
+      ? cards.map((card) => topicDraftCardHtml(card, { selectable: true })).join("")
+      : `<p class="muted">No approved Corporate Case items available for email selection.</p>`;
+    return;
+  }
   const category = plan.category || state.digestCategory || "";
   const items = sortedApprovedDailyArticles(category);
   node.innerHTML = items.length
