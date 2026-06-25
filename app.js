@@ -790,7 +790,7 @@ function renderReview() {
 }
 
 // Approved = the QA's selected short articles, shown per category section.
-const SHORT_CATEGORIES = ["Real Estate", "Policy Partner", "Money Matters", "Wellness Daily"];
+const SHORT_CATEGORIES = ["Corporate Case", "Real Estate", "Policy Partner", "Money Matters", "Wellness Daily"];
 function renderApproved() {
   const node = $("#approvedList");
   if (!node) return;
