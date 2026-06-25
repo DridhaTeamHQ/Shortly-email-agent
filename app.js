@@ -392,18 +392,19 @@ function uniqueTopics() {
 }
 
 function approvedDailyTopics() {
-  const topics = new Set();
+  const categories = new Set();
   state.articles
-    .filter((a) => isApprovedToday(a) || (a.status === "summarized" && isScrapedToday(a)))
+    .filter(isApprovedToday)
     .forEach((a) => {
-    if (a.topic) topics.add(a.topic);
-  });
-  return [...topics].sort();
+      const category = articleCategory(a);
+      if (category) categories.add(category);
+    });
+  return SHORT_CATEGORIES.filter((category) => categories.has(category));
 }
 
 function sortedApprovedDailyArticles(category = "") {
   return state.articles
-    .filter((a) => isApprovedToday(a) && (!category || a.topic === category))
+    .filter((a) => isApprovedToday(a) && (!category || articleCategory(a) === category))
     .sort((a, b) =>
       (Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0)) ||
       (new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime())
@@ -412,7 +413,7 @@ function sortedApprovedDailyArticles(category = "") {
 
 function sortedSummarizedDailyArticles(category = "") {
   return state.articles
-    .filter((a) => a.status === "summarized" && isScrapedToday(a) && (!category || a.topic === category))
+    .filter((a) => a.status === "summarized" && isScrapedToday(a) && (!category || articleCategory(a) === category))
     .sort((a, b) =>
       (Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0)) ||
       (new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime())
@@ -461,7 +462,7 @@ function syncDigestSelections() {
   const format = digestFormatConfig();
   if (format.needsCategory && state.digestCategory) {
     for (const article of selectedDigestDailyArticles()) {
-      if (article.topic !== state.digestCategory) state.digestSelections.daily.delete(article.id);
+      if (articleCategory(article) !== state.digestCategory) state.digestSelections.daily.delete(article.id);
     }
   }
   if (!format.dailyLimit) state.digestSelections.daily.clear();
@@ -474,7 +475,7 @@ function resolveDigestComposition() {
   const format = digestFormatConfig();
   const category = format.needsCategory ? state.digestCategory : "";
   const selectedDaily = selectedDigestDailyArticles()
-    .filter((article) => !category || article.topic === category)
+    .filter((article) => !category || articleCategory(article) === category)
     .slice(0, format.dailyLimit || 0);
   const selectedCorporate = selectedDigestCorporateCases().slice(0, format.caseLimit || 0);
 
@@ -1561,7 +1562,7 @@ function toggleDigestSelection(kind, id, checked) {
       toast("This format does not use daily articles.");
       return;
     }
-    if (format.needsCategory && state.digestCategory && article.topic !== state.digestCategory) {
+    if (format.needsCategory && state.digestCategory && articleCategory(article) !== state.digestCategory) {
       toast(`Pick only ${state.digestCategory} articles for this format.`);
       return;
     }
