@@ -211,7 +211,7 @@ async function loadDailyItems(supabase: any): Promise<DigestItem[]> {
     .is("category", null)
     .order("rank_score", { ascending: false })
     .order("scraped_at", { ascending: false })
-    .limit(10);
+    .limit(5);
   if (error) throw new Error(error.message);
 
   return ((data ?? []) as DailyArticle[]).map((article) => ({
@@ -231,7 +231,7 @@ async function loadCorporateItems(supabase: any): Promise<DigestItem[]> {
     .select("id,headline,summary,detail,source_url,source,status,generated_at")
     .eq("status", "approved")
     .order("generated_at", { ascending: false })
-    .limit(5);
+    .limit(1);
   if (error) throw new Error(error.message);
 
   return ((data ?? []) as CorporateCase[]).map((item) => ({

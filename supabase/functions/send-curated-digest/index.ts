@@ -33,7 +33,7 @@ const FOOTER_LOGO_URL =
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/footer-logo.png";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
 const FORMATS = {
-  "daily-wrap-10": { dailyLimit: 10, caseLimit: 0, label: "Daily Wrap 10" },
+  "daily-wrap-10": { dailyLimit: 5, caseLimit: 1, label: "Daily Wrap 5 + Case Study" },
   "category-5-case-1": { dailyLimit: 5, caseLimit: 1, label: "Category 5 + Case Study 1", requiresCategory: true },
   "case-study-only": { dailyLimit: 0, caseLimit: 1, label: "Case Study Only" }
 } as const;

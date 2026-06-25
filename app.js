@@ -21,11 +21,11 @@ const DEFAULT_SECTION = { short: "review", cases: "topics" };
 function defaultSectionFor(ws) { return DEFAULT_SECTION[ws] || "review"; }
 const DIGEST_FORMATS = {
   "daily-wrap-10": {
-    label: "Daily Wrap + Case Study",
+    label: "Daily Wrap 5 + Case Study",
     dailyMin: 5,
-    dailyLimit: 30,
+    dailyLimit: 5,
     caseLimit: 1,
-    hint: "5 approved stories are pre-filled by default. Add as many as you like (up to 30), plus one approved case study.",
+    hint: "Email sends up to 5 approved stories plus one approved case study. The approved pool can hold more for QA choice.",
   },
   "category-5-case-1": {
     label: "Category 5 + Case Study 1",
@@ -337,8 +337,6 @@ const state = {
 };
 
 // ---------- computed ----------
-// QA approves up to 10 short articles PER CATEGORY per day.
-const CATEGORY_CAP = 10;
 function approvedTodayCount() {
   return state.articles.filter(isApprovedToday).length;
 }
@@ -348,11 +346,6 @@ function articleCategory(article) {
 }
 function approvedTodayInCategory(cat) {
   return state.articles.filter((a) => isApprovedToday(a) && articleCategory(a) === (cat || "")).length;
-}
-// Cap reached for the category this article belongs to (uncategorised has no cap here).
-function categoryAtCap(cat) {
-  if (!cat) return false;
-  return approvedTodayInCategory(cat) >= CATEGORY_CAP;
 }
 
 function sectionCounts() {
@@ -499,6 +492,8 @@ function resolveDigestComposition() {
   const dailyArticles = [...selectedDaily, ...approvedAutoDaily];
   const corporateCases = [...selectedCorporate, ...autoCorporate];
   const dailyMin = format.dailyMin || 0;
+  const dailyReady = (format.dailyLimit || 0) === 0 || (dailyArticles.length >= dailyMin && dailyArticles.length > 0);
+  const caseReady = corporateCases.length >= (format.caseLimit || 0);
 
   return {
     format: state.digestFormat,
@@ -513,8 +508,7 @@ function resolveDigestComposition() {
     caseAutoFilled: autoCorporate.length,
     dailyArticles,
     corporateCases,
-    // Ready once we have at least the minimum daily stories (case study optional).
-    isReady: dailyArticles.length >= dailyMin && dailyArticles.length > 0,
+    isReady: dailyReady && caseReady,
   };
 }
 
@@ -581,7 +575,7 @@ function refreshChrome() {
   const pendingHere = cat ? state.articles.filter((a) => a.status === "summarized" && articleCategory(a) === cat).length : pending;
   const approvedHere = cat ? approvedTodayInCategory(cat) : approved;
   $("#badgeReview").textContent = pendingHere;
-  $("#badgeApproved").textContent = cat ? `${approvedHere}/${CATEGORY_CAP}` : `${approved}/${DAILY_CAP}`;
+  $("#badgeApproved").textContent = approvedHere;
   $("#badgeRejected").textContent = rejected;
   $("#badgeSubs").textContent = subs;
   $("#badgeTopics").textContent = topicDrafts;
@@ -623,7 +617,7 @@ function refreshChrome() {
       : (approved > 0 ? "" : "none");
 
   const reviewSub = cat
-    ? `${cat}: ${approvedHere}/${CATEGORY_CAP} approved | ${pendingHere} pending`
+    ? `${cat}: ${approvedHere} approved | ${pendingHere} pending`
     : `${approved} approved | ${pending} pending across all categories`;
   const titles = {
     review: ["Review queue", reviewSub],
@@ -666,7 +660,7 @@ function renderDigestComposerControls() {
 
   const plan = resolveDigestComposition();
   const dailyText = plan.dailyLimit
-    ? `${plan.dailyArticles.length} ${plan.dailyArticles.length === 1 ? "story" : "stories"} (min ${plan.dailyMin}, up to ${plan.dailyLimit})${plan.dailyAutoFilled ? `, ${plan.dailyAutoFilled} auto-filled` : ""}`
+    ? `${plan.dailyArticles.length} ${plan.dailyArticles.length === 1 ? "story" : "stories"} (up to ${plan.dailyLimit})${plan.dailyAutoFilled ? `, ${plan.dailyAutoFilled} auto-filled` : ""}`
     : "No daily picks needed";
   const caseText = plan.caseLimit
     ? `${plan.caseSelected}/${plan.caseLimit} case study picked${plan.caseAutoFilled ? `, ${plan.caseAutoFilled} auto-fill ready` : ""}`
@@ -695,7 +689,6 @@ function cardHtml(a, mode) {
   const category = articleCategory(a);
   const categoryChip = category ? `<span class="topic-chip cat-chip">${esc(category)}</span>` : "";
   const sec = "wrapped";
-  const atCap = category ? categoryAtCap(category) : (approvedTodayCount() >= DAILY_CAP);
   const isReviewSelected = state.selected.has(a.id);
   const isDigestSelected = state.digestSelections.daily.has(a.id);
   const checked = mode === "approved" ? isDigestSelected : isReviewSelected;
@@ -722,9 +715,7 @@ function cardHtml(a, mode) {
         ${sectionPicker}
         <button class="btn-save" data-action="edit">Save</button>
         <button class="btn-reject" data-action="reject">Reject</button>
-        <button class="btn-approve" data-action="approve" ${atCap ? "disabled" : ""}>
-          ${atCap ? "Limit" : "Approve"}
-        </button>
+        <button class="btn-approve" data-action="approve">Approve</button>
       </div>`;
   } else if (mode === "approved") {
     actions = `
@@ -786,7 +777,7 @@ function renderApproved() {
   let html = "";
   for (const c of cats) {
     const items = approved.filter((a) => articleCategory(a) === c);
-    html += `<h3 class="approved-group-title">${esc(c)} — ${items.length}/${CATEGORY_CAP} selected</h3>`;
+    html += `<h3 class="approved-group-title">${esc(c)} — ${items.length} approved</h3>`;
     html += items.length
       ? items.map((a) => cardHtml(a, "approved")).join("")
       : `<p class="muted" style="margin:0 0 14px">No ${esc(c)} articles selected yet.</p>`;
@@ -1436,18 +1427,6 @@ async function handleTopicDraftAction(card, action) {
     if (!confirm("Reject the entire draft? This removes all of its briefs and the feature together.")) return;
   }
 
-  // QA may approve only 1 case study (long-form) per category per day.
-  if (action === "approve") {
-    if (kind === "corporate") {
-      const approvedCorp = state.corporateCases.filter((c) => (c.status || "draft") === "approved").length;
-      if (approvedCorp >= 1) return toast("Only 1 Corporate Case can be approved per day.");
-    } else {
-      const draft = state.editorialDrafts.find((d) => d.id === id);
-      const slug = draft?.topic_slug;
-      const approvedHere = state.editorialDrafts.filter((d) => d.topic_slug === slug && (d.status || "draft") === "approved").length;
-      if (slug && approvedHere >= 1) return toast(`Only 1 ${draft?.topic_name || "case"} can be approved per day.`);
-    }
-  }
   const headline = card.querySelector('[data-role="headline"]')?.value.trim() || "";
   const body = card.querySelector('[data-role="summary"]')?.value.trim() || "";
   const payload = { action, id };
@@ -2318,8 +2297,8 @@ async function sendCuratedDigest() {
       manual: true,
       format: plan.format,
       category: plan.category,
-      // Send the resolved composition: the QA's picks plus auto-fill up to the
-      // minimum (5), capped at 30 — all today's approved only.
+      // Send the resolved composition: QA picks plus approved auto-fill,
+      // capped at 5 stories for the email.
       article_ids: plan.dailyArticles.map((article) => article.id),
       corporate_case_id: plan.corporateCases[0]?.id || null,
       ...(selectedIds.length ? { subscriber_ids: selectedIds } : {})
