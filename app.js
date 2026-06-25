@@ -605,6 +605,7 @@ function refreshChrome() {
   const send = $("#sendDigest");
   const selectedSubs = selectedSubscriberCount();
   const digestPlan = resolveDigestComposition();
+  const hasDigestAudience = selectedSubs > 0 || defaultDigestAudienceCount() > 0;
   send.style.display = ["email-builder", "cases-send"].includes(state.section) ? "" : "none";
   if (state.section === "cases-send") {
     if (state.casesSendMode === "case-study-only") {
@@ -621,7 +622,14 @@ function refreshChrome() {
     send.textContent = selectedSubs > 0
       ? `Send ${digestPlan.formatLabel} to ${selectedSubs}`
       : `Send ${digestPlan.formatLabel}`;
-    send.disabled = !digestPlan.isReady || (selectedSubs === 0 && defaultDigestAudienceCount() === 0) || !cfg.curatedDigest;
+    send.disabled = !digestPlan.isReady || !hasDigestAudience || !cfg.curatedDigest;
+    send.title = !cfg.curatedDigest
+      ? "Curated digest endpoint is missing."
+      : !digestPlan.isReady
+        ? "Pick the required approved items for this format."
+        : !hasDigestAudience
+          ? "No subscribed recipients found for this category. Select recipients manually or add subscribers to this topic."
+          : "";
   } else {
     send.textContent = selectedSubs > 0
       ? `Send (${counts.wrapped}) to ${selectedSubs}`
@@ -680,6 +688,13 @@ function renderDigestComposerControls() {
   }
 
   const plan = resolveDigestComposition();
+  const selectedSubs = selectedSubscriberCount();
+  const defaultAudience = defaultDigestAudienceCount();
+  const audienceText = selectedSubs > 0
+    ? `${selectedSubs} selected recipient${selectedSubs === 1 ? "" : "s"}`
+    : format.needsCategory && plan.category
+      ? `${defaultAudience} ${plan.category} subscriber${defaultAudience === 1 ? "" : "s"}`
+      : `${defaultAudience} default subscriber${defaultAudience === 1 ? "" : "s"}`;
   const dailyText = plan.dailyLimit
     ? `${plan.dailyArticles.length} selected ${plan.dailyArticles.length === 1 ? "story" : "stories"} (up to ${plan.dailyLimit})`
     : "No daily picks needed";
@@ -688,8 +703,8 @@ function renderDigestComposerControls() {
     : "No case study needed";
   $("#digestComposerHint").textContent = format.hint;
   $("#digestSlotStatus").textContent = format.needsCategory && plan.category
-    ? `${dailyText} in ${plan.category} | ${caseText}`
-    : `${dailyText} | ${caseText}`;
+    ? `${dailyText} in ${plan.category} | ${caseText} | ${audienceText}`
+    : `${dailyText} | ${caseText} | ${audienceText}`;
 }
 
 function populateTopicFilter() {
@@ -1244,9 +1259,9 @@ function renderAnalytics() {
 }
 
 function renderAll() {
+  renderDigestComposerControls();
   refreshChrome();
   populateTopicFilter();
-  renderDigestComposerControls();
   renderReview();
   renderApproved();
   renderEmailBuilder();
@@ -2017,6 +2032,7 @@ $("#bulkClear").addEventListener("click", () => {
       if (sel === "#emailBuilderList") {
         toggleDigestSelection(check.dataset.selectKind, id, check.checked);
         renderEmailBuilder();
+        renderDigestComposerControls();
         refreshChrome();
       } else {
         if (check.checked) state.selected.add(id);
