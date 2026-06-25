@@ -504,6 +504,10 @@ function resolveDigestComposition() {
     caseLimit: format.caseLimit || 0,
     dailySelected: selectedDaily.length,
     caseSelected: selectedCorporate.length,
+    dailySelectedIds: selectedDaily.map((article) => article.id),
+    dailyAutoIds: approvedAutoDaily.map((article) => article.id),
+    caseSelectedIds: selectedCorporate.map((item) => item.id),
+    caseAutoIds: autoCorporate.map((item) => item.id),
     dailyAutoFilled: approvedAutoDaily.length,
     caseAutoFilled: autoCorporate.length,
     dailyArticles,
@@ -691,8 +695,14 @@ function cardHtml(a, mode) {
   const sec = "wrapped";
   const isReviewSelected = state.selected.has(a.id);
   const isDigestSelected = state.digestSelections.daily.has(a.id);
+  const plan = mode === "approved" ? resolveDigestComposition() : null;
+  const isEmailSelected = Boolean(plan?.dailyArticles.some((article) => article.id === a.id));
+  const isAutoSelected = Boolean(plan?.dailyAutoIds.includes(a.id));
   const checked = mode === "approved" ? isDigestSelected : isReviewSelected;
   const draggable = mode === "approved" ? 'draggable="true"' : "";
+  const sendChip = mode === "approved" && isEmailSelected
+    ? `<span class="send-chip ${isAutoSelected ? "auto" : "picked"}">${isAutoSelected ? "Auto-selected for email" : "Selected for email"}</span>`
+    : "";
 
   // Section picker
   const sectionPicker = mode !== "rejected" ? `
@@ -735,11 +745,11 @@ function cardHtml(a, mode) {
   const readTime = Math.max(1, Math.ceil(words / 200));
 
   return `
-    <article class="card ${checked ? "selected" : ""}" data-id="${a.id}" data-select-kind="${mode === "approved" ? "daily" : "review"}" data-preview-key="${dailyDigestKey(a.id)}" ${draggable}>
+    <article class="card ${checked ? "selected" : ""} ${isEmailSelected ? "email-selected" : ""} ${isAutoSelected ? "email-auto" : ""}" data-id="${a.id}" data-select-kind="${mode === "approved" ? "daily" : "review"}" data-preview-key="${dailyDigestKey(a.id)}" ${draggable}>
       <header>
         ${checkbox}
           <div class="card-head">
-            <div class="chips">${categoryChip}${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
+            <div class="chips">${sendChip}${categoryChip}${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
             <input class="headline-input" data-role="headline" type="text" value="${esc(headline)}" ${headlineReadonly} />
             <div class="meta">
               ${date} &middot; ${time}
@@ -772,6 +782,14 @@ const SHORT_CATEGORIES = ["Real Estate", "Policy Partner", "Money Matters", "Wel
 function renderApproved() {
   const node = $("#approvedList");
   if (!node) return;
+  if (state.approvedTopic !== "daily-wrap") {
+    const cards = topicDraftCards(state.approvedTopic, "approved");
+    const selectable = state.approvedTopic === "corporate-case";
+    node.innerHTML = cards.length
+      ? cards.map((card) => topicDraftCardHtml(card, { selectable, showSendPlan: selectable })).join("")
+      : `<p class="muted">No approved ${esc(topicLabel(state.approvedTopic))} items yet.</p>`;
+    return;
+  }
   const approved = state.articles.filter(isApprovedToday);
   const cats = state.shortCategory ? [state.shortCategory] : SHORT_CATEGORIES;
   let html = "";
@@ -885,6 +903,16 @@ function topicDraftCardHtml(card, options = {}) {
   const cardId = `${card.kind}:${card.id}:${card.cardType}:${card.briefIndex ?? ""}`;
   const allowSelect = options.selectable === true && card.kind === "corporate";
   const selected = allowSelect && state.digestSelections.corporate.has(card.id);
+  const plan = options.showSendPlan || allowSelect ? resolveDigestComposition() : null;
+  const plannedCorporateId = options.plannedCorporateId || "";
+  const isEmailSelected = card.kind === "corporate" && (
+    card.id === plannedCorporateId ||
+    Boolean(plan?.corporateCases.some((item) => item.id === card.id))
+  );
+  const isAutoSelected = isEmailSelected && !selected;
+  const sendChip = isEmailSelected
+    ? `<span class="send-chip ${isAutoSelected ? "auto" : "picked"}">${isAutoSelected ? "Auto-selected for email" : "Selected for email"}</span>`
+    : "";
   // A hybrid draft renders as several cards (5 briefs + 1 feature) that ALL share
   // one draft id, and approve/reject act on the whole draft. So only the
   // feature/single card carries the draft-level Approve/Reject; brief cards get
@@ -904,11 +932,12 @@ function topicDraftCardHtml(card, options = {}) {
         <button class="btn-reject" data-action="reject">${rejectLabel}</button>
         <button class="btn-approve" data-action="approve">Approve draft</button>`;
   return `
-    <article class="card topic-draft-card ${selected ? "selected" : ""}" data-kind="${esc(card.kind)}" data-id="${esc(card.id)}" data-card-type="${esc(card.cardType)}" data-brief-index="${card.briefIndex ?? ""}" data-select-kind="${allowSelect ? "corporate" : ""}" data-preview-key="${allowSelect ? corporateDigestKey(card.id) : `${card.kind}:${card.id}:${card.cardType}`}">
+    <article class="card topic-draft-card ${selected ? "selected" : ""} ${isEmailSelected ? "email-selected" : ""} ${isAutoSelected ? "email-auto" : ""}" data-kind="${esc(card.kind)}" data-id="${esc(card.id)}" data-card-type="${esc(card.cardType)}" data-brief-index="${card.briefIndex ?? ""}" data-select-kind="${allowSelect ? "corporate" : ""}" data-preview-key="${allowSelect ? corporateDigestKey(card.id) : `${card.kind}:${card.id}:${card.cardType}`}">
       <header>
         ${allowSelect ? `<input type="checkbox" class="card-check" data-id="${esc(card.id)}" data-select-kind="corporate" ${selected ? "checked" : ""}>` : ""}
         <div class="card-head">
           <div class="chips">
+            ${sendChip}
             <span class="source-pill">${esc(card.source || "Shortly")}</span>
             <span class="topic-chip">${esc(card.topic)}</span>
             ${card.label ? `<span class="tag section-ahead">${esc(card.label)}</span>` : ""}
@@ -960,8 +989,11 @@ function renderCasesApproved() {
   const node = $("#casesApprovedList");
   if (!node) return;
   const cards = topicDraftCards(topic, "approved");
+  const plannedCorporateId = state.casesSendMode === "case-study-only" && topic === "corporate-case"
+    ? (selectedDigestCorporateCases()[0]?.id || sortedApprovedCorporateCases()[0]?.id || "")
+    : "";
   node.innerHTML = cards.length
-    ? cards.map((card) => topicDraftCardHtml(card, { selectable: false })).join("")
+    ? cards.map((card) => topicDraftCardHtml(card, { selectable: false, plannedCorporateId })).join("")
     : `<p class="muted">No approved ${esc(topicLabel(topic))} items yet.</p>`;
 }
 
