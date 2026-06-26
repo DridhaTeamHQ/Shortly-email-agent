@@ -15,6 +15,7 @@ type DailyArticle = {
   category: string | null;
   rank_score: number | null;
   scraped_at: string;
+  reviewed_at: string | null;
 };
 type CorporateCase = {
   id: string;
@@ -176,7 +177,7 @@ async function resolveSelectedArticles(supabase: any, articleIds: string[], limi
   if (articleIds.length === 0) return [];
   const { data, error } = await supabase
     .from("articles")
-    .select("id,title,edited_title,summary,edited_summary,url,source,topic,category,rank_score,scraped_at")
+    .select("id,title,edited_title,summary,edited_summary,url,source,topic,category,rank_score,scraped_at,reviewed_at")
     .in("id", articleIds)
     .eq("status", "approved");
   if (error) throw new Error(error.message);
@@ -184,7 +185,7 @@ async function resolveSelectedArticles(supabase: any, articleIds: string[], limi
   return articleIds
     .map((id) => byId.get(id))
     .filter((article): article is DailyArticle => Boolean(article))
-    .filter((article) => isFresh(article.scraped_at))
+    .filter((article) => isFresh(article.reviewed_at ?? article.scraped_at))
     .slice(0, limit);
 }
 

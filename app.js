@@ -309,7 +309,7 @@ const istDateKey = (value = new Date()) => new Intl.DateTimeFormat("en-CA", {
 const todayIst = () => istDateKey();
 const isScrapedToday = (a) => Boolean(a.scraped_at) && istDateKey(a.scraped_at) === todayIst();
 const isApprovedToday = (a) =>
-  a.status === "approved" && isScrapedToday(a);
+  a.status === "approved" && Boolean(a.reviewed_at || a.scraped_at) && istDateKey(a.reviewed_at || a.scraped_at) === todayIst();
 
 // ---------- state ----------
 const state = {
@@ -897,7 +897,7 @@ function renderEmailBuilder() {
 }
 
 function renderRejected() {
-  const items = state.articles.filter((a) => a.status === "rejected" && (!state.shortCategory || articleCategory(a) === state.shortCategory));
+  const items = state.articles.filter((a) => a.status === "rejected" && (!state.shortCategory || articleMatchesShortCategory(a)));
   const node = $("#rejectedList");
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "rejected")).join("")

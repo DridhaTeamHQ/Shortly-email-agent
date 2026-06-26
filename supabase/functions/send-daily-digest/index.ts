@@ -20,6 +20,7 @@ type Article = {
   status: string;
   rank_score: number;
   scraped_at: string;
+  reviewed_at: string | null;
 };
 
 type Subscriber = { id: string; email: string; full_name: string | null; topics?: string[] | null };
@@ -29,7 +30,7 @@ const TOTAL_ARTICLES = 10;
 // leftover old selection can never resurface as a "June 17 on June 20" email.
 const FRESH_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 const ARTICLE_SELECT =
-  "id,title,edited_title,url,summary,edited_summary,source,topic,section,status,rank_score,scraped_at";
+  "id,title,edited_title,url,summary,edited_summary,source,topic,section,status,rank_score,scraped_at,reviewed_at";
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";
@@ -131,7 +132,7 @@ Deno.serve(async (request) => {
       .map((id) => byId.get(id))
       .filter((article): article is Article => Boolean(article));
     // Exactly what QA selected, but drop anything not approved or gone stale.
-    articles = orderedSelected.filter((article) => article.status === "approved" && isFresh(article.scraped_at));
+    articles = orderedSelected.filter((article) => article.status === "approved" && isFresh(article.reviewed_at ?? article.scraped_at));
     ignoredOldSelected = orderedSelected.length - articles.length;
   } else {
     const now = new Date();
