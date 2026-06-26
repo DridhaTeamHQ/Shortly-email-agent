@@ -185,6 +185,56 @@ export function cleanSummaryText(input: string): string {
   return t;
 }
 
+// ---- Shared OpenAI chat call with 429 (rate-limit) retry/backoff. ----
+// The account's tokens-per-minute limit is low, so bursts of calls 429. We honour
+// the "try again in Xs" hint (capped), retry a couple of times, and surface a
+// clear error otherwise. Used by summarizeForBriefing AND the agents' openAiJson.
+export async function chatCompletionRaw(
+  apiKey: string,
+  model: string,
+  system: string,
+  user: string,
+  maxTokens: number,
+  opts: { jsonMode?: boolean; temperature?: number } = {}
+): Promise<string> {
+  const payload = {
+    model,
+    temperature: opts.temperature ?? 0.3,
+    max_tokens: maxTokens,
+    ...(opts.jsonMode ? { response_format: { type: "json_object" } } : {}),
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+  };
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (response.ok) {
+      const raw = (await response.json())?.choices?.[0]?.message?.content?.trim();
+      if (!raw) throw new Error("empty completion");
+      return raw;
+    }
+    const body = await response.text().catch(() => "");
+    if (response.status === 429 && !body.includes("insufficient_quota") && attempt < 2) {
+      const m = body.match(/try again in ([\d.]+)s/i);
+      const waitMs = Math.min((m ? parseFloat(m[1]) + 1 : 8) * 1000, 25_000);
+      await new Promise((r) => setTimeout(r, waitMs));
+      continue;
+    }
+    if (response.status === 429 && body.includes("insufficient_quota")) {
+      throw new Error("OpenAI quota exceeded. Add billing credits or update OPENAI_API_KEY.");
+    }
+    if (response.status === 401) throw new Error("OpenAI API key is invalid or expired.");
+    throw new Error(`OpenAI ${response.status}: ${body.slice(0, 220)}`);
+  }
+  throw new Error("OpenAI 429: rate limit retries exhausted");
+}
+
 // ---- Shared GPT summarization call used by all three functions. ----
 
 export async function summarizeForBriefing(
@@ -200,30 +250,7 @@ export async function summarizeForBriefing(
     cleanedExcerpt ? `EXCERPT:\n${cleanedExcerpt}` : null,
   ].filter(Boolean).join("\n\n");
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      temperature: 0.3,
-      max_tokens: 260,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: EDITOR_SYSTEM_PROMPT },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    if (response.status === 429 && body.includes("insufficient_quota")) {
-      throw new Error("OpenAI quota exceeded. Add billing credits or update OPENAI_API_KEY.");
-    }
-    if (response.status === 401) throw new Error("OpenAI API key is invalid or expired.");
-    throw new Error(`OpenAI ${response.status}: ${body.slice(0, 220)}`);
-  }
-  const raw = (await response.json())?.choices?.[0]?.message?.content?.trim();
-  if (!raw) throw new Error("empty completion");
+  const raw = await chatCompletionRaw(apiKey, model, EDITOR_SYSTEM_PROMPT, userPrompt, 260, { jsonMode: true });
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw);

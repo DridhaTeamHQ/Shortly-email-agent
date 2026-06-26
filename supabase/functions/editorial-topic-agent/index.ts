@@ -4,7 +4,7 @@ import { parseHTML } from "npm:linkedom@0.18.12";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { parseFeed } from "../_shared/rss.ts";
 import { EDITORIAL_TOPICS, getEditorialTopic, type EditorialSource, type EditorialTopic } from "../_shared/editorial-topics.ts";
-import { summarizeForBriefing } from "../_shared/summary-clean.ts";
+import { summarizeForBriefing, chatCompletionRaw } from "../_shared/summary-clean.ts";
 
 type Candidate = {
   title: string;
@@ -17,7 +17,9 @@ type Candidate = {
 };
 
 type Evidence = Candidate & { text: string };
-const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 24;
+// Kept small: the account's OpenAI tokens-per-minute limit is low, so a big burst
+// of summary calls starves the main draft pipeline. Re-scrape for more.
+const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 6;
 
 async function handleRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -189,7 +191,7 @@ async function upsertSourceCandidateArticles(
   const eligibleCandidates = candidates
     .filter((candidate) => isEligibleSmallArticleSource(topic, candidate))
     .slice(0, MAX_SMALL_ARTICLE_CARDS_PER_RUN);
-  const rows = await mapWithConcurrency(eligibleCandidates, 3, async (candidate) => {
+  const rows = await mapWithConcurrency(eligibleCandidates, 1, async (candidate) => {
     const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
     const rawContent = articleText.length >= 500 ? articleText : candidate.excerpt;
     // Professional news-writer summary via GPT (not a raw excerpt slice).
@@ -588,27 +590,8 @@ function indiaDateLabel(): string {
 }
 
 async function openAiJson(apiKey: string, model: string, system: string, user: string, maxTokens: number): Promise<Record<string, any>> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model, temperature: 0.2, max_tokens: maxTokens, response_format: { type: "json_object" },
-      messages: [{ role: "system", content: system }, { role: "user", content: user }]
-    })
-  });
-  if (!response.ok) throw new Error(await openAiErrorMessage(response));
-  const raw = (await response.json())?.choices?.[0]?.message?.content?.trim();
-  if (!raw) throw new Error("OpenAI returned an empty response");
+  // chatCompletionRaw retries on 429 (low tokens-per-minute account) and surfaces
+  // clear quota/auth errors.
+  const raw = await chatCompletionRaw(apiKey, model, system, user, maxTokens, { jsonMode: true, temperature: 0.2 });
   return JSON.parse(raw);
-}
-
-async function openAiErrorMessage(response: Response): Promise<string> {
-  const body = await response.text().catch(() => "");
-  if (response.status === 429 && body.includes("insufficient_quota")) {
-    return "OpenAI quota exceeded. Add billing credits or replace OPENAI_API_KEY with a key from an account that has available quota, then run the scraper again.";
-  }
-  if (response.status === 401) {
-    return "OpenAI API key is invalid or expired. Update OPENAI_API_KEY in Supabase secrets.";
-  }
-  return `OpenAI ${response.status}: ${body.slice(0, 220)}`;
 }

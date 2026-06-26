@@ -4,7 +4,7 @@ import { parseHTML } from "npm:linkedom@0.18.12";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { parseFeed } from "../_shared/rss.ts";
 import { CORPORATE_CASE_SOURCES } from "../_shared/corporate-case-sources.ts";
-import { summarizeForBriefing } from "../_shared/summary-clean.ts";
+import { summarizeForBriefing, chatCompletionRaw } from "../_shared/summary-clean.ts";
 
 type Candidate = {
   title: string;
@@ -23,7 +23,8 @@ type RankedCandidate = {
 };
 
 const CASE_TYPES = new Set(["listed", "startup", "consumer", "failure", "compounder"]);
-const MAX_SHORT_ARTICLE_CARDS_PER_RUN = 24;
+// Kept small: low OpenAI tokens-per-minute account. Re-scrape for more.
+const MAX_SHORT_ARTICLE_CARDS_PER_RUN = 6;
 const EDITOR_CHECKLIST = [
   "Original article link verified and still accessible.",
   "Every number traced back to the source article.",
@@ -217,7 +218,7 @@ async function upsertCorporateShortArticles(supabase: any, candidates: Candidate
   const eligible = candidates
     .filter((candidate) => isLikelyCompanyCase(candidate.title, candidate.url))
     .slice(0, MAX_SHORT_ARTICLE_CARDS_PER_RUN);
-  const rows = await mapWithConcurrency(eligible, 3, async (candidate) => {
+  const rows = await mapWithConcurrency(eligible, 1, async (candidate) => {
     const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
     const rawContent = articleText.length >= 500 ? articleText : candidate.excerpt;
     // Professional news-writer summary via GPT (not a raw excerpt slice).
@@ -549,39 +550,7 @@ async function openAiJson(
   user: string,
   maxTokens: number
 ): Promise<Record<string, any>> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      max_tokens: maxTokens,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user }
-      ]
-    })
-  });
-  if (!response.ok) {
-    throw new Error(await openAiErrorMessage(response));
-  }
-  const body = await response.json();
-  const raw = body?.choices?.[0]?.message?.content?.trim();
-  if (!raw) throw new Error("OpenAI returned an empty response");
+  // chatCompletionRaw retries on 429 (low tokens-per-minute account).
+  const raw = await chatCompletionRaw(apiKey, model, system, user, maxTokens, { jsonMode: true, temperature: 0.2 });
   return JSON.parse(raw);
-}
-
-async function openAiErrorMessage(response: Response): Promise<string> {
-  const body = await response.text().catch(() => "");
-  if (response.status === 429 && body.includes("insufficient_quota")) {
-    return "OpenAI quota exceeded. Add billing credits or replace OPENAI_API_KEY with a key from an account that has available quota, then run the scraper again.";
-  }
-  if (response.status === 401) {
-    return "OpenAI API key is invalid or expired. Update OPENAI_API_KEY in Supabase secrets.";
-  }
-  return `OpenAI ${response.status}: ${body.slice(0, 220)}`;
 }
