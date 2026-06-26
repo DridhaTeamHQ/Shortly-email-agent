@@ -1,6 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
+import {
+  normalizeCategory as normalizeNewsCategory,
+  CATEGORY_SLUGS,
+  VALID_DELIVERY_RHYTHMS,
+  VALID_SOURCE_PREFERENCES,
+  WEEKDAYS,
+} from "../_shared/news-categories.ts";
 
+// ---------- legacy plan model (kept for the old QA dashboard form) ----------
 const VALID_TOPICS = new Set([
   "daily-wrap",
   "corporate-case",
@@ -25,13 +33,12 @@ function normalizePlan(value: unknown): string {
   return VALID_PLANS.has(plan) ? plan : "daily-wrap";
 }
 
-function normalizeCategory(value: unknown): string | null {
+function normalizePlanCategory(value: unknown): string | null {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
   return [...VALID_CATEGORIES].find((cat) => cat.toLowerCase() === raw.toLowerCase()) ?? null;
 }
 
-// Keep topics[] meaningful for the subscriber list + backward compatibility.
 function topicsForPlan(plan: string, category: string | null): string[] {
   if (plan === "daily-wrap" || !category) return ["daily-wrap"];
   const slug = CATEGORY_TO_SLUG[category];
@@ -57,6 +64,73 @@ function normalizeTopics(value: unknown): string[] {
   return [...new Set(topics.length ? topics : ["daily-wrap"])];
 }
 
+// ---------- website "Build your edition" form -> topics + best-fit plan ----------
+// Maps the website category slugs (general + the topic categories) to the agent's
+// topic slugs, so the dashboard shows them and the sender can reach the reader.
+const WEBSITE_CATEGORY_TO_TOPIC: Record<string, string> = {
+  "general": "daily-wrap", "daily-wrap": "daily-wrap", "daily": "daily-wrap",
+  "corporate-case": "corporate-case", "case-studies": "corporate-case", "case-study": "corporate-case",
+  "real-estate": "real-estate", "realestate": "real-estate",
+  "policy-partner": "policy-partner", "policy": "policy-partner",
+  "money-matters": "money-matters", "money": "money-matters",
+  "wellness-daily": "wellness-daily", "wellness": "wellness-daily",
+};
+const TOPIC_TO_CATEGORY: Record<string, string> = {
+  "real-estate": "Real Estate", "policy-partner": "Policy Partner",
+  "money-matters": "Money Matters", "wellness-daily": "Wellness Daily", "corporate-case": "Corporate Case",
+};
+
+function topicsFromCategories(value: unknown): string[] {
+  const src = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[;,|]/) : [];
+  const mapped = src
+    .map((x) => String(x).trim().toLowerCase().replace(/[\s_]+/g, "-"))
+    .map((x) => WEBSITE_CATEGORY_TO_TOPIC[x])
+    .filter((x): x is string => Boolean(x) && VALID_TOPICS.has(x));
+  return [...new Set(mapped)];
+}
+
+function planCategoryForTopics(topics: string[]): { plan: string; category: string | null } {
+  const cats = topics.filter((t) => ["real-estate", "policy-partner", "money-matters", "wellness-daily"].includes(t));
+  const hasWrap = topics.includes("daily-wrap");
+  const hasCase = topics.includes("corporate-case");
+  let plan = "daily-wrap";
+  if (cats.length && hasCase) plan = "category-case";
+  else if (cats.length) plan = "wrap-category";
+  else if (hasCase) plan = "case-only";
+  else if (hasWrap) plan = "daily-wrap";
+  const category = cats.length ? TOPIC_TO_CATEGORY[cats[0]] : (plan === "case-only" ? "Corporate Case" : null);
+  return { plan, category };
+}
+
+// ---------- new consumer model (the website subscribe form) ----------
+function normalizeRhythm(value: unknown): string {
+  const r = String(value ?? "").trim().toLowerCase().replace(/\s+/g, "-");
+  const mapped = r === "biweekly" ? "bi-weekly" : r;
+  return (VALID_DELIVERY_RHYTHMS as readonly string[]).includes(mapped) ? mapped : "daily";
+}
+
+function normalizeDays(value: unknown): string[] {
+  const src = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,\s]+/) : [];
+  const out = src
+    .map((d) => String(d).trim().toLowerCase().slice(0, 3))
+    .filter((d) => (WEEKDAYS as readonly string[]).includes(d));
+  return [...new Set(out)];
+}
+
+function normalizeNewsCategories(value: unknown): string[] {
+  const src = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,|]/) : [];
+  const lowered = src.map((x) => String(x).trim().toLowerCase());
+  if (lowered.includes("all")) return [...CATEGORY_SLUGS];
+  const out = src.map((x) => normalizeNewsCategory(x)).filter((x): x is string => Boolean(x));
+  return [...new Set(out)];
+}
+
+function normalizeSourcePreference(value: unknown): string {
+  const s = String(value ?? "").trim().toLowerCase();
+  const mapped = s.startsWith("top") ? "top" : s.startsWith("mixed") ? "mixed" : s.startsWith("wide") ? "wide" : s;
+  return (VALID_SOURCE_PREFERENCES as readonly string[]).includes(mapped) ? mapped : "top";
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -67,7 +141,7 @@ Deno.serve(async (request) => {
   if (request.method === "GET") {
     const { data, error } = await supabase
       .from("subscribers")
-      .select("id,email,full_name,phone_number,topics,plan,category,status,created_at")
+      .select("id,email,full_name,phone_number,topics,plan,category,rhythm,send_days,news_categories,source_preference,status,created_at")
       .order("created_at", { ascending: false });
     if (error) return json({ error: error.message }, 500);
     return json({ subscribers: data });
@@ -77,6 +151,58 @@ Deno.serve(async (request) => {
     const body = await request.json();
     const { action } = body;
 
+    // NEW consumer subscribe (website form): rhythm + categories[] + source pref.
+    if (action === "subscribe") {
+      const { email, name, full_name } = body;
+      if (!email?.trim() || !String(email).includes("@")) return json({ error: "A valid email is required." }, 400);
+      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedName = String(name ?? full_name ?? "").trim() || null;
+
+      const rhythm = normalizeRhythm(body.rhythm);
+      const sendDays = rhythm === "weekly" ? normalizeDays(body.send_days ?? body.days) : [];
+      if (rhythm === "weekly" && sendDays.length === 0) {
+        return json({ error: "Pick at least one day for weekly delivery." }, 400);
+      }
+      // Website categories -> topic slugs (dashboard + sender) + best-fit plan/category.
+      const topics = topicsFromCategories(body.categories ?? body.topics ?? body.news_categories);
+      if (topics.length === 0) {
+        return json({ error: "Select at least one category." }, 400);
+      }
+      const { plan, category } = planCategoryForTopics(topics);
+      const sourcePreference = normalizeSourcePreference(body.source_preference ?? body.source_pref);
+
+      const { data: existing, error: existingError } = await supabase
+        .from("subscribers")
+        .select("id,status")
+        .eq("email", normalizedEmail)
+        .maybeSingle();
+      if (existingError) return json({ error: existingError.message }, 500);
+
+      const record: Record<string, unknown> = {
+        plan,
+        category,
+        topics,
+        rhythm,
+        send_days: sendDays,
+        source_preference: sourcePreference,
+        status: "subscribed",
+        updated_at: new Date().toISOString(),
+      };
+      if (normalizedName) record.full_name = normalizedName;
+
+      if (existing?.id) {
+        const { error } = await supabase.from("subscribers").update(record).eq("id", existing.id);
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true, existing: true, resubscribed: existing.status !== "subscribed" });
+      }
+
+      const { error } = await supabase
+        .from("subscribers")
+        .insert({ email: normalizedEmail, ...record });
+      if (error) return json({ error: error.message }, 400);
+      return json({ ok: true, created: true });
+    }
+
     if (action === "add") {
       const { email, full_name, phone_number } = body;
       if (!email?.trim()) return json({ error: "email is required" }, 400);
@@ -85,7 +211,7 @@ Deno.serve(async (request) => {
       const normalizedPhone = phone_number?.trim() || null;
 
       const plan = normalizePlan(body.plan);
-      const category = plan === "daily-wrap" ? null : normalizeCategory(body.category);
+      const category = plan === "daily-wrap" ? null : normalizePlanCategory(body.category);
       if (plan !== "daily-wrap" && !category) {
         return json({ error: "Please choose a category for this plan." }, 400);
       }
@@ -113,11 +239,7 @@ Deno.serve(async (request) => {
           .update(patch)
           .eq("id", existing.id);
         if (error) return json({ error: error.message }, 400);
-        return json({
-          ok: true,
-          existing: true,
-          resubscribed: existing.status !== "subscribed"
-        });
+        return json({ ok: true, existing: true, resubscribed: existing.status !== "subscribed" });
       }
 
       const { error } = await supabase
@@ -136,7 +258,7 @@ Deno.serve(async (request) => {
         const email = row?.email?.trim()?.toLowerCase() || "";
         if (!email) continue;
         const plan = normalizePlan(row?.plan);
-        const category = plan === "daily-wrap" ? null : normalizeCategory(row?.category);
+        const category = plan === "daily-wrap" ? null : normalizePlanCategory(row?.category);
         const topics = row?.topics ? normalizeTopics(row.topics) : topicsForPlan(plan, category);
         normalizedByEmail.set(email, {
           email,
@@ -171,7 +293,7 @@ Deno.serve(async (request) => {
       if ("plan" in body) {
         const plan = normalizePlan(body.plan);
         patch.plan = plan;
-        const category = plan === "daily-wrap" ? null : normalizeCategory(body.category);
+        const category = plan === "daily-wrap" ? null : normalizePlanCategory(body.category);
         patch.category = category;
         patch.topics = topicsForPlan(plan, category);
       } else if ("topics" in body) {
