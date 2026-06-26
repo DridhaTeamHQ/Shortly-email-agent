@@ -4,49 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { cleanArticleText, fetchReadableArticleText, needsFullArticleFetch } from "../_shared/article-text.ts";
-
-const SYSTEM_PROMPT = `You are the lead writer for a premium daily news briefing read by sharp, busy professionals in India. Your summaries are crisp, concrete, and respect the reader's intelligence — they read like a great human editor wrote them, not a machine.
-
-Write EXACTLY 3 sentences, 55-80 words total.
-
-Sentence 1 — the news: lead with what actually happened, naming the key people, places, numbers and dates. No throat-clearing or scene-setting.
-Sentence 2 — the substance: the single fact, cause, or detail that makes this matter, or that a reader would miss from the headline alone.
-Sentence 3 — the stakes: the concrete consequence, reaction, or what to watch next. End on something specific, never a platitude.
-
-VOICE:
-- Active voice, plain English, confident. Prefer short words to long ones.
-- Lead with specifics, and never open two summaries the same way.
-- Keep every number, percentage, currency figure, date and proper noun that appears in the source.
-- No hedging ("could", "may", "appears to", "is likely to") unless the uncertainty is itself the story.
-- Ban filler and AI tells: "in a statement", "it was reported that", "according to officials", "the move aims to", "is set to", "looks to", "in a significant development", "marks a milestone", "underscores", "it remains to be seen".
-- No editorializing, no opinions, no marketing language, no emoji, no exclamation marks, no rhetorical questions.
-- Never invent a fact, number, name or quote that is not in the source. If the excerpt is thin, summarize only what is verifiable and keep it shorter rather than padding.
-- Ignore page furniture: phone numbers, helplines, contact info, app prompts, newsletters, social prompts, copyright lines and subscription banners are not part of the story.
-
-Also classify the article into one of two newsletter sections:
-
-"wrapped" — YESTERDAY'S COMPLETED NEWS: The story is done. Something already happened in the last 24 hours.
-  Examples: a verdict was delivered, an election result came in, a company reported earnings, a deal closed, a leader made a statement, an accident occurred, a match was played, a policy was announced.
-
-"ahead" — ONGOING & DEVELOPING: The story is still unfolding right now OR is about something coming up.
-  Examples: a conflict is ongoing, negotiations are in progress, a bill is being debated, markets are reacting, an investigation is underway, a trial is continuing, a summit is upcoming, a trend is emerging, a crisis is developing, weather is expected, an election is approaching.
-
-CLASSIFICATION GUIDE — aim for a roughly even split:
-- Default to "wrapped" if the headline verb is past tense and the event is complete (announced, signed, reported, won, lost, killed, arrested, launched, released).
-- Use "ahead" only when the story is genuinely unresolved: an ongoing conflict, a pending vote, an upcoming event, continuing negotiations, or an emerging trend with no conclusion yet.
-- A statement, decision, or policy announcement that already happened is "wrapped" — even if it has future implications.
-
-Also rate the article's prominence on a scale of 1-5:
-5 = BREAKING: Major world event, huge market move, death of a head of state, natural disaster, terror attack
-4 = HIGH: Top headline on major outlets, significant policy change, major corporate news
-3 = NOTABLE: Important story likely covered by multiple outlets
-2 = STANDARD: Regular news, single-outlet story
-1 = LOW: Niche or soft feature
-
-Return a valid JSON object with exactly three keys:
-{"summary": "Your 3-sentence summary here.", "section": "wrapped", "prominence": 4}
-
-No markdown fences, no extra text. Just the JSON object.`;
+import { summarizeForBriefing } from "../_shared/summary-clean.ts";
 
 type Article = {
   id: string;
@@ -153,10 +111,9 @@ Deno.serve(async (request) => {
 });
 
 async function summarize(apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string; prominence: number }> {
-  const cleanedExcerpt = cleanArticleText(article.raw_content || "");
-  let excerpt = cleanedExcerpt;
+  let excerpt = cleanArticleText(article.raw_content || "");
 
-  if (cleanedExcerpt.length < 180 && needsFullArticleFetch(article.raw_content || "")) {
+  if (excerpt.length < 180 && needsFullArticleFetch(article.raw_content || "")) {
     try {
       const readable = await fetchReadableArticleText(article.url);
       if (readable.length > excerpt.length) excerpt = readable;
@@ -165,63 +122,12 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
     }
   }
 
-  if (excerpt.length > 2200) {
-    excerpt = `${excerpt.slice(0, 2200)}...`;
-  }
-
-  const userPrompt = [
-    `TITLE: ${article.title}`,
-    article.source ? `SOURCE: ${article.source}` : null,
-    `URL: ${article.url}`,
-    excerpt ? `EXCERPT:\n${excerpt}` : null
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.3,
-      max_tokens: 220,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userPrompt }
-      ]
-    })
+  const result = await summarizeForBriefing(apiKey, model, {
+    title: article.title,
+    source: article.source,
+    url: article.url,
+    excerpt
   });
-
-  if (!response.ok) {
-    throw new Error(await openAiErrorMessage(response));
-  }
-
-  const body = await response.json();
-  const raw = body?.choices?.[0]?.message?.content?.trim();
-  if (!raw) throw new Error("empty completion");
-
-  // Parse JSON response from GPT
-  try {
-    const parsed = JSON.parse(raw);
-    const section = parsed.section === "ahead" ? "ahead" : "wrapped";
-    const prominence = Math.min(5, Math.max(1, parseInt(parsed.prominence) || 2));
-    return { summary: parsed.summary ?? raw, section, prominence };
-  } catch {
-    // Fallback: treat entire response as summary, default to wrapped
-    return { summary: raw, section: "wrapped", prominence: 2 };
-  }
-}
-
-async function openAiErrorMessage(response: Response): Promise<string> {
-  const body = await response.text().catch(() => "");
-  if (response.status === 429 && body.includes("insufficient_quota")) {
-    return "OpenAI quota exceeded. Add billing credits or replace OPENAI_API_KEY with a key from an account that has available quota, then run the scraper again.";
-  }
-  if (response.status === 401) {
-    return "OpenAI API key is invalid or expired. Update OPENAI_API_KEY in Supabase secrets.";
-  }
-  return `OpenAI ${response.status}: ${body.slice(0, 220)}`;
+  if (!result.summary) throw new Error("empty summary after cleaning");
+  return result;
 }

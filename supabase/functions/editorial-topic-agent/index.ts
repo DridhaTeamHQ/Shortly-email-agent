@@ -4,6 +4,7 @@ import { parseHTML } from "npm:linkedom@0.18.12";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { parseFeed } from "../_shared/rss.ts";
 import { EDITORIAL_TOPICS, getEditorialTopic, type EditorialSource, type EditorialTopic } from "../_shared/editorial-topics.ts";
+import { summarizeForBriefing } from "../_shared/summary-clean.ts";
 
 type Candidate = {
   title: string;
@@ -16,7 +17,7 @@ type Candidate = {
 };
 
 type Evidence = Candidate & { text: string };
-const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 80;
+const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 24;
 
 async function handleRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -99,10 +100,10 @@ async function handleRequest(request: Request): Promise<Response> {
   if (citedCandidates.length < minimum) {
     return json({ error: `Only ${citedCandidates.length} usable cited candidates were found; ${minimum} required.`, sourceErrors }, 422);
   }
-  const sourceArticleUrls = await upsertSourceCandidateArticles(supabase, topic, citedCandidates);
-
   const openAiKey = requiredEnv("OPENAI_API_KEY");
   const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
+  const sourceArticleUrls = await upsertSourceCandidateArticles(supabase, topic, citedCandidates, openAiKey, model);
+
   const selectedUrls = await selectEvidence(openAiKey, model, topic, candidates);
   const selected = selectedUrls
     .map((selectedUrl) => candidates.find((candidate) => candidate.url === selectedUrl))
@@ -180,7 +181,9 @@ function shortArticleCategory(topic: EditorialTopic): string {
 async function upsertSourceCandidateArticles(
   supabase: any,
   topic: EditorialTopic,
-  candidates: Candidate[]
+  candidates: Candidate[],
+  openAiKey: string,
+  model: string
 ): Promise<string[]> {
   const category = shortArticleCategory(topic);
   const eligibleCandidates = candidates
@@ -189,8 +192,19 @@ async function upsertSourceCandidateArticles(
   const rows = await mapWithConcurrency(eligibleCandidates, 3, async (candidate) => {
     const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
     const rawContent = articleText.length >= 500 ? articleText : candidate.excerpt;
-    const summary = summarizeSourceText(rawContent, candidate.excerpt);
-    if (!isGoodSmallArticleCandidate(topic, candidate, rawContent, summary)) return null;
+    // Professional news-writer summary via GPT (not a raw excerpt slice).
+    let summary = "";
+    let section: "wrapped" | "ahead" = "wrapped";
+    let prominence = 2;
+    try {
+      const result = await summarizeForBriefing(openAiKey, model, {
+        title: candidate.title, source: candidate.source, url: candidate.url, excerpt: rawContent
+      });
+      summary = result.summary; section = result.section; prominence = result.prominence;
+    } catch {
+      return null; // skip rather than ship a raw excerpt
+    }
+    if (!summary || !isGoodSmallArticleCandidate(topic, candidate, rawContent, summary)) return null;
     return {
       title: candidate.title.trim().slice(0, 500),
       url: candidate.url,
@@ -199,8 +213,9 @@ async function upsertSourceCandidateArticles(
       source: candidate.source,
       topic: category,
       category,
-      section: "wrapped",
+      section,
       status: "summarized",
+      prominence,
       rank_score: candidate.sourceWeight,
       scraped_at: candidate.publishedAt ?? new Date().toISOString(),
       summarized_at: new Date().toISOString()

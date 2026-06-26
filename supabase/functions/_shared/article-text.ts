@@ -1,3 +1,5 @@
+import { stripSourceArtifacts } from "./summary-clean.ts";
+
 const INLINE_NOISE_PATTERNS = [
   /follow us on [^.?!]*/gi,
   /join (our|the) (telegram|whatsapp|facebook|instagram|x|twitter|linkedin) [^.?!]*/gi,
@@ -31,6 +33,8 @@ function isFurnitureLine(line: string): boolean {
 
 function decodeEntities(text: string): string {
   return text
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
     .replaceAll("&amp;", "&")
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
@@ -63,7 +67,9 @@ function isMostlyPhoneLine(line: string): boolean {
 }
 
 export function cleanArticleText(text: string): string {
-  const plain = removeInlineNoise(stripHtml(text))
+  // Strip CMS/agency/promo/dateline artifacts even on newline-free bodies before
+  // the line-based filters run.
+  const plain = removeInlineNoise(stripSourceArtifacts(stripHtml(text)))
     .replace(/\r/g, "\n")
     .replace(/[ \t]+/g, " ");
 

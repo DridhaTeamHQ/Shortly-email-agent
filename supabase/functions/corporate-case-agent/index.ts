@@ -4,6 +4,7 @@ import { parseHTML } from "npm:linkedom@0.18.12";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { parseFeed } from "../_shared/rss.ts";
 import { CORPORATE_CASE_SOURCES } from "../_shared/corporate-case-sources.ts";
+import { summarizeForBriefing } from "../_shared/summary-clean.ts";
 
 type Candidate = {
   title: string;
@@ -22,7 +23,7 @@ type RankedCandidate = {
 };
 
 const CASE_TYPES = new Set(["listed", "startup", "consumer", "failure", "compounder"]);
-const MAX_SHORT_ARTICLE_CARDS_PER_RUN = 80;
+const MAX_SHORT_ARTICLE_CARDS_PER_RUN = 24;
 const EDITOR_CHECKLIST = [
   "Original article link verified and still accessible.",
   "Every number traced back to the source article.",
@@ -75,9 +76,9 @@ Deno.serve(async (request) => {
   if (candidates.length === 0) {
     return json({ error: "No corporate case candidates were found", sourceErrors }, 502);
   }
-  const shortArticlesInserted = await upsertCorporateShortArticles(supabase, candidates);
   const openAiKey = requiredEnv("OPENAI_API_KEY");
   const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
+  const shortArticlesInserted = await upsertCorporateShortArticles(supabase, candidates, openAiKey, model);
 
   const { data: recent } = await supabase
     .from("corporate_cases")
@@ -212,14 +213,25 @@ async function buildCaseRow(
   };
 }
 
-async function upsertCorporateShortArticles(supabase: any, candidates: Candidate[]): Promise<number> {
+async function upsertCorporateShortArticles(supabase: any, candidates: Candidate[], openAiKey: string, model: string): Promise<number> {
   const eligible = candidates
     .filter((candidate) => isLikelyCompanyCase(candidate.title, candidate.url))
     .slice(0, MAX_SHORT_ARTICLE_CARDS_PER_RUN);
   const rows = await mapWithConcurrency(eligible, 3, async (candidate) => {
     const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
     const rawContent = articleText.length >= 500 ? articleText : candidate.excerpt;
-    const summary = summarizeSourceText(rawContent, candidate.excerpt);
+    // Professional news-writer summary via GPT (not a raw excerpt slice).
+    let summary = "";
+    let section: "wrapped" | "ahead" = "wrapped";
+    let prominence = 2;
+    try {
+      const result = await summarizeForBriefing(openAiKey, model, {
+        title: candidate.title, source: candidate.source, url: candidate.url, excerpt: rawContent
+      });
+      summary = result.summary; section = result.section; prominence = result.prominence;
+    } catch {
+      return null;
+    }
     if (!candidate.title || !candidate.url || summary.split(/\s+/).filter(Boolean).length < 35) return null;
     return {
       title: candidate.title.trim().slice(0, 500),
@@ -229,8 +241,9 @@ async function upsertCorporateShortArticles(supabase: any, candidates: Candidate
       source: candidate.source,
       topic: "Corporate Case",
       category: "Corporate Case",
-      section: "wrapped",
+      section,
       status: "summarized",
+      prominence,
       rank_score: candidate.sourceWeight,
       scraped_at: candidate.publishedAt ?? new Date().toISOString(),
       summarized_at: new Date().toISOString()
