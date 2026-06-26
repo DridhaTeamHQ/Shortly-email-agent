@@ -12,6 +12,7 @@ type DailyArticle = {
   url: string;
   source: string | null;
   topic: string | null;
+  category: string | null;
   rank_score: number | null;
   scraped_at: string;
 };
@@ -33,7 +34,7 @@ const FOOTER_LOGO_URL =
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/footer-logo.png";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
 const FORMATS = {
-  "daily-wrap-10": { dailyLimit: 5, caseLimit: 0, label: "Daily Wrap 5" },
+  "daily-wrap-10": { dailyLimit: 10, caseLimit: 0, label: "General 10 Articles" },
   "category-5-case-1": { dailyLimit: 5, caseLimit: 0, label: "Category 5 Articles", requiresCategory: true },
   "case-study-only": { dailyLimit: 0, caseLimit: 1, label: "Case Study Only" }
 } as const;
@@ -91,6 +92,9 @@ Deno.serve(async (request) => {
   const dailyArticles = config.dailyLimit > 0
     ? await resolveSelectedArticles(supabase, articleIds, config.dailyLimit)
     : [];
+  if (format === "daily-wrap-10" && dailyArticles.some((article) => article.category)) {
+    return json({ error: "General sends can include only General articles, not category-specific articles." }, 400);
+  }
   const corporateCases = config.caseLimit > 0
     ? await resolveCorporateCases(supabase, { limit: config.caseLimit, corporateCaseId })
     : [];
@@ -172,7 +176,7 @@ async function resolveSelectedArticles(supabase: any, articleIds: string[], limi
   if (articleIds.length === 0) return [];
   const { data, error } = await supabase
     .from("articles")
-    .select("id,title,edited_title,summary,edited_summary,url,source,topic,rank_score,scraped_at")
+    .select("id,title,edited_title,summary,edited_summary,url,source,topic,category,rank_score,scraped_at")
     .in("id", articleIds)
     .eq("status", "approved");
   if (error) throw new Error(error.message);
@@ -302,7 +306,7 @@ function renderDigest(input: {
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`.trim())}`;
 
   const intro = input.format === "daily-wrap-10"
-    ? "Here are the stories that deserve your attention. The biggest news, minus the noise. Grab your coffee - you'll be caught up SHORTLY!"
+    ? "Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee - you'll be caught up SHORTLY!"
     : input.format === "category-5-case-1"
       ? `Here are 5 stories from ${escapeHtml(input.category)}. The biggest updates from this bucket, minus the noise.`
       : "Here is today's Shortly case study, designed as one focused long-form read.";
@@ -317,7 +321,7 @@ function renderDigest(input: {
   }));
   const dailyLabel = input.format === "category-5-case-1" && input.category
     ? `Quick Hits. ${input.category}`
-    : "Quick Hits. Daily Wrap";
+    : "Quick Hits. General";
 
   return `
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">

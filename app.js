@@ -6,7 +6,7 @@ const AGENT_TOKEN_KEY = "shortly-agent-shared-token";
 let dashboardBooted = false;
 
 const NEWSLETTER_TOPICS = [
-  { slug: "daily-wrap", label: "Daily Wrap" },
+  { slug: "daily-wrap", label: "General" },
   { slug: "corporate-case", label: "Corporate Case" },
   { slug: "real-estate", label: "Real Estate" },
   { slug: "policy-partner", label: "Policy Partner" },
@@ -16,17 +16,18 @@ const NEWSLETTER_TOPICS = [
 const CASE_STUDY_TOPIC_SLUGS = ["corporate-case", "real-estate", "policy-partner", "money-matters", "wellness-daily"];
 const TOPIC_DRAFT_TABS = NEWSLETTER_TOPICS.filter((topic) => topic.slug !== "daily-wrap");
 
-// Two-workspace split: Short Articles (daily wrap) vs Case Studies (corporate + editorial).
+// Two-workspace split: Short Articles (general + categories) vs Case Studies (corporate + editorial).
 const WORKSPACE_KEY = "shortly-workspace";
 const DEFAULT_SECTION = { short: "review", cases: "topics" };
 function defaultSectionFor(ws) { return DEFAULT_SECTION[ws] || "review"; }
 const DIGEST_FORMATS = {
   "daily-wrap-10": {
-    label: "Daily Wrap 5",
-    dailyMin: 5,
-    dailyLimit: 5,
+    label: "General 10 Articles",
+    dailyMin: 10,
+    dailyLimit: 10,
     caseLimit: 0,
-    hint: "Email sends up to 5 approved stories. Case studies are sent separately from the Case Studies workspace.",
+    generalOnly: true,
+    hint: "Pick 10 approved General stories. Category-specific articles and case studies are sent separately.",
   },
   "category-5-case-1": {
     label: "Category 5 Articles",
@@ -78,7 +79,7 @@ function topicLabel(slug) {
 }
 
 function digestFormatConfig() {
-  return DIGEST_FORMATS[state.digestFormat] || DIGEST_FORMATS["category-5-case-1"];
+  return DIGEST_FORMATS[state.digestFormat] || DIGEST_FORMATS["daily-wrap-10"];
 }
 
 function dailyDigestKey(id) {
@@ -119,14 +120,14 @@ const CATEGORY_TO_SLUG = {
 };
 
 // Scrape fresh content for one category/topic on demand.
-//  - "" / Daily Wrap  -> general scrape-news + summarize
+//  - "" / General     -> general scrape-news + summarize
 //  - corporate-case   -> corporate-case-agent
 //  - editorial topics -> editorial-topic-agent { topic }
 async function scrapeForCategory(category) {
   if (!category) {
     const scrapeRes = await api("POST", cfg.scrape, {});
     const sumRes = await api("POST", cfg.summarize, {});
-    return `Daily Wrap: scraped ${scrapeRes.inserted ?? scrapeRes.scraped ?? 0} new, summarized ${sumRes.summarized ?? 0}.`;
+    return `General: scraped ${scrapeRes.inserted ?? scrapeRes.scraped ?? 0} new, summarized ${sumRes.summarized ?? 0}.`;
   }
   const slug = CATEGORY_TO_SLUG[category] || category;
   if (slug === "corporate-case") {
@@ -325,7 +326,7 @@ const state = {
   casesSendMode: "case-study-only",
   casesTopic: "corporate-case",
   shortCategory: "",
-  digestFormat: "category-5-case-1",
+  digestFormat: "daily-wrap-10",
   digestCategory: "",
   search: "",
   filterTopic: "",
@@ -346,6 +347,9 @@ function approvedTodayCount() {
 function articleCategory(article) {
   const category = article.category || article.topic || "";
   return SHORT_CATEGORIES.includes(category) ? category : "";
+}
+function isGeneralArticle(article) {
+  return !articleCategory(article);
 }
 function approvedTodayInCategory(cat) {
   return state.articles.filter((a) => isApprovedToday(a) && articleCategory(a) === (cat || "")).length;
@@ -411,6 +415,15 @@ function sortedApprovedDailyArticles(category = "") {
     );
 }
 
+function sortedApprovedGeneralArticles() {
+  return state.articles
+    .filter((a) => isApprovedToday(a) && isGeneralArticle(a))
+    .sort((a, b) =>
+      (Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0)) ||
+      (new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime())
+    );
+}
+
 function sortedSummarizedDailyArticles(category = "") {
   return state.articles
     .filter((a) => a.status === "summarized" && isScrapedToday(a) && (!category || articleCategory(a) === category))
@@ -460,6 +473,11 @@ function syncDigestSelections() {
   }
 
   const format = digestFormatConfig();
+  if (format.generalOnly) {
+    for (const article of selectedDigestDailyArticles()) {
+      if (!isGeneralArticle(article)) state.digestSelections.daily.delete(article.id);
+    }
+  }
   if (format.needsCategory && state.digestCategory) {
     for (const article of selectedDigestDailyArticles()) {
       if (articleCategory(article) !== state.digestCategory) state.digestSelections.daily.delete(article.id);
@@ -475,6 +493,7 @@ function resolveDigestComposition() {
   const format = digestFormatConfig();
   const category = format.needsCategory ? state.digestCategory : "";
   const selectedDaily = selectedDigestDailyArticles()
+    .filter((article) => !format.generalOnly || isGeneralArticle(article))
     .filter((article) => !category || articleCategory(article) === category)
     .slice(0, format.dailyLimit || 0);
   const selectedCorporate = selectedDigestCorporateCases().slice(0, format.caseLimit || 0);
@@ -486,7 +505,7 @@ function resolveDigestComposition() {
   // Never auto-fill from un-approved/summarized articles — that is what leaked old
   // and unreviewed content into past sends.
   const fillTarget = Math.max(0, (format.dailyMin || 0) - selectedDaily.length);
-  const approvedAutoDaily = sortedApprovedDailyArticles(category)
+  const approvedAutoDaily = (format.generalOnly ? sortedApprovedGeneralArticles() : sortedApprovedDailyArticles(category))
     .filter((article) => !pickedDailyIds.has(article.id))
     .slice(0, fillTarget);
   const autoCorporate = sortedApprovedCorporateCases()
@@ -569,7 +588,7 @@ function updateSubscriberSelectionUi() {
       ? "All Corporate Case subscribers will receive this digest"
       : state.section === "email-builder" && digestFormatConfig().needsCategory && state.digestCategory
         ? `All ${state.digestCategory} subscribers will receive this article email`
-      : "All Daily Wrap subscribers will receive the digest";
+    : "All General subscribers will receive the digest";
     label.textContent = count > 0
       ? `${count} recipient${count === 1 ? "" : "s"} selected`
       : defaultAudienceLabel;
@@ -838,10 +857,10 @@ function renderApproved() {
       ? items.map((a) => cardHtml(a, "approved")).join("")
       : `<p class="muted" style="margin:0 0 14px">No ${esc(c)} articles selected yet.</p>`;
   }
-  // Uncategorised approved (general daily wrap), only in the "All" view.
+  // General approved stories, only in the "All" view.
   if (!state.shortCategory) {
-    const unc = approved.filter((a) => !articleCategory(a));
-    if (unc.length) html += `<h3 class="approved-group-title">Uncategorised</h3>${unc.map((a) => cardHtml(a, "approved")).join("")}`;
+    const general = approved.filter(isGeneralArticle);
+    if (general.length) html += `<h3 class="approved-group-title">General — ${general.length} approved</h3>${general.map((a) => cardHtml(a, "approved")).join("")}`;
   }
   node.innerHTML = html || `<p class="muted">Nothing approved yet.</p>`;
 }
@@ -858,10 +877,12 @@ function renderEmailBuilder() {
     return;
   }
   const category = plan.category || state.digestCategory || "";
-  const items = sortedApprovedDailyArticles(category);
+  const items = digestFormatConfig().generalOnly
+    ? sortedApprovedGeneralArticles()
+    : sortedApprovedDailyArticles(category);
   node.innerHTML = items.length
     ? items.map((a) => cardHtml(a, "email")).join("")
-    : `<p class="muted">No approved ${category ? esc(category) : "article"} items available for email selection.</p>`;
+    : `<p class="muted">No approved ${digestFormatConfig().generalOnly ? "General" : category ? esc(category) : "article"} items available for email selection.</p>`;
 }
 
 function renderRejected() {
@@ -1407,16 +1428,16 @@ async function runAiPipeline({ force = false, showProgress = true } = {}) {
   try {
     setProgress("Scraping feeds...");
     const scrapeRes = await api("POST", cfg.scrape, {});
-    lines.push(`Daily Wrap: scraped ${scrapeRes.scraped ?? 0} articles, ${scrapeRes.inserted ?? 0} new.`);
+    lines.push(`General: scraped ${scrapeRes.scraped ?? 0} articles, ${scrapeRes.inserted ?? 0} new.`);
 
     setProgress("Summarizing...");
     const sumRes = await api("POST", cfg.summarize, {});
-    lines.push(`Daily Wrap: summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, failed ${sumRes.failed ?? 0}.`);
+    lines.push(`General: summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, failed ${sumRes.failed ?? 0}.`);
 
     if (sumRes.failed > 0) {
       setProgress(`Retry (${sumRes.failed} remaining)...`);
       const retryRes = await api("POST", cfg.summarize, {});
-      lines.push(`Daily Wrap retry: ${retryRes.summarized ?? 0} more summarized.`);
+      lines.push(`General retry: ${retryRes.summarized ?? 0} more summarized.`);
     }
 
     if (cfg.corporateCase) {
@@ -1587,6 +1608,10 @@ function toggleDigestSelection(kind, id, checked) {
     if (!article) return;
     if (format.dailyLimit === 0) {
       toast("This format does not use daily articles.");
+      return;
+    }
+    if (format.generalOnly && !isGeneralArticle(article)) {
+      toast("Pick only General articles for this format.");
       return;
     }
     if (format.needsCategory && state.digestCategory && articleCategory(article) !== state.digestCategory) {
@@ -1825,7 +1850,7 @@ function generatePreviewHtml() {
 
   const introText = state.section === "email-builder"
     ? {
-        "daily-wrap-10": "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!",
+        "daily-wrap-10": "Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!",
         "category-5-case-1": `Here are 5 stories from ${esc(plan.category || "today's focus")}. The biggest updates from this bucket, minus the noise.`,
         "case-study-only": "Here is today's Shortly case study, designed as one focused long-form read."
       }[state.digestFormat]
@@ -1838,10 +1863,10 @@ function generatePreviewHtml() {
     })
     .join(" ");
   const wordCount = allText.split(/\s+/).filter(Boolean).length;
-  const categoryLabel = plan.category || "Daily Wrap";
+  const categoryLabel = plan.category || "General";
   const dailyLabel = state.section === "email-builder" && state.digestFormat === "category-5-case-1"
     ? `Quick Hits. ${esc(categoryLabel)}`
-    : "Quick Hits. Daily Wrap";
+    : "Quick Hits. General";
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><base href="${previewBaseUrl}"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet"></head>
   <body style="margin:0;background:#fcfbf7;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
@@ -2009,7 +2034,7 @@ $$(".short-cat-tabs").forEach((bar) => bar.addEventListener("click", (e) => {
 $("#scrapeReviewBtn")?.addEventListener("click", async () => {
   const btn = $("#scrapeReviewBtn");
   const txt = $("#scrapeReviewText");
-  const label = state.shortCategory || "Daily Wrap";
+  const label = state.shortCategory || "General";
   const restore = state.shortCategory ? `Scrape ${state.shortCategory}` : "Scrape news";
   btn.disabled = true;
   txt.innerHTML = `<span class="spinner"></span> Scraping ${esc(label)}...`;
@@ -2232,18 +2257,18 @@ $("#fetchToday").addEventListener("click", async () => {
     // Step 1: Scrape RSS feeds
     btnText.innerHTML = `<span class="spinner"></span> Scraping feeds...`;
     const scrapeRes = await api("POST", cfg.scrape, {});
-    lines.push(`Daily Wrap: scraped ${scrapeRes.scraped ?? 0} articles, ${scrapeRes.inserted ?? 0} new.`);
+    lines.push(`General: scraped ${scrapeRes.scraped ?? 0} articles, ${scrapeRes.inserted ?? 0} new.`);
 
     // Step 2: Summarize with GPT-4o
     btnText.innerHTML = `<span class="spinner"></span> Summarizing...`;
     const sumRes = await api("POST", cfg.summarize, {});
-    lines.push(`Daily Wrap: summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, failed ${sumRes.failed ?? 0}.`);
+    lines.push(`General: summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, failed ${sumRes.failed ?? 0}.`);
 
     // Step 3: Second summarize pass for rate-limited articles
     if (sumRes.failed > 0) {
       btnText.innerHTML = `<span class="spinner"></span> Retry (${sumRes.failed} remaining)...`;
       const retryRes = await api("POST", cfg.summarize, {});
-      lines.push(`Daily Wrap retry: ${retryRes.summarized ?? 0} more summarized.`);
+      lines.push(`General retry: ${retryRes.summarized ?? 0} more summarized.`);
     }
 
     // Step 4: Run the category/case-study AI agents.

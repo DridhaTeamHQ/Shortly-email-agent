@@ -143,6 +143,7 @@
                 <label class="digest-field">
                   <span>Format</span>
                   <select id="digestFormatSelect">
+                    <option value="daily-wrap-10">General 10 Articles</option>
                     <option value="category-5-case-1">Category 5 Articles</option>
                     <option value="case-study-only">1 Case Study</option>
                   </select>
@@ -157,7 +158,7 @@
               </div>
               <p class="muted" id="digestComposerHint" style="margin:0 0 8px;font-size:13px"></p>
               <div class="digest-slot-bar">
-                <span id="digestSlotStatus">Article emails send up to 5 approved stories. Case studies are sent separately.</span>
+                <span id="digestSlotStatus">General emails send up to 10 approved stories. Case studies are sent separately.</span>
               </div>
             </div>
           </div>
@@ -298,7 +299,7 @@
               <input type="checkbox" id="subSelectAll" />
               <span>Select all subscribed</span>
             </label>
-            <span id="subscriberBulkCount">All Daily Wrap subscribers will receive the digest</span>
+            <span id="subscriberBulkCount">All General subscribers will receive the digest</span>
             <button id="clearRecipientSelection" class="btn-ghost" type="button">Clear selection</button>
           </div>
           <div class="table-wrap">
@@ -314,7 +315,7 @@
           <div class="fetch-today-card">
             <div class="fetch-today-info">
               <h3 style="margin:0 0 4px">Run today's AI pipeline</h3>
-              <p class="muted" style="margin:0;font-size:13px">Scrape and summarize Daily Wrap, then build Corporate Case and all topic editions.</p>
+              <p class="muted" style="margin:0;font-size:13px">Scrape and summarize General, then build Corporate Case and all topic editions.</p>
             </div>
             <button class="btn-primary btn-fetch" id="fetchToday">
               <span id="fetchBtnText">Run full pipeline</span>
