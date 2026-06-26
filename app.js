@@ -124,7 +124,7 @@ const CATEGORY_TO_SLUG = {
 //  - corporate-case   -> corporate-case-agent
 //  - editorial topics -> editorial-topic-agent { topic }
 async function scrapeForCategory(category) {
-  if (!category) {
+  if (!category || category === "General") {
     const scrapeRes = await api("POST", cfg.scrape, {});
     const sumRes = await api("POST", cfg.summarize, {});
     return `General: scraped ${scrapeRes.inserted ?? scrapeRes.scraped ?? 0} new, summarized ${sumRes.summarized ?? 0}.`;
@@ -325,7 +325,7 @@ const state = {
   casesApprovedTopic: "corporate-case",
   casesSendMode: "case-study-only",
   casesTopic: "corporate-case",
-  shortCategory: "",
+  shortCategory: "General",
   digestFormat: "daily-wrap-10",
   digestCategory: "",
   search: "",
@@ -350,6 +350,16 @@ function articleCategory(article) {
 }
 function isGeneralArticle(article) {
   return !articleCategory(article);
+}
+function articleMatchesShortCategory(article, category = state.shortCategory) {
+  if (!category || category === "General") return isGeneralArticle(article);
+  return articleCategory(article) === category;
+}
+function approvedTodayInShortCategory(category = state.shortCategory) {
+  return state.articles.filter((a) => isApprovedToday(a) && articleMatchesShortCategory(a, category)).length;
+}
+function pendingInShortCategory(category = state.shortCategory) {
+  return state.articles.filter((a) => a.status === "summarized" && articleMatchesShortCategory(a, category)).length;
 }
 function approvedTodayInCategory(cat) {
   return state.articles.filter((a) => isApprovedToday(a) && articleCategory(a) === (cat || "")).length;
@@ -381,7 +391,7 @@ function filteredArticles(statusFilter) {
   }
   // Short Articles category nav bar (set by the editorial agents, not per-card).
   if (state.shortCategory) {
-    items = items.filter((a) => articleCategory(a) === state.shortCategory);
+    items = items.filter((a) => articleMatchesShortCategory(a));
   }
   if (state.filterSection) {
     items = items.filter((a) => (a.section || "wrapped") === state.filterSection);
@@ -617,8 +627,8 @@ function refreshChrome() {
 
   // Per-category counts when a category tab is active in Short Articles.
   const cat = state.shortCategory;
-  const pendingHere = cat ? state.articles.filter((a) => a.status === "summarized" && articleCategory(a) === cat).length : pending;
-  const approvedHere = cat ? approvedTodayInCategory(cat) : approved;
+  const pendingHere = cat ? pendingInShortCategory(cat) : pending;
+  const approvedHere = cat ? approvedTodayInShortCategory(cat) : approved;
   const emailSelectedCount = resolveDigestComposition().dailyArticles.length;
   $("#badgeReview").textContent = pendingHere;
   $("#badgeApproved").textContent = approvedHere;
@@ -675,7 +685,7 @@ function refreshChrome() {
 
   const reviewSub = cat
     ? `${cat}: ${approvedHere} approved | ${pendingHere} pending`
-    : `${approved} approved | ${pending} pending across all categories`;
+    : `${approved} approved | ${pending} pending across all buckets`;
   const titles = {
     review: ["Review queue", reviewSub],
     approved: ["Approved Pool", `${approvedHere} website-ready approved item${approvedHere === 1 ? "" : "s"}`],
@@ -831,7 +841,7 @@ function renderReview() {
   const items = filteredArticles("summarized");
   const node = $("#reviewList");
   const approvedHere = state.shortCategory
-    ? state.articles.filter((a) => isApprovedToday(a) && articleCategory(a) === state.shortCategory).length
+    ? approvedTodayInShortCategory(state.shortCategory)
     : 0;
   const emptyMessage = state.shortCategory && approvedHere > 0
     ? `All available ${esc(state.shortCategory)} articles are approved. Open Approved to review or send them.`
@@ -848,7 +858,7 @@ function renderApproved() {
   const node = $("#approvedList");
   if (!node) return;
   const approved = state.articles.filter(isApprovedToday);
-  const cats = state.shortCategory ? [state.shortCategory] : SHORT_CATEGORIES;
+  const cats = state.shortCategory && state.shortCategory !== "General" ? [state.shortCategory] : [];
   let html = "";
   for (const c of cats) {
     const items = approved.filter((a) => articleCategory(a) === c);
@@ -857,10 +867,11 @@ function renderApproved() {
       ? items.map((a) => cardHtml(a, "approved")).join("")
       : `<p class="muted" style="margin:0 0 14px">No ${esc(c)} articles selected yet.</p>`;
   }
-  // General approved stories, only in the "All" view.
-  if (!state.shortCategory) {
+  // General approved stories.
+  if (!state.shortCategory || state.shortCategory === "General") {
     const general = approved.filter(isGeneralArticle);
     if (general.length) html += `<h3 class="approved-group-title">General — ${general.length} approved</h3>${general.map((a) => cardHtml(a, "approved")).join("")}`;
+    if (!general.length) html += `<h3 class="approved-group-title">General — 0 approved</h3><p class="muted" style="margin:0 0 14px">No General articles selected yet.</p>`;
   }
   node.innerHTML = html || `<p class="muted">Nothing approved yet.</p>`;
 }
