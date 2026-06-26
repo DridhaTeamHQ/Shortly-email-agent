@@ -167,18 +167,7 @@ Deno.serve(async (request) => {
     return json({ mode: "recipients", sent, failed, results: out });
   }
 
-  // ---- 2. Load subscribers ----
-  let subQuery = supabase
-    .from("subscribers")
-    .select("id,email,full_name,plan,category")
-    .eq("status", "subscribed");
-  if (subscriberIds.length > 0) subQuery = subQuery.in("id", subscriberIds);
-  const { data: subs, error: subError } = await subQuery;
-  if (subError) return json({ error: subError.message }, 500);
-  const subscribers = (subs ?? []) as Subscriber[];
-  if (subscribers.length === 0) return json({ error: "No subscribers" }, 400);
-
-  // ---- 3. Build + send per subscriber ----
+  // ---- 2. Create the digest (shared by the account + legacy sends) ----
   const { data: digest, error: digestError } = await supabase
     .from("digests")
     .insert({ article_ids: [], recipients: 0 })
@@ -190,12 +179,76 @@ Deno.serve(async (request) => {
   const usedArticleIds = new Set<string>();
   const usedCorporateIds = new Set<string>();
   const usedEditorialIds = new Set<string>();
-
   let sent = 0;
   let failed = 0;
   let skipped = 0;
   const planTally: Record<string, number> = {};
   const subjectDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
+
+  const markUsed = (sel: Selection) => {
+    sel.wrap.forEach((a) => usedArticleIds.add(a.id));
+    sel.shorts.forEach((a) => usedArticleIds.add(a.id));
+    if (sel.caseStudy) {
+      if (sel.caseStudy.kind === "corporate") usedCorporateIds.add(sel.caseStudy.id);
+      else usedEditorialIds.add(sel.caseStudy.id);
+    }
+  };
+
+  // ---- 2a. ACCOUNT subscribers (website /subscribe -> newsletter_subscriptions).
+  // Each product the reader picked is sent as its OWN email; weekly category briefs
+  // go out only on the chosen weekday (IST). Their emails are excluded from the
+  // legacy branch below so nobody is double-sent. Skipped for targeted
+  // (subscriber_ids) sends, which address the legacy subscribers table directly.
+  const accountEmails = new Set<string>();
+  if (subscriberIds.length === 0) {
+    const { data: accountSubs } = await supabase
+      .from("newsletter_subscriptions")
+      .select("user_id,category_slug,newsletter_type,weekday,case_study_categories")
+      .eq("status", "active");
+    const subsList = (accountSubs ?? []) as Array<Record<string, any>>;
+    const uids = [...new Set(subsList.map((s) => s.user_id as string))];
+    const profMap: Record<string, { email: string; full_name: string | null }> = {};
+    if (uids.length > 0) {
+      const { data: profs } = await supabase.from("profiles").select("id,email,full_name").in("id", uids);
+      for (const p of (profs ?? []) as Array<Record<string, any>>) {
+        if (p.email) profMap[p.id] = { email: p.email, full_name: p.full_name ?? null };
+      }
+    }
+    for (const p of Object.values(profMap)) accountEmails.add(p.email);
+    const today = istWeekday();
+    const jobs = subsList.filter((s) => profMap[s.user_id as string]);
+    for (let i = 0; i < jobs.length; i += 5) {
+      const batch = jobs.slice(i, i + 5);
+      const results = await Promise.all(batch.map(async (s) => {
+        const prof = profMap[s.user_id as string];
+        const built = buildAccountEmail(s, today, subjectDate, wrapPool, categoryPool, caseStudies);
+        if (!built) { skipped += 1; return null; }
+        const html = renderShell(prof.full_name, built.intro, built.sections);
+        const result = await sendEmail({ to: testEmail ?? prof.email, subject: built.subject, html });
+        await supabase.from("article_deliveries").insert({
+          digest_id: digestId, subscriber_id: null, email: testEmail ?? prof.email,
+          status: result.ok ? "sent" : "failed", provider_message_id: result.messageId ?? null, error: result.error ?? null,
+        });
+        if (result.ok && !testEmail) markUsed(built.selection);
+        if (result.ok) planTally[built.tally] = (planTally[built.tally] ?? 0) + 1;
+        return result.ok;
+      }));
+      sent += results.filter((r) => r === true).length;
+      failed += results.filter((r) => r === false).length;
+    }
+  }
+
+  // ---- 2b. LEGACY subscribers (subscribers table) minus anyone already handled
+  // via their website account.
+  let subQuery = supabase
+    .from("subscribers")
+    .select("id,email,full_name,plan,category")
+    .eq("status", "subscribed");
+  if (subscriberIds.length > 0) subQuery = subQuery.in("id", subscriberIds);
+  const { data: subs, error: subError } = await subQuery;
+  if (subError) return json({ error: subError.message }, 500);
+  const subscribers = ((subs ?? []) as Subscriber[])
+    .filter((s) => subscriberIds.length > 0 || !accountEmails.has(s.email));
 
   const batchSize = 5;
   for (let i = 0; i < subscribers.length; i += batchSize) {
@@ -203,33 +256,18 @@ Deno.serve(async (request) => {
     const results = await Promise.all(batch.map(async (sub) => {
       const plan = (sub.plan ?? "daily-wrap").trim();
       const selection = selectFor(plan, sub.category, sub.category, wrapPool, categoryPool, caseStudies);
-
       if (selection.wrap.length === 0 && selection.shorts.length === 0 && !selection.caseStudy) {
         skipped += 1;
-        return null; // nothing approved for this subscriber's plan today
+        return null;
       }
-
       const subject = buildSubject(plan, sub.category, subjectDate);
       const html = renderEmail(sub, plan, selection);
       const result = await sendEmail({ to: testEmail ?? sub.email, subject, html });
-
       await supabase.from("article_deliveries").insert({
-        digest_id: digestId,
-        subscriber_id: sub.id,
-        email: testEmail ?? sub.email,
-        status: result.ok ? "sent" : "failed",
-        provider_message_id: result.messageId ?? null,
-        error: result.error ?? null,
+        digest_id: digestId, subscriber_id: sub.id, email: testEmail ?? sub.email,
+        status: result.ok ? "sent" : "failed", provider_message_id: result.messageId ?? null, error: result.error ?? null,
       });
-
-      if (result.ok && !testEmail) {
-        selection.wrap.forEach((a) => usedArticleIds.add(a.id));
-        selection.shorts.forEach((a) => usedArticleIds.add(a.id));
-        if (selection.caseStudy) {
-          if (selection.caseStudy.kind === "corporate") usedCorporateIds.add(selection.caseStudy.id);
-          else usedEditorialIds.add(selection.caseStudy.id);
-        }
-      }
+      if (result.ok && !testEmail) markUsed(selection);
       if (result.ok) planTally[plan] = (planTally[plan] ?? 0) + 1;
       return result.ok;
     }));
@@ -237,7 +275,7 @@ Deno.serve(async (request) => {
     failed += results.filter((r) => r === false).length;
   }
 
-  // ---- 4. Mark used content as sent (skip when this was a test) ----
+  // ---- 3. Mark used content as sent (skip when this was a test) ----
   if (!testEmail) {
     if (usedArticleIds.size > 0) {
       await supabase.from("articles")
@@ -257,11 +295,89 @@ Deno.serve(async (request) => {
   }
 
   await supabase.from("digests")
-    .update({ article_ids: [...usedArticleIds], recipients: subscribers.length - skipped, sent, failed })
+    .update({ article_ids: [...usedArticleIds], recipients: sent, sent, failed })
     .eq("id", digestId);
 
-  return json({ digestId, recipients: subscribers.length, sent, failed, skipped, plans: planTally, test: Boolean(testEmail) });
+  return json({ digestId, sent, failed, skipped, accountSubscribers: accountEmails.size, plans: planTally, test: Boolean(testEmail) });
 });
+
+function istWeekday(): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", weekday: "long" })
+    .format(new Date())
+    .toLowerCase();
+}
+
+const SLUG_TO_CATEGORY: Record<string, string> = {
+  "real-estate": "Real Estate",
+  "policy-partner": "Policy Partner",
+  "money-matters": "Money Matters",
+  "wellness-daily": "Wellness Daily",
+  "corporate-case": "Corporate Case",
+};
+
+type BuiltEmail = { subject: string; intro: string; sections: string; selection: Selection; tally: string };
+
+// One newsletter_subscriptions row -> one product email (or null to skip).
+function buildAccountEmail(
+  s: Record<string, any>,
+  today: string,
+  subjectDate: string,
+  wrapPool: Article[],
+  categoryPool: Record<string, Article[]>,
+  caseStudies: Record<string, CaseStudy>,
+): BuiltEmail | null {
+  const type = String(s.newsletter_type ?? "");
+
+  if (type === "news_rhythm") {
+    const wrap = wrapPool.slice(0, WRAP_COUNT);
+    if (wrap.length === 0) return null;
+    const selection: Selection = { wrap, shorts: [], caseStudy: null, shortsCategory: null };
+    return {
+      subject: `${subjectDate} - Shortly Daily Headlines`,
+      intro: `Here are today's ${wrap.length} biggest stories, minus the noise. You'll be caught up SHORTLY!`,
+      sections: renderSection("Quick Hits. Daily Wrap", "#6d28d9", wrap),
+      selection,
+      tally: "daily-headlines",
+    };
+  }
+
+  if (type === "case_study_daily") {
+    const prefs = Array.isArray(s.case_study_categories) ? (s.case_study_categories as string[]) : [];
+    let cs: CaseStudy | null = null;
+    for (const slug of prefs) {
+      const name = SLUG_TO_CATEGORY[slug];
+      if (name && caseStudies[name]) { cs = caseStudies[name]; break; }
+    }
+    if (!cs) cs = caseStudies["Corporate Case"] ?? null;
+    if (!cs) return null;
+    const selection: Selection = { wrap: [], shorts: [], caseStudy: cs, shortsCategory: null };
+    return {
+      subject: `${subjectDate} - Shortly Case Study`,
+      intro: `Today's case study - one story worth understanding properly.`,
+      sections: renderCaseStudy(cs),
+      selection,
+      tally: "case-study",
+    };
+  }
+
+  if (type === "category_small_articles") {
+    if (String(s.weekday ?? "") !== today) return null; // weekly cadence: only on the chosen day
+    const name = SLUG_TO_CATEGORY[String(s.category_slug ?? "")];
+    if (!name) return null;
+    const shorts = (categoryPool[name] ?? []).slice(0, CATEGORY_SPLIT);
+    if (shorts.length === 0) return null;
+    const selection: Selection = { wrap: [], shorts, caseStudy: null, shortsCategory: name };
+    return {
+      subject: `${subjectDate} - Shortly ${name} Weekly Briefing`,
+      intro: `Your weekly ${escapeHtml(name)} briefing: ${shorts.length} updates worth knowing.`,
+      sections: renderSection(`${name} Briefs`, "#b45309", shorts),
+      selection,
+      tally: `weekly-${name}`,
+    };
+  }
+
+  return null;
+}
 
 // ---------- content selection ----------
 
@@ -422,9 +538,6 @@ function renderCaseStudy(cs: CaseStudy): string {
 }
 
 function renderEmail(sub: Subscriber, plan: string, selection: Selection): string {
-  const greeting = sub.full_name ? `Hi ${escapeHtml(sub.full_name)},` : "Hi there,";
-  const intro = introFor(plan, selection);
-
   let sections = "";
   if (plan === "wrap-category") {
     sections += renderSection("Quick Hits. Daily Wrap", "#6d28d9", selection.wrap);
@@ -437,7 +550,11 @@ function renderEmail(sub: Subscriber, plan: string, selection: Selection): strin
   } else {
     sections += renderSection("Quick Hits. Daily Wrap", "#6d28d9", selection.wrap);
   }
+  return renderShell(sub.full_name, introFor(plan, selection), sections);
+}
 
+function renderShell(fullName: string | null, intro: string, sections: string): string {
+  const greeting = fullName ? `Hi ${escapeHtml(fullName)},` : "Hi there,";
   const shareUrl = SITE_URL ? `${SITE_URL}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
   const shareMessage = "Click here to subscribe to Shortly:";
   const twitterUrl = shareUrl
