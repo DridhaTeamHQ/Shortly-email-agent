@@ -1,14 +1,14 @@
 -- Bridge the website's account model (newsletter_subscriptions, written by the
--- daily-mattr /subscribe page) to the email agent's send source (subscribers).
--- On any change to a user's account subscriptions, recompute their subscribers
--- row so send-newsletter emails them. The 3 website products are best-fit mapped
--- onto the agent's single plan+category model:
---   Daily Headlines (news_rhythm)        -> "wrap"
---   Weekly Category (category_small_articles, with weekday) -> "category shorts"
---   Daily Case Study (case_study_daily)  -> "case"
--- Plan: cat+case -> category-case; wrap/none+cat -> wrap-category;
---       case only -> case-only; else -> daily-wrap.
--- Manual-only subscribers (no account rows) never trigger this, so they are safe.
+-- daily-mattr /subscribe page) to the email agent's subscribers table. On any
+-- change to a user's account subscriptions, recompute their subscribers row so
+-- the dashboard reflects them and send-newsletter can reach them.
+--
+-- subscribers.topics holds the dashboard's topic SLUGS for EVERY product the user
+-- is subscribed to: daily-wrap (General), corporate-case, real-estate,
+-- policy-partner, money-matters, wellness-daily. (send-newsletter itself reads
+-- newsletter_subscriptions directly for per-product sends; topics drives the
+-- dashboard display + counts.) Best-fit plan/category retained for legacy paths.
+-- Manual-only subscribers (no account rows) never trigger this, so they're safe.
 
 create or replace function public.sync_account_to_subscriber()
 returns trigger
@@ -26,7 +26,7 @@ declare
   v_cat_slugs text[];
   v_send_days text[];
   v_news_cats text[];
-  v_case_cats text[];
+  v_topics text[];
   v_primary_category text;
   v_plan text;
   v_status text;
@@ -63,12 +63,17 @@ begin
   from public.newsletter_subscriptions
   where user_id = v_user and status = 'active' and newsletter_type = 'news_rhythm';
 
-  select coalesce(case_study_categories, '{}')
-  into v_case_cats
+  -- Dashboard topic slugs for EVERY active product.
+  select coalesce(array_remove(array_agg(distinct
+    case
+      when newsletter_type = 'news_rhythm' then 'daily-wrap'
+      when newsletter_type = 'case_study_daily' then 'corporate-case'
+      when newsletter_type = 'category_small_articles' then category_slug
+    end
+  ), null), '{}')
+  into v_topics
   from public.newsletter_subscriptions
-  where user_id = v_user and status = 'active' and newsletter_type = 'case_study_daily'
-  order by updated_at desc
-  limit 1;
+  where user_id = v_user and status = 'active';
 
   v_primary_category := case
     when array_length(v_cat_slugs, 1) >= 1
@@ -93,7 +98,7 @@ begin
     (email, full_name, status, plan, category, send_days, news_categories, topics, updated_at)
   values
     (v_email, v_name, v_status, v_plan, v_primary_category,
-     coalesce(v_send_days, '{}'), coalesce(v_news_cats, '{}'), coalesce(v_case_cats, '{}'), now())
+     coalesce(v_send_days, '{}'), coalesce(v_news_cats, '{}'), coalesce(v_topics, '{}'), now())
   on conflict (email) do update set
     full_name = coalesce(excluded.full_name, public.subscribers.full_name),
     status = excluded.status,
