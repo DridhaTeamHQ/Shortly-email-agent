@@ -22,6 +22,7 @@ type RankedCandidate = {
 };
 
 const CASE_TYPES = new Set(["listed", "startup", "consumer", "failure", "compounder"]);
+const MAX_SHORT_ARTICLE_CARDS_PER_RUN = 80;
 const EDITOR_CHECKLIST = [
   "Original article link verified and still accessible.",
   "Every number traced back to the source article.",
@@ -69,13 +70,14 @@ Deno.serve(async (request) => {
     return json({ case: data });
   }
 
-  const openAiKey = requiredEnv("OPENAI_API_KEY");
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
   const sourceErrors: Array<{ source: string; error: string }> = [];
   const candidates = await collectCandidates(sourceErrors);
   if (candidates.length === 0) {
     return json({ error: "No corporate case candidates were found", sourceErrors }, 502);
   }
+  const shortArticlesInserted = await upsertCorporateShortArticles(supabase, candidates);
+  const openAiKey = requiredEnv("OPENAI_API_KEY");
+  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
 
   const { data: recent } = await supabase
     .from("corporate_cases")
@@ -95,6 +97,7 @@ Deno.serve(async (request) => {
     return json({
       error: "No company-focused case study with enough evidence was found in the current source pool.",
       scanned: selectionPool.length,
+      shortArticlesInserted,
       sourceErrors
     }, 422);
   }
@@ -126,6 +129,7 @@ Deno.serve(async (request) => {
     return json({
       error: "Candidates were found, but none exposed enough public source text for an evidence-based case study.",
       scanned: selectionPool.length,
+      shortArticlesInserted,
       sourceErrors,
       failures: failures.slice(0, 10)
     }, 422);
@@ -140,6 +144,7 @@ Deno.serve(async (request) => {
   return json({
     cases: data ?? [],
     inserted: data?.length ?? 0,
+    shortArticlesInserted,
     scanned: candidates.length,
     freshCandidates: freshCandidates.length,
     sourceErrors,
@@ -205,6 +210,77 @@ async function buildCaseRow(
     generated_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };
+}
+
+async function upsertCorporateShortArticles(supabase: any, candidates: Candidate[]): Promise<number> {
+  const eligible = candidates
+    .filter((candidate) => isLikelyCompanyCase(candidate.title, candidate.url))
+    .slice(0, MAX_SHORT_ARTICLE_CARDS_PER_RUN);
+  const rows = await mapWithConcurrency(eligible, 3, async (candidate) => {
+    const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
+    const rawContent = articleText.length >= 500 ? articleText : candidate.excerpt;
+    const summary = summarizeSourceText(rawContent, candidate.excerpt);
+    if (!candidate.title || !candidate.url || summary.split(/\s+/).filter(Boolean).length < 35) return null;
+    return {
+      title: candidate.title.trim().slice(0, 500),
+      url: candidate.url,
+      raw_content: rawContent.slice(0, 12000),
+      summary,
+      source: candidate.source,
+      topic: "Corporate Case",
+      category: "Corporate Case",
+      section: "wrapped",
+      status: "summarized",
+      rank_score: candidate.sourceWeight,
+      scraped_at: candidate.publishedAt ?? new Date().toISOString(),
+      summarized_at: new Date().toISOString()
+    };
+  });
+  const validRows = rows.filter((row): row is NonNullable<typeof row> => Boolean(row));
+  if (validRows.length === 0) return 0;
+  const { data, error } = await supabase
+    .from("articles")
+    .upsert(validRows, { onConflict: "url", ignoreDuplicates: true })
+    .select("id");
+  if (error) throw new Error(error.message);
+  return data?.length ?? validRows.length;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const mapped = await Promise.all(batch.map((item, offset) => mapper(item, i + offset)));
+    results.push(...mapped);
+  }
+  return results;
+}
+
+function summarizeSourceText(rawContent: string, fallback: string): string {
+  const cleaned = String(rawContent || fallback || "")
+    .replace(/\s+/g, " ")
+    .replace(/^(listen to this article|read this article|advertisement)\b[:\s-]*/i, "")
+    .trim();
+  if (!cleaned) return "";
+  const sentences = cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 20);
+  const picked: string[] = [];
+  let words = 0;
+  for (const sentence of sentences) {
+    const count = sentence.split(/\s+/).filter(Boolean).length;
+    if (words >= 90 && picked.length >= 2) break;
+    picked.push(sentence);
+    words += count;
+    if (words >= 130) break;
+  }
+  const summary = (picked.length ? picked.join(" ") : cleaned).trim();
+  return summary.split(/\s+/).slice(0, 140).join(" ");
 }
 
 async function collectCandidates(sourceErrors: Array<{ source: string; error: string }>): Promise<Candidate[]> {
