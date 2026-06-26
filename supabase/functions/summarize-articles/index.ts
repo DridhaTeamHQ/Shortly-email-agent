@@ -68,8 +68,9 @@ Deno.serve(async (request) => {
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-  // Pull recent pending articles — only last 10 hours for freshness
-  const since = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
+  // Pull recent pending articles from the last 24 hours so QA has a deeper
+  // General pool while still avoiding old articles in today's email workflow.
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data: pending, error } = await supabase
     .from("articles")
     .select("id,title,url,raw_content,source,rank_score,scraped_at")
@@ -109,7 +110,7 @@ Deno.serve(async (request) => {
     .map((r) => {
       const a = articles.find((x) => x.id === r.id)!;
       const ageHours = (now - new Date(a.scraped_at).getTime()) / 3_600_000;
-      const freshness = Math.max(0, 1 - ageHours / 10);
+      const freshness = Math.max(0, 1 - ageHours / 24);
       // Score = 40% source weight + 30% prominence + 30% freshness
       const prominenceNorm = (r.prominence ?? 2) / 5;
       const score = Number(a.rank_score ?? 0) * 0.4 + prominenceNorm * 0.3 + freshness * 0.3;
@@ -137,9 +138,9 @@ Deno.serve(async (request) => {
   }
 
   // No demotion. Every article we summarize this run goes to `summarized` and STAYS
-  // on the website for QA. Each 3h run scrapes fresh headlines and summarizes a capped
+  // on the website for QA. Each run scrapes fresh headlines and summarizes the
   // batch of the highest-ranked ones; whatever isn't summarized simply ages out of the
-  // 10h freshness window on the next run — it is never parked in a growing backlog and
+  // 24h freshness window on the next run - it is never parked in a growing backlog and
   // never pulled back off the site. Editorial category briefs are inserted already
   // `summarized` by their own agents/triggers and are untouched here.
 

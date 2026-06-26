@@ -76,6 +76,8 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
       { name: "LiveLaw", url: "https://www.livelaw.in/", weight: 0.95, kind: "html" },
       { name: "Indian Express Explained", url: "https://indianexpress.com/section/explained/feed/", weight: 0.9 },
       { name: "ThePrint Explained", url: "https://theprint.in/category/explainers/", weight: 0.85, kind: "html" },
+      { name: "The Hindu National", url: "https://www.thehindu.com/news/national/feeder/default.rss", weight: 0.85 },
+      { name: "BusinessLine Policy", url: "https://www.thehindubusinessline.com/economy/policy/feeder/default.rss", weight: 0.85 },
       { name: "RBI", url: "https://www.rbi.org.in/scripts/RSS.aspx?Id=2000", weight: 1 }
     ]
   },
@@ -100,7 +102,9 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
     sources: [
       { name: "Mint Money", url: "https://www.livemint.com/rss/money", weight: 1 },
       { name: "Moneycontrol", url: moneycontrolLatest, weight: 0.95, accepts: (url) => /moneycontrol\.com\/news\/(business|personal-finance)/i.test(url) },
-      { name: "Business Standard Finance", url: "https://www.business-standard.com/rss/finance-103.rss", weight: 0.9 },
+      { name: "BusinessLine Markets", url: "https://www.thehindubusinessline.com/markets/feeder/default.rss", weight: 0.9 },
+      { name: "BusinessLine Banking", url: "https://www.thehindubusinessline.com/money-and-banking/feeder/default.rss", weight: 0.9 },
+      { name: "ET Wealth", url: "https://economictimes.indiatimes.com/wealth/rssfeeds/837555174.cms", weight: 0.85 },
       { name: "Capitalmind", url: "https://premium.capitalmind.in/feed", weight: 0.9 },
       { name: "Zerodha Varsity", url: "https://zerodha.com/varsity/feed/", weight: 0.85 },
       { name: "RBI", url: "https://www.rbi.org.in/scripts/RSS.aspx?Id=2000", weight: 1 },

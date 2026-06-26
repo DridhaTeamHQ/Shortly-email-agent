@@ -16,7 +16,7 @@ type Candidate = {
 };
 
 type Evidence = Candidate & { text: string };
-const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 40;
+const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 80;
 
 async function handleRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -239,10 +239,10 @@ function isGoodSmallArticleCandidate(topic: EditorialTopic, candidate: Candidate
 function isEligibleSmallArticleSource(topic: EditorialTopic, candidate: Candidate): boolean {
   if (candidate.compassOnly) return false;
   if (topic.slug === "money-matters") {
-    return new Set(["Mint Money", "Moneycontrol", "Business Standard Finance"]).has(candidate.source);
+    return new Set(["Mint Money", "Moneycontrol", "BusinessLine Markets", "BusinessLine Banking", "ET Wealth"]).has(candidate.source);
   }
   if (topic.slug === "policy-partner") {
-    return new Set(["Bar & Bench", "Indian Express Explained", "LiveLaw", "ThePrint Explained"]).has(candidate.source);
+    return new Set(["Bar & Bench", "Indian Express Explained", "LiveLaw", "ThePrint Explained", "The Hindu National", "BusinessLine Policy"]).has(candidate.source);
   }
   return true;
 }

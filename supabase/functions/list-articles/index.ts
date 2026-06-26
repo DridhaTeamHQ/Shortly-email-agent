@@ -10,7 +10,7 @@ Deno.serve(async (request) => {
 
   const url = new URL(request.url);
   const status = url.searchParams.get("status") ?? "summarized";
-  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "60", 10) || 60, 200);
+  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "60", 10) || 60, 1000);
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
   let query = supabase
