@@ -26,8 +26,12 @@ Deno.serve(async (request) => {
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-  // Pull recent pending articles from the last 24 hours so QA has a deeper
-  // General pool while still avoiding old articles in today's email workflow.
+  // Pull recent pending articles from the last 24 hours, highest-ranked first.
+  // HARD CAP per invocation: summarizing is the slow, rate-limited step (OpenAI
+  // ~30k TPM), so we never process more than MAX_PER_RUN in one call — that keeps
+  // the function comfortably inside the edge time budget and avoids 504s. Anything
+  // beyond the cap is picked up on the next run or ages out of the 24h window.
+  const MAX_PER_RUN = 30;
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data: pending, error } = await supabase
     .from("articles")
@@ -35,7 +39,8 @@ Deno.serve(async (request) => {
     .eq("status", "pending")
     .gte("scraped_at", since)
     .order("rank_score", { ascending: false })
-    .order("scraped_at", { ascending: false });
+    .order("scraped_at", { ascending: false })
+    .limit(MAX_PER_RUN);
 
   if (error) return json({ error: error.message }, 500);
 
@@ -121,6 +126,10 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
       // Keep the cleaned RSS excerpt if page extraction fails.
     }
   }
+
+  // Cap the excerpt so the prompt stays compact — a brief only needs the lede, and
+  // smaller prompts keep a full run within the OpenAI rate budget (avoids 504s).
+  if (excerpt.length > 1800) excerpt = excerpt.slice(0, 1800);
 
   const result = await summarizeForBriefing(apiKey, model, {
     title: article.title,

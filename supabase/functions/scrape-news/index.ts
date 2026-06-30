@@ -60,16 +60,25 @@ Deno.serve(async (request) => {
     return true;
   });
 
+  // Cap each run to the 30 highest-ranked items so we never flood the pipeline.
+  // The summarizer downstream is rate-limited (30k TPM) and must finish inside the
+  // edge time budget — a smaller, higher-quality batch keeps it from timing out.
+  const SCRAPE_LIMIT = 30;
+  const ranked = unique
+    .slice()
+    .sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0))
+    .slice(0, SCRAPE_LIMIT);
+
   let inserted = 0;
-  if (unique.length > 0) {
+  if (ranked.length > 0) {
     // upsert on url so re-scrapes are no-ops for existing articles
     const { data, error } = await supabase
       .from("articles")
-      .upsert(unique, { onConflict: "url", ignoreDuplicates: true })
+      .upsert(ranked, { onConflict: "url", ignoreDuplicates: true })
       .select("id");
     if (error) return json({ error: error.message, errors }, 500);
     inserted = data?.length ?? 0;
   }
 
-  return json({ scraped: scraped.length, dropped, unique: unique.length, inserted, errors });
+  return json({ scraped: scraped.length, dropped, unique: unique.length, considered: ranked.length, inserted, errors });
 });
