@@ -14,11 +14,16 @@ const stripCdata = (s: string) => s.replace(/<!\[CDATA\[/g, "").replace(/\]\]>/g
 const stripTags = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 const decode = (s: string) =>
   s
+    // Numeric entities first (e.g. &#8217; -> ’, &#x2019; -> ’), then named ones.
+    .replace(/&#(\d+);/g, (m, n) => { try { return String.fromCodePoint(Number(n)); } catch { return m; } })
+    .replace(/&#x([0-9a-fA-F]+);/g, (m, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return m; } })
+    .replaceAll("&rsquo;", "’").replaceAll("&lsquo;", "‘")
+    .replaceAll("&ldquo;", "“").replaceAll("&rdquo;", "”")
+    .replaceAll("&mdash;", "—").replaceAll("&ndash;", "–").replaceAll("&hellip;", "…")
     .replaceAll("&amp;", "&")
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
     .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'")
     .replaceAll("&apos;", "'")
     .replaceAll("&nbsp;", " ");
 

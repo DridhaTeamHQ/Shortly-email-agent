@@ -215,8 +215,18 @@ async function buildCaseRow(
 }
 
 async function upsertCorporateShortArticles(supabase: any, candidates: Candidate[], openAiKey: string, model: string): Promise<number> {
+  // Skip URLs we already have so each run summarizes genuinely NEW cases.
+  const recentSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: existingRows } = await supabase
+    .from("articles")
+    .select("url")
+    .eq("category", "Corporate Case")
+    .gte("scraped_at", recentSince)
+    .limit(5000);
+  const existingUrls = new Set((existingRows ?? []).map((r: any) => r.url as string));
   const eligible = candidates
     .filter((candidate) => isLikelyCompanyCase(candidate.title, candidate.url))
+    .filter((candidate) => !existingUrls.has(candidate.url))
     .slice(0, MAX_SHORT_ARTICLE_CARDS_PER_RUN);
   const rows = await mapWithConcurrency(eligible, 1, async (candidate) => {
     const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");

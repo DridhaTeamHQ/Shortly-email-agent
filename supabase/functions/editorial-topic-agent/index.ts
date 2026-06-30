@@ -188,8 +188,19 @@ async function upsertSourceCandidateArticles(
   model: string
 ): Promise<string[]> {
   const category = shortArticleCategory(topic);
+  // Skip URLs we already have for this category so each run summarizes genuinely
+  // NEW short articles, instead of re-doing the same recent few every time.
+  const recentSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: existingRows } = await supabase
+    .from("articles")
+    .select("url")
+    .eq("category", category)
+    .gte("scraped_at", recentSince)
+    .limit(5000);
+  const existingUrls = new Set((existingRows ?? []).map((r: any) => r.url as string));
   const eligibleCandidates = candidates
     .filter((candidate) => isEligibleSmallArticleSource(topic, candidate))
+    .filter((candidate) => !existingUrls.has(candidate.url))
     .slice(0, MAX_SMALL_ARTICLE_CARDS_PER_RUN);
   const rows = await mapWithConcurrency(eligibleCandidates, 1, async (candidate) => {
     const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
@@ -228,7 +239,7 @@ async function upsertSourceCandidateArticles(
   if (validRows.length === 0) return [];
   const { error } = await supabase
     .from("articles")
-    .upsert(validRows, { onConflict: "url" });
+    .upsert(validRows, { onConflict: "url", ignoreDuplicates: true });
   if (error) throw new Error(error.message);
   return validRows.map((row) => row.url);
 }
