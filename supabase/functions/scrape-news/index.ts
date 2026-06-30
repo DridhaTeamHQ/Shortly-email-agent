@@ -63,14 +63,24 @@ Deno.serve(async (request) => {
   // Drop URLs we already have so the cap is spent on genuinely NEW stories.
   // (Otherwise the top-ranked slots are always the same high-weight sources we
   // already scraped, and nothing fresh ever gets inserted.)
-  const urls = unique.map((r) => r.url as string);
+  // NOTE: build the existing-URL set by PAGINATING — PostgREST caps any single
+  // select at 1000 rows, and a chunked `.in(url, [...])` over hundreds of long
+  // URLs overflows the query string. Either silently misses existing URLs, so
+  // duplicates leak into the "new" set and waste the cap. RSS only carries recent
+  // items, so a 14-day window catches every realistic duplicate.
+  const recentSince = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const existing = new Set<string>();
-  for (let i = 0; i < urls.length; i += 200) {
+  const PAGE = 1000;
+  for (let from = 0; from < 50000; from += PAGE) {
     const { data: ex } = await supabase
       .from("articles")
       .select("url")
-      .in("url", urls.slice(i, i + 200));
-    (ex ?? []).forEach((r) => existing.add(r.url as string));
+      .gte("scraped_at", recentSince)
+      .order("scraped_at", { ascending: false })
+      .range(from, from + PAGE - 1);
+    if (!ex || ex.length === 0) break;
+    for (const r of ex) existing.add(r.url as string);
+    if (ex.length < PAGE) break;
   }
   const fresh = unique.filter((r) => !existing.has(r.url as string));
 
