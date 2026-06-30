@@ -1,5 +1,8 @@
-// summarize-articles: take recent `pending` articles, summarize with GPT-4o,
-// promote top 50 of the day to `summarized` (ready for QA review).
+// summarize-articles: summarize a small batch of the highest-ranked recent
+// `pending` articles and promote them to `summarized` (ready for QA review).
+// The batch is hard-capped (MAX_PER_RUN) so each run stays short — long runs
+// hog the shared edge runtime and starve other dashboard calls (causing 502/CORS
+// on list-articles), besides hitting the OpenAI rate limit.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
@@ -22,7 +25,12 @@ Deno.serve(async (request) => {
   const supabaseUrl = requiredEnv("SUPABASE_URL");
   const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
   const openAiKey = requiredEnv("OPENAI_API_KEY");
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
+  // General briefs run on gpt-4o-mini: the account's gpt-4o cap (~30k TPM) makes
+  // batch summarization slow and 429-prone, which times out / starves the dashboard.
+  // Mini has a far higher rate limit and is much faster; the long-form Corporate
+  // Cases & topic features keep gpt-4o via their own functions. Override with
+  // SUMMARIZE_MODEL if needed.
+  const model = Deno.env.get("SUMMARIZE_MODEL") ?? "gpt-4o-mini";
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
@@ -48,7 +56,7 @@ Deno.serve(async (request) => {
   if (articles.length === 0) return json({ summarized: 0, message: "No pending articles" });
 
   // Summarize in parallel (capped) to keep within edge time budget
-  const CONCURRENCY = 2;
+  const CONCURRENCY = 4;
   const results: Array<{ id: string; summary: string | null; section: string; prominence: number; error?: string }> = [];
 
   for (let i = 0; i < articles.length; i += CONCURRENCY) {

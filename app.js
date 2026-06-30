@@ -1451,7 +1451,7 @@ async function runAiPipeline({ force = false, showProgress = true } = {}) {
 
     setProgress("Summarizing...");
     const sumRes = await api("POST", cfg.summarize, {});
-    lines.push(`General: summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, failed ${sumRes.failed ?? 0}.`);
+    lines.push(`General: summarized ${sumRes.summarized ?? 0}, failed ${sumRes.failed ?? 0}.`);
 
     if (sumRes.failed > 0) {
       setProgress(`Retry (${sumRes.failed} remaining)...`);
@@ -2280,7 +2280,7 @@ $("#fetchToday").addEventListener("click", async () => {
     // Step 2: Summarize with GPT-4o
     btnText.innerHTML = `<span class="spinner"></span> Summarizing...`;
     const sumRes = await api("POST", cfg.summarize, {});
-    lines.push(`General: summarized ${sumRes.summarized ?? 0}, Top 50: ${sumRes.top_50 ?? 0}, failed ${sumRes.failed ?? 0}.`);
+    lines.push(`General: summarized ${sumRes.summarized ?? 0}, failed ${sumRes.failed ?? 0}.`);
 
     // Step 3: Second summarize pass for rate-limited articles
     if (sumRes.failed > 0) {
