@@ -30,7 +30,6 @@ window.SHORTLY = {
   subscribers: "${functionsBase}/subscribers",
   scrape:      "${functionsBase}/scrape-news",
   summarize:   "${functionsBase}/summarize-articles",
-  corporateCase: "${functionsBase}/corporate-case-agent",
   editorialTopics: "${functionsBase}/editorial-topic-agent",
   verifyToken: "${functionsBase}/verify-agent-token",
   siteUrl:     "${siteUrl}",

@@ -17,6 +17,8 @@ type DailyArticle = {
   scraped_at: string;
   reviewed_at: string | null;
 };
+// Case studies now come from editorial_drafts (corporate_cases is retired);
+// rows are mapped into this shape so the renderer stays unchanged.
 type CorporateCase = {
   id: string;
   headline: string;
@@ -189,40 +191,54 @@ async function resolveSelectedArticles(supabase: any, articleIds: string[], limi
     .slice(0, limit);
 }
 
+function mapDraftToCase(d: Record<string, any>): CorporateCase {
+  return {
+    id: d.id,
+    headline: d.headline ?? d.topic_name ?? "",
+    summary: d.summary ?? "",
+    detail: d.detail ?? "",
+    source_url: d.primary_source_url ?? "",
+    source: d.primary_source_title ?? null,
+    generated_at: d.generated_at,
+  };
+}
+
+const DRAFT_SELECT = "id,topic_slug,topic_name,headline,summary,detail,primary_source_url,primary_source_title,generated_at";
+
 async function resolveCorporateCases(supabase: any, input: { limit: number; corporateCaseId: string }): Promise<CorporateCase[]> {
   const selected = input.corporateCaseId ? await fetchSelectedCorporateCase(supabase, input.corporateCaseId) : [];
   if (selected.length >= input.limit) return selected.slice(0, input.limit);
 
   const usedIds = new Set(selected.map((item) => item.id));
   const { data, error } = await supabase
-    .from("corporate_cases")
-    .select("id,headline,summary,detail,source_url,source,generated_at")
+    .from("editorial_drafts")
+    .select(DRAFT_SELECT)
     .eq("status", "approved")
     .order("generated_at", { ascending: false })
     .limit(input.limit + 4);
   if (error) throw new Error(error.message);
-  const extras = ((data ?? []) as CorporateCase[]).filter((item) => !usedIds.has(item.id));
+  const extras = (data ?? []).map(mapDraftToCase).filter((item: CorporateCase) => !usedIds.has(item.id));
   return [...selected, ...extras].slice(0, input.limit);
 }
 
 async function fetchSelectedCorporateCase(supabase: any, id: string): Promise<CorporateCase[]> {
   const { data, error } = await supabase
-    .from("corporate_cases")
-    .select("id,headline,summary,detail,source_url,source,generated_at")
+    .from("editorial_drafts")
+    .select(DRAFT_SELECT)
     .eq("id", id)
     .eq("status", "approved");
   if (error) throw new Error(error.message);
-  return (data ?? []) as CorporateCase[];
+  return (data ?? []).map(mapDraftToCase);
 }
 
 function normalizeTopicSlug(value = ""): string {
   const slug = String(value).trim().toLowerCase().replace(/[\s_]+/g, "-");
   if (["daily", "shortly", "shortly-daily-wrap"].includes(slug)) return "daily-wrap";
-  if (["corporate", "case-study"].includes(slug)) return "corporate-case";
   if (["realestate", "property"].includes(slug)) return "real-estate";
-  if (slug === "policy") return "policy-partner";
-  if (["money", "finance"].includes(slug)) return "money-matters";
-  if (["wellness", "health"].includes(slug)) return "wellness-daily";
+  if (["auto", "cars", "automotive"].includes(slug)) return "automobile";
+  if (["wellness", "health", "wellness-daily"].includes(slug)) return "health-wellness";
+  if (["tech", "technology", "ai"].includes(slug)) return "tech-ai";
+  if (["money", "finance", "money-matters", "markets", "startups"].includes(slug)) return "markets-startups";
   return slug;
 }
 
@@ -235,7 +251,7 @@ async function loadSubscribers(supabase: any, format: DigestFormat, subscriberId
   if (subscriberIds.length > 0) {
     query = query.in("id", subscriberIds);
   } else if (format === "case-study-only") {
-    query = query.contains("topics", ["corporate-case"]);
+    query = query.overlaps("topics", ["real-estate", "automobile", "health-wellness", "tech-ai", "markets-startups"]);
   } else if (format === "category-5-case-1") {
     query = query.contains("topics", [normalizeTopicSlug(category)]);
   } else {

@@ -16,10 +16,18 @@ type Candidate = {
   compassOnly: boolean;
 };
 
-type Evidence = Candidate & { text: string };
+type RankedCandidate = {
+  url: string;
+  angle?: string;
+  selection_reason?: string;
+};
+
 // Kept small: the account's OpenAI tokens-per-minute limit is low, so a big burst
 // of summary calls starves the main draft pipeline. Re-scrape for more.
 const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 6;
+// Target UP TO 3 single case-study drafts per topic run (each write + at most one
+// repair). Keeps per-run gpt-4o calls modest on a ~30k TPM account.
+const MAX_CASE_DRAFTS_PER_RUN = 3;
 
 async function handleRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -54,6 +62,8 @@ async function handleRequest(request: Request): Promise<Response> {
     if (body.action === "update") {
       const content = { ...(current.content ?? {}) };
       const cardType = String(body.card_type ?? "single");
+      // Legacy hybrid rows may still exist in the table; preserve the ability to
+      // edit their briefs. New rows are always format:'single'.
       if (current.format === "hybrid" && cardType === "brief") {
         const index = Number(body.brief_index);
         const briefs = Array.isArray(content.briefs) ? [...content.briefs] : [];
@@ -97,66 +107,112 @@ async function handleRequest(request: Request): Promise<Response> {
 
   const sourceErrors: Array<{ source: string; error: string }> = [];
   const candidates = await collectCandidates(topic, sourceErrors);
+  // Cited candidates only (Reddit is compass-only and never a case-study source).
   const citedCandidates = candidates.filter((item) => !item.compassOnly);
-  const minimum = topic.format === "hybrid" ? 4 : 1;
-  if (citedCandidates.length < minimum) {
-    return json({ error: `Only ${citedCandidates.length} usable cited candidates were found; ${minimum} required.`, sourceErrors }, 422);
+  if (citedCandidates.length === 0) {
+    return json({ error: "No usable cited candidates were found for this topic.", sourceErrors }, 422);
   }
+
   const openAiKey = requiredEnv("OPENAI_API_KEY");
   const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
+
+  // Short-article generation into the articles table (category = topic name).
   const sourceArticleUrls = await upsertSourceCandidateArticles(supabase, topic, citedCandidates, openAiKey, model);
-
-  const selectedUrls = await selectEvidence(openAiKey, model, topic, candidates);
-  const selected = selectedUrls
-    .map((selectedUrl) => candidates.find((candidate) => candidate.url === selectedUrl))
-    .filter((candidate): candidate is Candidate => Boolean(candidate));
-  const evidence = await buildEvidence(selected, topic.format === "hybrid" ? 8 : 4);
-  const citedEvidence = evidence.filter((item) => !item.compassOnly);
-  if (citedEvidence.length < minimum) {
-    return json({ error: "Selected stories did not expose enough source text for a source-bound draft.", selected: selectedUrls, sourceErrors }, 422);
-  }
-
-  let content = await writeDraft(openAiKey, model, topic, evidence);
-  content = enforceSafety(topic, content);
-  if (!validDraft(topic, content)) {
-    content = enforceSafety(topic, await repairDraft(openAiKey, model, topic, evidence, content));
-  }
-  if (needsExpansion(topic, content)) {
-    content = enforceSafety(topic, await expandDraft(openAiKey, model, topic, evidence, content));
-  }
-  if (needsExpansion(topic, content)) {
-    content = enforceSafety(topic, await expandDraft(openAiKey, model, topic, evidence, content));
-  }
-  if (!validDraft(topic, content)) {
-    return json({ error: "Draft failed the topic's structure or safety validation.", validation: validationReport(topic, content) }, 422);
-  }
-
-  const primary = citedEvidence[0];
-  const sourceLinks = citedEvidence.map((item) => ({ title: item.title, source: item.source, url: item.url }));
-  const row = {
-    topic_slug: topic.slug,
-    topic_name: topic.name,
-    format: topic.format,
-    headline: String(content.headline ?? content.feature?.headline ?? "").trim(),
-    summary: topic.format === "single" ? String(content.summary ?? "").trim() : String(content.feature?.summary ?? "").trim(),
-    detail: topic.format === "single" ? String(content.detail ?? "").trim() : String(content.feature?.detail ?? "").trim(),
-    briefing_items: topic.format === "hybrid" ? content.briefs : [],
-    content,
-    source_links: sourceLinks,
-    primary_source_url: primary.url,
-    primary_source_title: primary.title,
-    editor_checklist: topic.checklist,
-    inference_notes: Array.isArray(content.inference_notes) ? content.inference_notes : [],
-    status: "draft",
-    generated_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  };
-  const { data, error } = await supabase.from("editorial_drafts").insert(row).select("*").single();
-  if (error) return json({ error: error.message }, 500);
-
   const shortArticlesInserted = await countArticlesByUrl(supabase, sourceArticleUrls);
 
-  return json({ draft: data, shortArticlesInserted, scanned: candidates.length, sourcesUsed: sourceLinks.length, sourceErrors });
+  // Dedup vs recent editorial_drafts primary sources (last 30 days) so each run
+  // produces genuinely NEW case studies.
+  const recentSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: recent } = await supabase
+    .from("editorial_drafts")
+    .select("primary_source_url")
+    .eq("topic_slug", topic.slug)
+    .gte("generated_at", recentSince);
+  const recentUrls = new Set((recent ?? []).map((row: any) => row.primary_source_url as string));
+  const freshCandidates = citedCandidates.filter((candidate) => !recentUrls.has(candidate.url));
+  const selectionPool = freshCandidates.length > 0 ? freshCandidates : citedCandidates;
+
+  // Rank/select the strongest candidates for this topic.
+  const ranked = await rankCandidates(openAiKey, model, topic, selectionPool);
+  const candidatesByUrl = new Map(selectionPool.map((candidate) => [candidate.url, candidate]));
+  const rankedUrls = ranked
+    .map((item) => item.url)
+    .filter((rankedUrl) => candidatesByUrl.has(rankedUrl));
+  // If the ranker returned nothing usable, fall back to the freshest pool order.
+  const orderedUrls = rankedUrls.length > 0
+    ? [...new Set(rankedUrls)]
+    : selectionPool.map((candidate) => candidate.url);
+
+  const rows: Array<Record<string, unknown>> = [];
+  const failures: Array<{ url: string; error: string }> = [];
+
+  // Write UP TO MAX_CASE_DRAFTS_PER_RUN single case studies under the full bar.
+  for (const candidateUrl of orderedUrls) {
+    if (rows.length >= MAX_CASE_DRAFTS_PER_RUN) break;
+    const candidate = candidatesByUrl.get(candidateUrl);
+    if (!candidate) continue;
+    const articleText = await fetchPublicArticleText(candidate.url).catch((error) => {
+      failures.push({ url: candidate.url, error: String(error) });
+      return "";
+    });
+    const usableText = articleText.length >= 1800 ? articleText : candidate.excerpt;
+    if (usableText.length < 700) {
+      failures.push({ url: candidate.url, error: "Not enough public source text" });
+      continue;
+    }
+    const selectionMeta = ranked.find((item) => item.url === candidateUrl) ?? { url: candidateUrl };
+    try {
+      const row = await buildCaseRow(openAiKey, model, topic, candidate, usableText, selectionMeta);
+      rows.push(row);
+    } catch (error) {
+      failures.push({ url: candidate.url, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  // NEVER EMPTY: if nothing cleared the full bar, write at least one case study
+  // from the best available candidate under a relaxed (but still strictly
+  // source-bound) structure bar, so every run produces something.
+  if (rows.length === 0) {
+    const fallbackPool = selectionPool.length > 0 ? selectionPool : citedCandidates;
+    for (const candidate of fallbackPool.slice(0, 5)) {
+      const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
+      const usableText = articleText.length >= 800 ? articleText : candidate.excerpt;
+      if (usableText.length < 300) continue;
+      const selectionMeta = ranked.find((item) => item.url === candidate.url) ?? { url: candidate.url };
+      try {
+        rows.push(await buildCaseRow(openAiKey, model, topic, candidate, usableText, selectionMeta, true));
+        break;
+      } catch (error) {
+        failures.push({ url: candidate.url, error: "fallback: " + (error instanceof Error ? error.message : String(error)) });
+      }
+    }
+  }
+
+  if (rows.length === 0) {
+    return json({
+      error: "Candidates were found, but none exposed enough public source text for a source-bound case study.",
+      scanned: selectionPool.length,
+      shortArticlesInserted,
+      sourceErrors,
+      failures: failures.slice(0, 10)
+    }, 422);
+  }
+
+  const { data, error } = await supabase
+    .from("editorial_drafts")
+    .insert(rows)
+    .select("*");
+  if (error) return json({ error: error.message }, 500);
+
+  return json({
+    drafts: data ?? [],
+    inserted: data?.length ?? 0,
+    shortArticlesInserted,
+    scanned: candidates.length,
+    freshCandidates: freshCandidates.length,
+    sourceErrors,
+    failures: failures.slice(0, 10)
+  });
 }
 
 Deno.serve(async (request) => {
@@ -168,15 +224,70 @@ Deno.serve(async (request) => {
   }
 });
 
+async function buildCaseRow(
+  apiKey: string,
+  model: string,
+  topic: EditorialTopic,
+  candidate: Candidate,
+  sourceText: string,
+  selectionMeta: RankedCandidate,
+  relaxed = false
+): Promise<Record<string, unknown>> {
+  let draft = await writeCase(apiKey, model, topic, candidate, sourceText, selectionMeta);
+  draft = enforceSafety(topic, draft);
+  if (!draftMeetsStructure(topic, draft)) {
+    draft = enforceSafety(topic, await repairCase(apiKey, model, topic, candidate, sourceText, selectionMeta, draft));
+  }
+  // Normal runs enforce the full structure; the never-empty fallback accepts a
+  // shorter, still source-bound draft so a run never yields zero case studies.
+  if (relaxed ? !draftMeetsRelaxed(topic, draft) : !draftMeetsStructure(topic, draft)) {
+    throw new Error(`Generated case failed structure for ${candidate.title}: summary_words=${words(draft.summary)}, detail_words=${words(draft.detail)}`);
+  }
+
+  const headline = String(draft.headline ?? candidate.title ?? "").trim() || candidate.title;
+  const summary = String(draft.summary ?? "").trim();
+  const detail = String(draft.detail ?? "").trim();
+  const inferenceNotes = Array.isArray(draft.inference_notes) ? draft.inference_notes : [];
+
+  const content: Record<string, unknown> = {
+    headline,
+    summary,
+    detail,
+    source_url: candidate.url,
+    inference_notes: inferenceNotes,
+    selection_reason: String(selectionMeta.selection_reason ?? draft.selection_reason ?? "").trim() || null,
+    angle: String(selectionMeta.angle ?? draft.angle ?? "").trim() || null
+  };
+
+  const sourceLinks = [{ title: candidate.title, source: candidate.source, url: candidate.url }];
+
+  return {
+    topic_slug: topic.slug,
+    topic_name: topic.name,
+    format: "single",
+    headline,
+    summary,
+    detail,
+    briefing_items: [],
+    content,
+    source_links: sourceLinks,
+    primary_source_url: candidate.url,
+    primary_source_title: candidate.title,
+    editor_checklist: topic.checklist,
+    inference_notes: inferenceNotes,
+    status: "draft",
+    generated_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+}
+
 function topicMeta(topic: EditorialTopic) {
   return { slug: topic.slug, name: topic.name, format: topic.format, cadence: topic.cadence, description: topic.description };
 }
 
+// Topic names now double as the articles.category value ("Real Estate",
+// "Automobile", "Health & Wellness", "Tech & AI", "Markets & Startups").
 function shortArticleCategory(topic: EditorialTopic): string {
-  if (topic.slug === "real-estate") return "Real Estate";
-  if (topic.slug === "policy-partner") return "Policy Partner";
-  if (topic.slug === "money-matters") return "Money Matters";
-  if (topic.slug === "wellness-daily") return "Wellness Daily";
   return topic.name;
 }
 
@@ -255,22 +366,19 @@ function isGoodSmallArticleCandidate(topic: EditorialTopic, candidate: Candidate
   const wordCount = String(summary || rawContent || "").split(/\s+/).filter(Boolean).length;
   if (wordCount < 45) return false;
   if (rawContent.length < 500 && candidate.excerpt.length < 350) return false;
-  if (topic.slug === "money-matters") {
-    return /\b(money|tax|rbi|sebi|bank|mutual fund|insurance|loan|credit|debit|upi|invest|income|finance|market|stock|ipo|savings?|pension|fraud|scam)\b/i.test(`${title} ${summary}`);
-  }
-  if (topic.slug === "policy-partner") {
-    return /\b(court|supreme court|high court|government|policy|law|bill|act|rules?|regulation|regulator|rights?|order|ministry|rbi|sebi|tax|public|citizen|consumer)\b/i.test(`${title} ${summary}`);
+  if (topic.slug === "markets-startups") {
+    return /\b(money|tax|rbi|sebi|bank|mutual fund|insurance|loan|credit|debit|upi|invest|income|finance|market|stock|ipo|savings?|pension|fraud|scam|startup|funding|valuation|venture|unicorn|acquisition|merger|listing)\b/i.test(`${title} ${summary}`);
   }
   return true;
 }
 
 function isEligibleSmallArticleSource(topic: EditorialTopic, candidate: Candidate): boolean {
   if (candidate.compassOnly) return false;
-  if (topic.slug === "money-matters") {
-    return new Set(["Mint Money", "Moneycontrol", "BusinessLine Markets", "BusinessLine Banking", "ET Wealth"]).has(candidate.source);
-  }
-  if (topic.slug === "policy-partner") {
-    return new Set(["Bar & Bench", "Indian Express Explained", "LiveLaw", "ThePrint Explained", "The Hindu National", "BusinessLine Policy"]).has(candidate.source);
+  if (topic.slug === "markets-startups") {
+    return new Set([
+      "Mint Money", "Mint Markets", "Moneycontrol", "BusinessLine Markets", "BusinessLine Banking",
+      "ET Markets", "ET Wealth", "Inc42", "Entrackr", "YourStory"
+    ]).has(candidate.source);
   }
   return true;
 }
@@ -287,29 +395,6 @@ async function mapWithConcurrency<T, R>(
     results.push(...mapped);
   }
   return results;
-}
-
-function summarizeSourceText(rawContent: string, fallback: string): string {
-  const cleaned = String(rawContent || fallback || "")
-    .replace(/\s+/g, " ")
-    .replace(/^(listen to this article|read this article|advertisement)\b[:\s-]*/i, "")
-    .trim();
-  if (!cleaned) return "";
-  const sentences = cleaned
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.length > 20);
-  const picked: string[] = [];
-  let words = 0;
-  for (const sentence of sentences) {
-    const count = sentence.split(/\s+/).filter(Boolean).length;
-    if (words >= 90 && picked.length >= 2) break;
-    picked.push(sentence);
-    words += count;
-    if (words >= 130) break;
-  }
-  const summary = (picked.length ? picked.join(" ") : cleaned).trim();
-  return summary.split(/\s+/).slice(0, 140).join(" ");
 }
 
 async function countArticlesByUrl(supabase: any, urls: string[]): Promise<number> {
@@ -402,40 +487,170 @@ async function fetchHtmlListing(source: EditorialSource) {
   return [...unique.values()].slice(0, 40);
 }
 
-async function selectEvidence(apiKey: string, model: string, topic: EditorialTopic, candidates: Candidate[]): Promise<string[]> {
-  const compact = candidates.slice(0, 80).map((item) => ({
-    title: item.title, url: item.url, source: item.source, published_at: item.publishedAt,
-    compass_only: item.compassOnly, excerpt: item.excerpt.slice(0, 550)
+async function rankCandidates(apiKey: string, model: string, topic: EditorialTopic, candidates: Candidate[]): Promise<RankedCandidate[]> {
+  const compact = candidates.slice(0, 60).map((item) => ({
+    title: item.title,
+    url: item.url,
+    source: item.source,
+    published_at: item.publishedAt,
+    excerpt: item.excerpt.slice(0, 650)
   }));
-  const needed = topic.format === "hybrid" ? "Select 6-8 cited stories that can support five distinct briefs and one feature. Reddit may be selected only as an editorial question, never as cited evidence." : "Select 1-4 stories supporting one strong anchor. Reddit may guide the question but cannot be cited as evidence.";
-  const prompt = `Select evidence for ${topic.name}.
+
+  const prompt = `Rank the strongest ${topic.name} candidates for standalone case-study articles.
 
 INDIA DATE: ${indiaDateLabel()}
 
-${topic.selection}
-${needed}
-Prefer the last 24-48 hours; use up to five days only for a stronger anchor. Return exact supplied URLs only.
+Each selected candidate becomes ITS OWN single case study (one headline, one summary, one detailed analysis), so pick stories that individually carry enough substance for a 300-500 word analytical piece.
 
-Return JSON only: {"urls":["..."]}
+TOPIC FOCUS: ${topic.description}
+SELECTION: ${topic.selection}
+
+Selection order:
+1. A specific, interesting development with real substance (named actors, numbers, decisions, or concrete facts).
+2. Prefer the last 24-48 hours, but use up to five days if stronger.
+3. Prefer a useful spread of distinct stories rather than several versions of the same news.
+4. Each article must stand on its own; skip thin listicles, pure opinion with no facts, and stock tips.
+
+Return JSON only:
+{"ranked":[{"url":"exact candidate URL","angle":"the specific angle for a case study","selection_reason":"one sentence"}]}
+
+Return up to ${MAX_CASE_DRAFTS_PER_RUN + 3} candidates, strongest first. Use only URLs supplied below.
 
 CANDIDATES:
 ${JSON.stringify(compact)}`;
-  const parsed = await openAiJson(apiKey, model, "You are a rigorous Indian publication assignment editor.", prompt, 1600);
-  return Array.isArray(parsed.urls) ? parsed.urls.map(String) : [];
+  const parsed = await openAiJson(apiKey, model, `You are a rigorous Indian ${topic.name} assignment editor selecting source-backed case studies.`, prompt, 1400);
+  return Array.isArray(parsed.ranked) ? parsed.ranked : [];
 }
 
-async function buildEvidence(candidates: Candidate[], limit: number): Promise<Evidence[]> {
-  const evidence: Evidence[] = [];
-  for (const candidate of candidates.slice(0, limit)) {
-    if (candidate.compassOnly) {
-      evidence.push({ ...candidate, text: candidate.excerpt });
-      continue;
-    }
-    const article = await fetchPublicArticleText(candidate.url).catch(() => "");
-    const text = article.length >= 400 ? article : candidate.excerpt;
-    if (text.length >= 120) evidence.push({ ...candidate, text });
+async function writeCase(
+  apiKey: string,
+  model: string,
+  topic: EditorialTopic,
+  candidate: Candidate,
+  sourceText: string,
+  selection: RankedCandidate
+): Promise<Record<string, any>> {
+  const prompt = `Draft a single ${topic.name} case study for a human editor, using ONLY the source material below.
+
+INDIA DATE: ${indiaDateLabel()}
+
+VIBE: ${topic.description}
+SELECTION FRAME: ${topic.selection}
+VOICE: ${topic.voice}
+SAFETY: ${topic.safety}
+
+Required structure:
+- headline: precise and specific to this story, framed for ${topic.name}.
+- summary: 90-130 words. State what happened and why it matters, complete on its own. Do NOT open the detail by restating the summary.
+- detail: 300-500 words of fresh, ${topic.name}-framed analysis. Open on the core dynamic or stake, not a restatement of the summary. Do NOT write a source-credit sentence ("according to", "the article reports"), do NOT include the source URL or a "read the full piece" line — the source link is shown separately by the app. Attribute the source publication naturally in prose only where needed. Cover mechanism/context, what mainstream coverage may miss, a concrete example or comparison, and what a reader should watch.
+- inference_notes: array of every analogy, extrapolation, comparison, or unsourced translation the editor must verify.
+
+Hard rules:
+- Every factual claim and every number must come from the supplied source text. Do not use latent knowledge for facts or numbers.
+- Do not invent Indian salary, price, rent, EMI, yield, health, tax, return or policy numbers. If the source does not provide a number, say so or leave it out.
+- Paraphrase. At most one source quote, under 15 words. Prefer no direct quote.
+- Define jargon the first time it appears.
+- No exclamation marks, no marketing or press-release language.
+- Respect the topic VOICE and SAFETY lines above exactly.
+
+Return JSON only with these keys:
+{"headline":"","summary":"","detail":"","angle":"","selection_reason":"","inference_notes":[]}
+
+SOURCE PUBLICATION: ${candidate.source}
+SOURCE TITLE: ${candidate.title}
+SOURCE URL: ${candidate.url}
+SELECTION CONTEXT: ${selection.angle ?? selection.selection_reason ?? ""}
+
+SOURCE TEXT:
+${sourceText.slice(0, 18000)}`;
+
+  return await openAiJson(apiKey, model, `You are the final source-bound drafting voice for ${topic.name}. Be analytical, skeptical, source-bound, and concise.`, prompt, 2600);
+}
+
+async function repairCase(
+  apiKey: string,
+  model: string,
+  topic: EditorialTopic,
+  candidate: Candidate,
+  sourceText: string,
+  selection: RankedCandidate,
+  draft: Record<string, any>
+): Promise<Record<string, any>> {
+  const prompt = `Repair this ${topic.name} case-study draft so it follows the required structure exactly.
+
+Requirements:
+- summary: 90-130 words, complete on its own.
+- detail: 300-500 words of ${topic.name}-framed analysis.
+- Use only facts and numbers present in the source text; do not invent Indian numbers.
+- The detail must not restate the summary's opening, must not include any source-credit sentence, "read the full piece" line, or the source URL (the source link is shown separately by the app).
+- Flag every analogy/extrapolation in inference_notes.
+- Respect the topic voice and safety rules: ${topic.safety}
+- No exclamation marks, no marketing language.
+
+Return the same JSON keys as the current draft and no extra text.
+
+VALIDATION FAILURES: ${JSON.stringify(validationReport(topic, draft))}
+
+SOURCE PUBLICATION: ${candidate.source}
+SOURCE TITLE: ${candidate.title}
+SOURCE URL: ${candidate.url}
+SELECTION CONTEXT: ${selection.angle ?? selection.selection_reason ?? ""}
+
+CURRENT DRAFT:
+${JSON.stringify(draft)}
+
+SOURCE TEXT:
+${sourceText.slice(0, 18000)}`;
+  return await openAiJson(apiKey, model, `You are a strict source-bound editor repairing a ${topic.name} case-study draft.`, prompt, 2800);
+}
+
+function enforceSafety(topic: EditorialTopic, draft: Record<string, any>): Record<string, any> {
+  if (!draft) return draft;
+  let detail = String(draft.detail ?? "").trim();
+  if (topic.slug === "markets-startups") {
+    const disclaimer = "This isn't investment advice. We don't know your situation. Talk to a SEBI-registered advisor before acting on anything you read here.";
+    detail = detail.replaceAll(disclaimer, "").trim();
+    detail = detail ? `${detail}\n\n${disclaimer}` : disclaimer;
   }
-  return evidence;
+  if (topic.slug === "health-wellness") {
+    const combined = `${draft.headline ?? ""} ${draft.summary ?? ""} ${detail}`.toLowerCase();
+    const helpline = "If you're struggling, iCall is a free confidential helpline: 9152987821.";
+    const medical = "This isn't medical advice. See a doctor for anything concerning you.";
+    detail = detail.replaceAll(helpline, "").replaceAll(medical, "").trim();
+    if (/condition|disorder|disease|diagnos|syndrome|injury|diabetes|hypertension/.test(combined)) detail += `\n\n${medical}`;
+    if (/mental health|anxiety|depression|burnout|stress|suicid|self-harm/.test(combined)) detail += `\n\n${helpline}`;
+    detail = detail.trim();
+  }
+  draft.detail = detail;
+  return draft;
+}
+
+function draftMeetsStructure(topic: EditorialTopic, draft: Record<string, any>): boolean {
+  return validationReport(topic, draft).length === 0;
+}
+
+// Relaxed bar for the never-empty fallback: shorter is OK, but it must still carry
+// a usable summary + some analysis (source-bound) and the required safety lines.
+function draftMeetsRelaxed(topic: EditorialTopic, draft: Record<string, any>): boolean {
+  const summaryWords = words(draft.summary);
+  const detailWords = words(draft.detail);
+  if (summaryWords < 50 || detailWords < 120) return false;
+  if (!String(draft.headline ?? "").trim()) return false;
+  if (topic.slug === "markets-startups" && !String(draft.detail ?? "").includes("SEBI-registered advisor")) return false;
+  return true;
+}
+
+function validationReport(topic: EditorialTopic, draft: Record<string, any>): string[] {
+  const errors: string[] = [];
+  const summaryWords = words(draft.summary);
+  const detailWords = words(draft.detail);
+  if (summaryWords < 85 || summaryWords > 150) errors.push(`summary_words:${summaryWords}`);
+  if (detailWords < 280 || detailWords > 560) errors.push(`detail_words:${detailWords}`);
+  if (!String(draft.headline ?? "").trim()) errors.push("missing_headline");
+  if (topic.slug === "markets-startups" && !String(draft.detail ?? "").includes("SEBI-registered advisor")) errors.push("missing_investment_disclaimer");
+  const forbidden = /\b(game-changer|let's dive in|the truth about|wealth-building|financial freedom|compounding miracle)\b|!/i;
+  if (forbidden.test(JSON.stringify(draft))) errors.push("forbidden_voice");
+  return errors;
 }
 
 async function fetchPublicArticleText(url: string): Promise<string> {
@@ -444,146 +659,6 @@ async function fetchPublicArticleText(url: string): Promise<string> {
   const { document } = parseHTML(await response.text());
   const parsed = new Readability(document as unknown as Document).parse();
   return (parsed?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 18000);
-}
-
-async function writeDraft(apiKey: string, model: string, topic: EditorialTopic, evidence: Evidence[]) {
-  const shape = topic.format === "hybrid"
-    ? `{"headline":"issue headline","briefs":[{"headline":"","what_happened":"","why_it_matters":"","city":"","source_url":""}],"feature":{"headline":"","summary":"","detail":"","source_url":""},"inference_notes":[]}`
-    : `{"headline":"","summary":"","detail":"","evidence_quality":"","indian_translation":"","source_url":"","inference_notes":[]}`;
-  const prompt = `Draft ${topic.name} for a human editor.
-
-INDIA DATE: ${indiaDateLabel()}
-
-VIBE: ${topic.description}
-SELECTION: ${topic.selection}
-STRUCTURE: ${topic.structure}
-VOICE: ${topic.voice}
-SAFETY: ${topic.safety}
-
-Hard rules:
-- Use only facts, names and numbers in the supplied evidence.
-- Credit and link cited reporting in the text. Reddit is compass-only and must never be cited as evidence.
-- Paraphrase. At most one quote per source and under 15 words.
-- Flag every analogy, extrapolation or unsourced Indian translation in inference_notes.
-- Do not invent Indian salary, price, rent, health, tax, return or policy numbers.
-- No exclamation marks.
-
-Return JSON only in this shape:
-${shape}
-
-EVIDENCE:
-${JSON.stringify(evidence.map((item) => ({ source: item.source, url: item.url, compass_only: item.compassOnly, title: item.title, text: item.text.slice(0, 9000) })))}`;
-  return await openAiJson(apiKey, model, `You are the source-bound drafting agent for ${topic.name}.`, prompt, topic.format === "hybrid" ? 4200 : 2600);
-}
-
-async function repairDraft(apiKey: string, model: string, topic: EditorialTopic, evidence: Evidence[], draft: Record<string, any>) {
-  const prompt = `Repair this ${topic.name} draft to satisfy every structural, sourcing, voice and safety rule.
-
-STRUCTURE: ${topic.structure}
-VOICE: ${topic.voice}
-SAFETY: ${topic.safety}
-
-Keep the same JSON shape. Use only supplied evidence. Do not cite Reddit. Return JSON only.
-
-VALIDATION FAILURES: ${JSON.stringify(validationReport(topic, draft))}
-CURRENT DRAFT: ${JSON.stringify(draft)}
-EVIDENCE: ${JSON.stringify(evidence.map((item) => ({ source: item.source, url: item.url, compass_only: item.compassOnly, title: item.title, text: item.text.slice(0, 7000) })))}`;
-  return await openAiJson(apiKey, model, "You are a strict source and safety editor.", prompt, topic.format === "hybrid" ? 4500 : 2800);
-}
-
-async function expandDraft(apiKey: string, model: string, topic: EditorialTopic, evidence: Evidence[], draft: Record<string, any>) {
-  const target = topic.format === "hybrid" ? draft.feature ?? {} : draft;
-  const summaryWords = words(target.summary);
-  const detailWords = words(target.detail);
-  const replaceSummary = summaryWords < 80;
-  const detailAdditionWords = Math.max(320 - detailWords, 410 - Math.max(summaryWords, 95) - detailWords, 0);
-  const shortBriefs = topic.format === "hybrid"
-    ? (draft.briefs ?? []).map((brief: any, index: number) => ({
-        index,
-        words: words(`${brief.headline ?? ""} ${brief.what_happened ?? ""} ${brief.why_it_matters ?? ""}`)
-      })).filter((brief: any) => brief.words < 50)
-    : [];
-  const prompt = `Expand only the undersized parts of this ${topic.name} draft using the supplied evidence.
-
-${replaceSummary ? "Write a replacement summary of 95-110 words." : "Return an empty summary string because the existing summary is already long enough."}
-${detailAdditionWords > 0 ? `Write one additional detail paragraph of ${detailAdditionWords}-${detailAdditionWords + 20} words.` : "Return an empty additional_detail string because no detail expansion is needed."}
-${shortBriefs.length > 0 ? `For each short brief listed here, write one sourced addition of enough words to bring the full item close to 65 words: ${JSON.stringify(shortBriefs)}.` : "Return an empty brief_additions array because no briefs are short."}
-
-Do not introduce any fact or number absent from the evidence. Do not repeat the source credit, headline, conclusion, disclaimer, or safety lines. Preserve the topic voice. No exclamation marks.
-
-Return JSON only: {"summary":"","additional_detail":"","brief_additions":[{"index":0,"addition":""}]}
-
-CURRENT DRAFT: ${JSON.stringify(draft)}
-EVIDENCE: ${JSON.stringify(evidence.map((item) => ({ source: item.source, url: item.url, compass_only: item.compassOnly, title: item.title, text: item.text.slice(0, 6000) })))}`;
-  const addition = await openAiJson(apiKey, model, "You expand editorial drafts without inventing or repeating facts.", prompt, 1600);
-  if (replaceSummary && String(addition.summary ?? "").trim()) target.summary = String(addition.summary).trim();
-  if (detailAdditionWords > 0 && String(addition.additional_detail ?? "").trim()) {
-    target.detail = `${String(target.detail ?? "").trim()}\n\n${String(addition.additional_detail).trim()}`;
-  }
-  for (const item of Array.isArray(addition.brief_additions) ? addition.brief_additions : []) {
-    const index = Number(item.index);
-    if (!Number.isInteger(index) || !draft.briefs?.[index] || !String(item.addition ?? "").trim()) continue;
-    draft.briefs[index].why_it_matters = `${String(draft.briefs[index].why_it_matters ?? "").trim()} ${String(item.addition).trim()}`.trim();
-  }
-  return draft;
-}
-
-function enforceSafety(topic: EditorialTopic, draft: Record<string, any>) {
-  const detailTarget = topic.format === "hybrid" ? draft.feature : draft;
-  if (!detailTarget) return draft;
-  let detail = String(detailTarget.detail ?? "").trim();
-  if (topic.slug === "money-matters") {
-    const disclaimer = "This isn't investment advice. We don't know your situation. Talk to a SEBI-registered advisor before acting on anything you read here.";
-    detail = detail.replaceAll(disclaimer, "").trim();
-    detail = `${detail}\n\n${disclaimer}`;
-  }
-  if (topic.slug === "wellness-daily") {
-    const combined = `${draft.headline ?? ""} ${draft.summary ?? ""} ${detail}`.toLowerCase();
-    const helpline = "If you're struggling, iCall is a free confidential helpline: 9152987821.";
-    const medical = "This isn't medical advice. See a doctor for anything concerning you.";
-    detail = detail.replaceAll(helpline, "").replaceAll(medical, "").trim();
-    if (/condition|disorder|disease|diagnos|syndrome|injury|diabetes|hypertension/.test(combined)) detail += `\n\n${medical}`;
-    if (/mental health|anxiety|depression|burnout|stress|suicid|self-harm/.test(combined)) detail += `\n\n${helpline}`;
-  }
-  detailTarget.detail = detail;
-  return draft;
-}
-
-function validDraft(topic: EditorialTopic, draft: Record<string, any>): boolean {
-  return validationReport(topic, draft).length === 0;
-}
-
-function needsExpansion(topic: EditorialTopic, draft: Record<string, any>): boolean {
-  const target = topic.format === "hybrid" ? draft.feature ?? {} : draft;
-  const summaryWords = words(target.summary);
-  const detailWords = words(target.detail);
-  const hasShortBrief = topic.format === "hybrid" && (draft.briefs ?? []).some((brief: any) =>
-    words(`${brief.headline ?? ""} ${brief.what_happened ?? ""} ${brief.why_it_matters ?? ""}`) < 50
-  );
-  return summaryWords < 80 || detailWords < 280 || summaryWords + detailWords < 380 || hasShortBrief;
-}
-
-function validationReport(topic: EditorialTopic, draft: Record<string, any>): string[] {
-  const errors: string[] = [];
-  const target = topic.format === "hybrid" ? draft.feature ?? {} : draft;
-  const summaryWords = words(target.summary);
-  const detailWords = words(target.detail);
-  if (summaryWords < 75 || summaryWords > 150) errors.push(`summary_words:${summaryWords}`);
-  if (detailWords < 260 || detailWords > 650) errors.push(`detail_words:${detailWords}`);
-  if (!String(draft.headline ?? target.headline ?? "").trim()) errors.push("missing_headline");
-  if (topic.format === "hybrid") {
-    if (!Array.isArray(draft.briefs) || draft.briefs.length !== 5) errors.push(`brief_count:${draft.briefs?.length ?? 0}`);
-    for (const [index, brief] of (draft.briefs ?? []).entries()) {
-      const count = words(`${brief.headline ?? ""} ${brief.what_happened ?? ""} ${brief.why_it_matters ?? ""}`);
-      if (count < 45 || count > 140) errors.push(`brief_${index + 1}_words:${count}`);
-      if (!brief.source_url) errors.push(`brief_${index + 1}_missing_source`);
-    }
-  }
-  if (!target.source_url) errors.push("missing_primary_source");
-  if (topic.slug === "money-matters" && !String(target.detail ?? "").includes("SEBI-registered advisor")) errors.push("missing_investment_disclaimer");
-  const forbidden = /\b(game-changer|let's dive in|the truth about|wealth-building|financial freedom|compounding miracle)\b|!/i;
-  if (forbidden.test(JSON.stringify(draft))) errors.push("forbidden_voice");
-  return errors;
 }
 
 function words(value: unknown): number {

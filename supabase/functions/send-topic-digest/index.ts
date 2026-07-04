@@ -16,16 +16,6 @@ type DailyArticle = {
   source: string | null;
   topic: string | null;
 };
-type CorporateCase = {
-  id: string;
-  headline: string;
-  summary: string;
-  detail: string;
-  source_url: string;
-  source: string | null;
-  status: string;
-  generated_at: string;
-};
 type EditorialDraft = {
   id: string;
   topic_slug: string;
@@ -52,16 +42,16 @@ type DigestItem = {
 
 const TOPIC_LABELS: Record<string, string> = {
   "daily-wrap": "Daily Wrap",
-  "corporate-case": "Corporate Case",
   "real-estate": "Real Estate",
-  "policy-partner": "Policy Partner",
-  "money-matters": "Money Matters",
-  "wellness-daily": "Wellness Daily",
+  "automobile": "Automobile",
+  "health-wellness": "Health & Wellness",
+  "tech-ai": "Tech & AI",
+  "markets-startups": "Markets & Startups",
   "all-topics": "All Topics",
   "case-study-pool": "Case Study",
 };
 const TOPIC_SLUGS = Object.keys(TOPIC_LABELS);
-const CASE_STUDY_TOPICS = ["corporate-case", "real-estate", "policy-partner", "money-matters", "wellness-daily"];
+const CASE_STUDY_TOPICS = ["real-estate", "automobile", "health-wellness", "tech-ai", "markets-startups"];
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";
@@ -166,11 +156,11 @@ function normalizeTopic(value: unknown): string {
   if (["daily", "shortly", "shortly-daily-wrap"].includes(slug)) return "daily-wrap";
   if (["case-study-pool", "case-pool", "case-study-daily", "daily-case-study"].includes(slug)) return "case-study-pool";
   if (["all", "all-topic", "all-topics", "default"].includes(slug)) return "all-topics";
-  if (["corporate", "case-study"].includes(slug)) return "corporate-case";
   if (["realestate", "property"].includes(slug)) return "real-estate";
-  if (slug === "policy") return "policy-partner";
-  if (["money", "finance"].includes(slug)) return "money-matters";
-  if (["wellness", "health"].includes(slug)) return "wellness-daily";
+  if (["auto", "cars", "automotive"].includes(slug)) return "automobile";
+  if (["wellness", "health", "wellness-daily"].includes(slug)) return "health-wellness";
+  if (["tech", "technology", "ai"].includes(slug)) return "tech-ai";
+  if (["money", "finance", "money-matters", "markets", "startups"].includes(slug)) return "markets-startups";
   return slug;
 }
 
@@ -200,15 +190,13 @@ async function loadSubscribers(supabase: any, topic: string, subscriberIds: stri
 async function loadDigestItems(supabase: any, topic: string): Promise<DigestItem[]> {
   if (topic === "daily-wrap") return loadDailyItems(supabase);
   if (topic === "case-study-pool") return loadCaseStudyPoolItem(supabase);
-  if (topic === "corporate-case") return loadCorporateItems(supabase);
   if (topic !== "all-topics") return loadEditorialItems(supabase, topic);
 
-  const [daily, corporate, editorial] = await Promise.all([
+  const [daily, editorial] = await Promise.all([
     loadDailyItems(supabase),
-    loadCorporateItems(supabase),
     loadEditorialItems(supabase, "all-topics"),
   ]);
-  return [...daily, ...corporate, ...editorial];
+  return [...daily, ...editorial];
 }
 
 async function loadDailyItems(supabase: any): Promise<DigestItem[]> {
@@ -230,26 +218,6 @@ async function loadDailyItems(supabase: any): Promise<DigestItem[]> {
     body: article.edited_summary || article.summary || "",
     sourceUrl: article.url,
     source: article.source,
-  }));
-}
-
-async function loadCorporateItems(supabase: any): Promise<DigestItem[]> {
-  const { data, error } = await supabase
-    .from("corporate_cases")
-    .select("id,headline,summary,detail,source_url,source,status,generated_at")
-    .eq("status", "approved")
-    .order("generated_at", { ascending: false })
-    .limit(1);
-  if (error) throw new Error(error.message);
-
-  return ((data ?? []) as CorporateCase[]).map((item) => ({
-    id: item.id,
-    topic: "corporate-case",
-    section: "Corporate Case",
-    headline: item.headline,
-    body: `${item.summary}\n\n${item.detail}`.trim(),
-    sourceUrl: item.source_url,
-    source: item.source,
   }));
 }
 
@@ -275,36 +243,10 @@ async function loadEditorialItems(supabase: any, topic: string): Promise<DigestI
 }
 
 async function loadCaseStudyPoolItem(supabase: any): Promise<DigestItem[]> {
-  const [corporate, editorial] = await Promise.all([
-    loadCorporateCasePool(supabase),
-    loadEditorialDraftPool(supabase),
-  ]);
-  const pool = [...corporate, ...editorial];
+  const pool = await loadEditorialDraftPool(supabase);
   if (pool.length === 0) return [];
   const picked = pool[Math.floor(Math.random() * pool.length)];
   return picked.items;
-}
-
-async function loadCorporateCasePool(supabase: any): Promise<Array<{ generatedAt: string; items: DigestItem[] }>> {
-  const { data, error } = await supabase
-    .from("corporate_cases")
-    .select("id,headline,summary,detail,source_url,source,status,generated_at")
-    .eq("status", "approved")
-    .order("generated_at", { ascending: false })
-    .limit(100);
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as CorporateCase[]).map((item) => ({
-    generatedAt: item.generated_at,
-    items: [{
-      id: item.id,
-      topic: "corporate-case",
-      section: "Corporate Case",
-      headline: item.headline,
-      body: `${item.summary}\n\n${item.detail}`.trim(),
-      sourceUrl: item.source_url,
-      source: item.source,
-    }],
-  }));
 }
 
 async function loadEditorialDraftPool(supabase: any): Promise<Array<{ generatedAt: string; items: DigestItem[] }>> {
@@ -351,7 +293,7 @@ function expandEditorialDraft(draft: EditorialDraft): DigestItem[] {
       {
         id: `${draft.id}:feature`,
         topic: draft.topic_slug,
-        section: draft.topic_slug === "money-matters" ? "Money Matters - Take" : `${draft.topic_name} - Feature`,
+        section: draft.topic_slug === "markets-startups" ? "Markets & Startups - Take" : `${draft.topic_name} - Feature`,
         headline: feature.headline || draft.headline,
         body: `${feature.summary || draft.summary || ""}\n\n${feature.detail || draft.detail || ""}`.trim(),
         sourceUrl: feature.source_url || draft.primary_source_url,

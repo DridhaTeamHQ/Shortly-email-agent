@@ -11,21 +11,21 @@ import {
 // ---------- legacy plan model (kept for the old QA dashboard form) ----------
 const VALID_TOPICS = new Set([
   "daily-wrap",
-  "corporate-case",
   "real-estate",
-  "policy-partner",
-  "money-matters",
-  "wellness-daily"
+  "automobile",
+  "health-wellness",
+  "tech-ai",
+  "markets-startups"
 ]);
 
 const VALID_PLANS = new Set(["daily-wrap", "category-case", "wrap-category", "case-only"]);
-const VALID_CATEGORIES = new Set(["Real Estate", "Policy Partner", "Money Matters", "Wellness Daily", "Corporate Case"]);
+const VALID_CATEGORIES = new Set(["Real Estate", "Automobile", "Health & Wellness", "Tech & AI", "Markets & Startups"]);
 const CATEGORY_TO_SLUG: Record<string, string> = {
   "Real Estate": "real-estate",
-  "Policy Partner": "policy-partner",
-  "Money Matters": "money-matters",
-  "Wellness Daily": "wellness-daily",
-  "Corporate Case": "corporate-case"
+  "Automobile": "automobile",
+  "Health & Wellness": "health-wellness",
+  "Tech & AI": "tech-ai",
+  "Markets & Startups": "markets-startups"
 };
 
 function normalizePlan(value: unknown): string {
@@ -52,12 +52,12 @@ function normalizeTopics(value: unknown): string[] {
     .map((item) => String(item).trim().toLowerCase())
     .map((item) => item.replace(/[\s_]+/g, "-"))
     .map((item) => {
-      if (["daily", "daily-wrap", "shortly", "shortly-daily-wrap"].includes(item)) return "daily-wrap";
-      if (["corporate", "corporate-case", "case-study"].includes(item)) return "corporate-case";
+      if (["daily", "daily-wrap", "shortly", "shortly-daily-wrap", "general"].includes(item)) return "daily-wrap";
       if (["real-estate", "realestate", "property"].includes(item)) return "real-estate";
-      if (["policy", "policy-partner"].includes(item)) return "policy-partner";
-      if (["money", "money-matters", "finance"].includes(item)) return "money-matters";
-      if (["wellness", "wellness-daily", "health"].includes(item)) return "wellness-daily";
+      if (["automobile", "auto", "cars", "automotive"].includes(item)) return "automobile";
+      if (["health-wellness", "wellness", "wellness-daily", "health"].includes(item)) return "health-wellness";
+      if (["tech-ai", "tech", "technology", "ai"].includes(item)) return "tech-ai";
+      if (["markets-startups", "money", "money-matters", "finance", "markets", "startups"].includes(item)) return "markets-startups";
       return item;
     })
     .filter((item) => VALID_TOPICS.has(item));
@@ -69,15 +69,15 @@ function normalizeTopics(value: unknown): string[] {
 // topic slugs, so the dashboard shows them and the sender can reach the reader.
 const WEBSITE_CATEGORY_TO_TOPIC: Record<string, string> = {
   "general": "daily-wrap", "daily-wrap": "daily-wrap", "daily": "daily-wrap",
-  "corporate-case": "corporate-case", "case-studies": "corporate-case", "case-study": "corporate-case",
   "real-estate": "real-estate", "realestate": "real-estate",
-  "policy-partner": "policy-partner", "policy": "policy-partner",
-  "money-matters": "money-matters", "money": "money-matters",
-  "wellness-daily": "wellness-daily", "wellness": "wellness-daily",
+  "automobile": "automobile", "auto": "automobile",
+  "health-wellness": "health-wellness", "wellness": "health-wellness", "wellness-daily": "health-wellness",
+  "tech-ai": "tech-ai", "tech": "tech-ai", "technology": "tech-ai",
+  "markets-startups": "markets-startups", "money": "markets-startups", "money-matters": "markets-startups",
 };
 const TOPIC_TO_CATEGORY: Record<string, string> = {
-  "real-estate": "Real Estate", "policy-partner": "Policy Partner",
-  "money-matters": "Money Matters", "wellness-daily": "Wellness Daily", "corporate-case": "Corporate Case",
+  "real-estate": "Real Estate", "automobile": "Automobile",
+  "health-wellness": "Health & Wellness", "tech-ai": "Tech & AI", "markets-startups": "Markets & Startups",
 };
 
 function topicsFromCategories(value: unknown): string[] {
@@ -90,15 +90,13 @@ function topicsFromCategories(value: unknown): string[] {
 }
 
 function planCategoryForTopics(topics: string[]): { plan: string; category: string | null } {
-  const cats = topics.filter((t) => ["real-estate", "policy-partner", "money-matters", "wellness-daily"].includes(t));
+  const cats = topics.filter((t) => t !== "daily-wrap");
   const hasWrap = topics.includes("daily-wrap");
-  const hasCase = topics.includes("corporate-case");
+  // Topic + wrap -> wrap + shorts; topic only -> its shorts + case study.
   let plan = "daily-wrap";
-  if (cats.length && hasCase) plan = "category-case";
-  else if (cats.length) plan = "wrap-category";
-  else if (hasCase) plan = "case-only";
-  else if (hasWrap) plan = "daily-wrap";
-  const category = cats.length ? TOPIC_TO_CATEGORY[cats[0]] : (plan === "case-only" ? "Corporate Case" : null);
+  if (cats.length && hasWrap) plan = "wrap-category";
+  else if (cats.length) plan = "category-case";
+  const category = cats.length ? TOPIC_TO_CATEGORY[cats[0]] : null;
   return { plan, category };
 }
 

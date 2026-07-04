@@ -95,15 +95,8 @@ Deno.serve(async (request) => {
     .filter((item) => isValidCompanySelection(item, candidatesByUrl.get(item.url)))
     .map((item) => item.url);
 
-  if (rankedUrls.length === 0) {
-    return json({
-      error: "No company-focused case study with enough evidence was found in the current source pool.",
-      scanned: selectionPool.length,
-      shortArticlesInserted,
-      sourceErrors
-    }, 422);
-  }
-
+  // No early exit when ranking is empty: the never-empty fallback below still
+  // writes at least one case from the best available candidate.
   const rows: Array<Record<string, unknown>> = [];
   const failures: Array<{ url: string; error: string }> = [];
   for (const url of [...new Set(rankedUrls)]) {
@@ -114,7 +107,7 @@ Deno.serve(async (request) => {
       return "";
     });
     const usableText = articleText.length >= 1800 ? articleText : candidate.excerpt;
-    if (usableText.length < 1200) {
+    if (usableText.length < 700) {
       failures.push({ url: candidate.url, error: "Not enough public source text" });
       continue;
     }
@@ -124,6 +117,25 @@ Deno.serve(async (request) => {
       rows.push(row);
     } catch (error) {
       failures.push({ url: candidate.url, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  // Never return empty: if nothing cleared the normal bar, write at least one
+  // case from the best available candidate under a relaxed (but still strictly
+  // source-bound) structure bar, so every run produces something.
+  if (rows.length === 0) {
+    const fallbackPool = selectionPool.length > 0 ? selectionPool : candidates;
+    for (const candidate of fallbackPool.slice(0, 5)) {
+      const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
+      const usableText = articleText.length >= 800 ? articleText : candidate.excerpt;
+      if (usableText.length < 300) continue;
+      const selectionMeta = ranked.find((item) => item.url === candidate.url) ?? { url: candidate.url };
+      try {
+        rows.push(await buildCaseRow(openAiKey, model, candidate, usableText, selectionMeta, true));
+        break;
+      } catch (error) {
+        failures.push({ url: candidate.url, error: "fallback: " + (error instanceof Error ? error.message : String(error)) });
+      }
     }
   }
 
@@ -159,7 +171,8 @@ async function buildCaseRow(
   model: string,
   selected: Candidate,
   sourceText: string,
-  selectionMeta: RankedCandidate
+  selectionMeta: RankedCandidate,
+  relaxed = false
 ) {
   let draft = await writeCase(apiKey, model, selected, sourceText, selectionMeta);
   if (!draftMeetsStructure(draft)) {
@@ -174,7 +187,9 @@ async function buildCaseRow(
   if (needsExpansion(draft)) {
     draft = await expandShortDetail(apiKey, model, selected, sourceText, draft);
   }
-  if (!draftMeetsStructure(draft)) {
+  // Normal runs enforce the full structure; the never-empty fallback accepts a
+  // shorter, still source-bound draft so a run never yields zero case studies.
+  if (relaxed ? !draftMeetsRelaxed(draft) : !draftMeetsStructure(draft)) {
     throw new Error(`Generated case failed structure for ${selectionMeta.company ?? selected.title}: summary_words=${wordCount(String(draft.summary ?? ""))}, detail_words=${wordCount(String(draft.detail ?? ""))}`);
   }
   const caseType = inferCaseType(draft.case_type, sourceText);
@@ -503,6 +518,15 @@ function draftMeetsStructure(draft: Record<string, unknown>): boolean {
     detailWords >= 300 && detailWords <= 500 &&
     totalWords >= 400 && totalWords <= 600 &&
     company.length > 1 && company !== "shortly";
+}
+
+// Relaxed bar for the never-empty fallback: shorter is OK, but it must still name
+// a real company and carry a usable summary + some analysis (source-bound).
+function draftMeetsRelaxed(draft: Record<string, unknown>): boolean {
+  const summaryWords = wordCount(String(draft.summary ?? ""));
+  const detailWords = wordCount(String(draft.detail ?? ""));
+  const company = String(draft.company ?? "").trim().toLowerCase();
+  return summaryWords >= 50 && detailWords >= 120 && company.length > 1 && company !== "shortly";
 }
 
 function wordCount(value: string): number {

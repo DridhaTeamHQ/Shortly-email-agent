@@ -92,11 +92,11 @@
         <section class="section active" data-section="review" data-workspace="short">
           <div class="topic-tabs short-cat-tabs">
             <button class="topic-tab active" data-cat="General">General</button>
-            <button class="topic-tab" data-cat="Corporate Case">Corporate Case</button>
             <button class="topic-tab" data-cat="Real Estate">Real Estate</button>
-            <button class="topic-tab" data-cat="Policy Partner">Policy Partner</button>
-            <button class="topic-tab" data-cat="Money Matters">Money Matters</button>
-            <button class="topic-tab" data-cat="Wellness Daily">Wellness Daily</button>
+            <button class="topic-tab" data-cat="Automobile">Automobile</button>
+            <button class="topic-tab" data-cat="Health & Wellness">Health &amp; Wellness</button>
+            <button class="topic-tab" data-cat="Tech & AI">Tech &amp; AI</button>
+            <button class="topic-tab" data-cat="Markets & Startups">Markets &amp; Startups</button>
           </div>
           <div class="toolbar">
             <input type="search" id="searchArticles" placeholder="Search articles..." />
@@ -125,11 +125,11 @@
         <section class="section" data-section="approved" data-workspace="short">
           <div class="topic-tabs short-cat-tabs">
             <button class="topic-tab active" data-cat="General">General</button>
-            <button class="topic-tab" data-cat="Corporate Case">Corporate Case</button>
             <button class="topic-tab" data-cat="Real Estate">Real Estate</button>
-            <button class="topic-tab" data-cat="Policy Partner">Policy Partner</button>
-            <button class="topic-tab" data-cat="Money Matters">Money Matters</button>
-            <button class="topic-tab" data-cat="Wellness Daily">Wellness Daily</button>
+            <button class="topic-tab" data-cat="Automobile">Automobile</button>
+            <button class="topic-tab" data-cat="Health & Wellness">Health &amp; Wellness</button>
+            <button class="topic-tab" data-cat="Tech & AI">Tech &amp; AI</button>
+            <button class="topic-tab" data-cat="Markets & Startups">Markets &amp; Startups</button>
           </div>
           <p class="muted" style="margin:0 0 12px;font-size:13px">Website-ready approved pool. Use Email Builder to pick what goes into today's email.</p>
           <div class="list" id="approvedList"><div class="skeleton skeleton-card"></div></div>
@@ -166,15 +166,15 @@
           <div class="list" id="emailBuilderList"><div class="skeleton skeleton-card"></div></div>
         </section>
 
-        <!-- CASE DRAFTS (corporate cases + editorial topics) -->
+        <!-- CASE DRAFTS (editorial topics) -->
         <section class="section" data-section="topics" data-workspace="cases">
           <div class="topic-workbench">
             <div class="topic-tabs" id="topicTabs">
-              <button class="topic-tab active" data-topic="corporate-case">Corporate Case</button>
-              <button class="topic-tab" data-topic="real-estate">Real Estate</button>
-              <button class="topic-tab" data-topic="policy-partner">Policy Partner</button>
-              <button class="topic-tab" data-topic="money-matters">Money Matters</button>
-              <button class="topic-tab" data-topic="wellness-daily">Wellness Daily</button>
+              <button class="topic-tab active" data-topic="real-estate">Real Estate</button>
+              <button class="topic-tab" data-topic="automobile">Automobile</button>
+              <button class="topic-tab" data-topic="health-wellness">Health &amp; Wellness</button>
+              <button class="topic-tab" data-topic="tech-ai">Tech &amp; AI</button>
+              <button class="topic-tab" data-topic="markets-startups">Markets &amp; Startups</button>
             </div>
             <button class="btn-primary" id="buildActiveTopic">
               <span id="buildActiveTopicText">Build selected topic</span>
@@ -200,11 +200,11 @@
                 <label class="digest-field" id="casesTopicWrap" style="display:none">
                   <span>Topic</span>
                   <select id="casesTopicSelect">
-                    <option value="corporate-case">Corporate Case</option>
                     <option value="real-estate">Real Estate</option>
-                    <option value="policy-partner">Policy Partner</option>
-                    <option value="money-matters">Money Matters</option>
-                    <option value="wellness-daily">Wellness Daily</option>
+                    <option value="automobile">Automobile</option>
+                    <option value="health-wellness">Health &amp; Wellness</option>
+                    <option value="tech-ai">Tech &amp; AI</option>
+                    <option value="markets-startups">Markets &amp; Startups</option>
                     <option value="all-topics">All Topics</option>
                   </select>
                 </label>
@@ -213,11 +213,11 @@
               <div class="digest-slot-bar"><span id="casesSendStatus"></span></div>
             </div>
             <div class="topic-tabs" id="casesApprovedTabs">
-              <button class="topic-tab active" data-topic="corporate-case">Corporate Case</button>
-              <button class="topic-tab" data-topic="real-estate">Real Estate</button>
-              <button class="topic-tab" data-topic="policy-partner">Policy Partner</button>
-              <button class="topic-tab" data-topic="money-matters">Money Matters</button>
-              <button class="topic-tab" data-topic="wellness-daily">Wellness Daily</button>
+              <button class="topic-tab active" data-topic="real-estate">Real Estate</button>
+              <button class="topic-tab" data-topic="automobile">Automobile</button>
+              <button class="topic-tab" data-topic="health-wellness">Health &amp; Wellness</button>
+              <button class="topic-tab" data-topic="tech-ai">Tech &amp; AI</button>
+              <button class="topic-tab" data-topic="markets-startups">Markets &amp; Startups</button>
               <button class="topic-tab" data-topic="all-topics">All Topics</button>
             </div>
           </div>
@@ -315,7 +315,7 @@
           <div class="fetch-today-card">
             <div class="fetch-today-info">
               <h3 style="margin:0 0 4px">Run today's AI pipeline</h3>
-              <p class="muted" style="margin:0;font-size:13px">Scrape and summarize General, then build Corporate Case and all topic editions.</p>
+              <p class="muted" style="margin:0;font-size:13px">Scrape and summarize General, then build all topic editions.</p>
             </div>
             <button class="btn-primary btn-fetch" id="fetchToday">
               <span id="fetchBtnText">Run full pipeline</span>

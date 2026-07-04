@@ -7,16 +7,16 @@ let dashboardBooted = false;
 
 const NEWSLETTER_TOPICS = [
   { slug: "daily-wrap", label: "General" },
-  { slug: "corporate-case", label: "Corporate Case" },
   { slug: "real-estate", label: "Real Estate" },
-  { slug: "policy-partner", label: "Policy Partner" },
-  { slug: "money-matters", label: "Money Matters" },
-  { slug: "wellness-daily", label: "Wellness Daily" }
+  { slug: "automobile", label: "Automobile" },
+  { slug: "health-wellness", label: "Health & Wellness" },
+  { slug: "tech-ai", label: "Tech & AI" },
+  { slug: "markets-startups", label: "Markets & Startups" }
 ];
-const CASE_STUDY_TOPIC_SLUGS = ["corporate-case", "real-estate", "policy-partner", "money-matters", "wellness-daily"];
+const CASE_STUDY_TOPIC_SLUGS = ["real-estate", "automobile", "health-wellness", "tech-ai", "markets-startups"];
 const TOPIC_DRAFT_TABS = NEWSLETTER_TOPICS.filter((topic) => topic.slug !== "daily-wrap");
 
-// Two-workspace split: Short Articles (general + categories) vs Case Studies (corporate + editorial).
+// Two-workspace split: Short Articles (general + categories) vs Case Studies (editorial drafts).
 const WORKSPACE_KEY = "shortly-workspace";
 const DEFAULT_SECTION = { short: "review", cases: "topics" };
 function defaultSectionFor(ws) { return DEFAULT_SECTION[ws] || "review"; }
@@ -41,7 +41,7 @@ const DIGEST_FORMATS = {
     label: "1 Case Study",
     dailyLimit: 0,
     caseLimit: 1,
-    hint: "Pick exactly 1 approved corporate case study. Nothing is selected automatically.",
+    hint: "Pick exactly 1 approved case study. Nothing is selected automatically.",
   }
 };
 
@@ -86,18 +86,18 @@ function dailyDigestKey(id) {
   return `daily:${id}`;
 }
 
-function corporateDigestKey(id) {
-  return `corporate:${id}`;
+function caseDigestKey(id) {
+  return `case:${id}`;
 }
 
 function normalizeTopicSlug(value = "") {
-  const slug = String(value).trim().toLowerCase().replace(/[\s_]+/g, "-");
+  const slug = String(value).trim().toLowerCase().replace(/[\s_]+/g, "-").replace(/-?&-?/g, "-");
   if (["daily", "shortly", "shortly-daily-wrap"].includes(slug)) return "daily-wrap";
-  if (["corporate", "case-study"].includes(slug)) return "corporate-case";
   if (["realestate", "property"].includes(slug)) return "real-estate";
-  if (slug === "policy") return "policy-partner";
-  if (["money", "finance"].includes(slug)) return "money-matters";
-  if (["wellness", "health"].includes(slug)) return "wellness-daily";
+  if (["auto", "cars", "automotive"].includes(slug)) return "automobile";
+  if (["wellness", "health", "wellness-daily", "health-wellness"].includes(slug)) return "health-wellness";
+  if (["tech", "technology", "ai", "tech-ai"].includes(slug)) return "tech-ai";
+  if (["money", "finance", "money-matters", "markets", "startups", "markets-startups"].includes(slug)) return "markets-startups";
   return slug;
 }
 
@@ -108,20 +108,19 @@ function normalizeTopicList(value) {
   return [...new Set(topics.length ? topics : ["daily-wrap"])];
 }
 
-const AI_PIPELINE_TOPICS = ["real-estate", "policy-partner", "money-matters", "wellness-daily"];
+const AI_PIPELINE_TOPICS = ["real-estate", "automobile", "health-wellness", "tech-ai", "markets-startups"];
 
 // Short-article category label -> topic slug (for per-topic scraping).
 const CATEGORY_TO_SLUG = {
   "Real Estate": "real-estate",
-  "Policy Partner": "policy-partner",
-  "Money Matters": "money-matters",
-  "Wellness Daily": "wellness-daily",
-  "Corporate Case": "corporate-case",
+  "Automobile": "automobile",
+  "Health & Wellness": "health-wellness",
+  "Tech & AI": "tech-ai",
+  "Markets & Startups": "markets-startups",
 };
 
 // Scrape fresh content for one category/topic on demand.
 //  - "" / General     -> general scrape-news + summarize
-//  - corporate-case   -> corporate-case-agent
 //  - editorial topics -> editorial-topic-agent { topic }
 async function scrapeForCategory(category) {
   if (!category || category === "General") {
@@ -130,24 +129,10 @@ async function scrapeForCategory(category) {
     return `General: scraped ${scrapeRes.inserted ?? scrapeRes.scraped ?? 0} new, summarized ${sumRes.summarized ?? 0}.`;
   }
   const slug = CATEGORY_TO_SLUG[category] || category;
-  if (slug === "corporate-case") {
-    if (!cfg.corporateCase) throw new Error("Missing corporate case endpoint");
-    const res = await api("POST", cfg.corporateCase, {});
-    return corporateCaseScrapeMessage(res);
-  }
   if (!cfg.editorialTopics) throw new Error("Missing editorial topics endpoint");
   const res = await api("POST", cfg.editorialTopics, { topic: slug });
   const inserted = res.shortArticlesInserted;
   return `${topicLabel(slug)} draft created${typeof inserted === "number" ? `, ${inserted} short articles inserted` : ""}.`;
-}
-
-function corporateCaseScrapeMessage(res) {
-  const count = res.inserted ?? res.cases?.length;
-  const shortCount = res.shortArticlesInserted;
-  const parts = [];
-  if (typeof count === "number") parts.push(`${count} case stud${count === 1 ? "y" : "ies"} created`);
-  if (typeof shortCount === "number") parts.push(`${shortCount} short article${shortCount === 1 ? "" : "s"} added`);
-  return `Corporate Case: scrape complete${parts.length ? `, ${parts.join(", ")}` : ""}.`;
 }
 
 function updateScrapeReviewLabel() {
@@ -324,15 +309,14 @@ const state = {
   articles: [],
   subscribers: [],
   digests: [],
-  corporateCases: [],
   editorialDrafts: [],
   workspace: "short",
   section: "review",
-  activeTopicDraft: "corporate-case",
+  activeTopicDraft: "real-estate",
   approvedTopic: "daily-wrap",
-  casesApprovedTopic: "corporate-case",
+  casesApprovedTopic: "real-estate",
   casesSendMode: "case-study-only",
-  casesTopic: "corporate-case",
+  casesTopic: "real-estate",
   shortCategory: "General",
   digestFormat: "daily-wrap-10",
   digestCategory: "",
@@ -342,7 +326,7 @@ const state = {
   selected: new Set(),
   digestSelections: {
     daily: new Set(),
-    corporate: new Set()
+    caseStudy: new Set()
   },
   selectedSubscribers: new Set(),
   dragId: null
@@ -451,8 +435,8 @@ function sortedSummarizedDailyArticles(category = "") {
     );
 }
 
-function sortedApprovedCorporateCases() {
-  return [...state.corporateCases]
+function sortedApprovedCaseStudies() {
+  return [...state.editorialDrafts]
     .filter((item) => (item.status || "draft") === "approved")
     .sort((a, b) => new Date(b.generated_at || 0).getTime() - new Date(a.generated_at || 0).getTime());
 }
@@ -464,9 +448,9 @@ function selectedDigestDailyArticles() {
     .filter((article) => article && isApprovedToday(article));
 }
 
-function selectedDigestCorporateCases() {
-  const lookup = new Map(state.corporateCases.map((item) => [item.id, item]));
-  return [...state.digestSelections.corporate]
+function selectedDigestCaseStudies() {
+  const lookup = new Map(state.editorialDrafts.map((item) => [item.id, item]));
+  return [...state.digestSelections.caseStudy]
     .map((id) => lookup.get(id))
     .filter((item) => item && (item.status || "draft") === "approved");
 }
@@ -482,12 +466,12 @@ function trimSelectionSet(set, limit) {
 
 function syncDigestSelections() {
   const validDaily = new Set(sortedApprovedDailyArticles().map((article) => article.id));
-  const validCorporate = new Set(sortedApprovedCorporateCases().map((item) => item.id));
+  const validCases = new Set(sortedApprovedCaseStudies().map((item) => item.id));
   for (const id of [...state.digestSelections.daily]) {
     if (!validDaily.has(id)) state.digestSelections.daily.delete(id);
   }
-  for (const id of [...state.digestSelections.corporate]) {
-    if (!validCorporate.has(id)) state.digestSelections.corporate.delete(id);
+  for (const id of [...state.digestSelections.caseStudy]) {
+    if (!validCases.has(id)) state.digestSelections.caseStudy.delete(id);
   }
 
   const format = digestFormatConfig();
@@ -502,9 +486,9 @@ function syncDigestSelections() {
     }
   }
   if (!format.dailyLimit) state.digestSelections.daily.clear();
-  if (!format.caseLimit) state.digestSelections.corporate.clear();
+  if (!format.caseLimit) state.digestSelections.caseStudy.clear();
   trimSelectionSet(state.digestSelections.daily, format.dailyLimit || 0);
-  trimSelectionSet(state.digestSelections.corporate, format.caseLimit || 0);
+  trimSelectionSet(state.digestSelections.caseStudy, format.caseLimit || 0);
 }
 
 function resolveDigestComposition() {
@@ -514,27 +498,13 @@ function resolveDigestComposition() {
     .filter((article) => !format.generalOnly || isGeneralArticle(article))
     .filter((article) => !category || articleCategory(article) === category)
     .slice(0, format.dailyLimit || 0);
-  const selectedCorporate = selectedDigestCorporateCases().slice(0, format.caseLimit || 0);
-
-  const pickedDailyIds = new Set(selectedDaily.map((article) => article.id));
-  const pickedCorporateIds = new Set(selectedCorporate.map((item) => item.id));
-
-  // Auto-fill ONLY up to the minimum (default 5), and ONLY from APPROVED stories.
-  // Never auto-fill from un-approved/summarized articles — that is what leaked old
-  // and unreviewed content into past sends.
-  const fillTarget = Math.max(0, (format.dailyMin || 0) - selectedDaily.length);
-  const approvedAutoDaily = (format.generalOnly ? sortedApprovedGeneralArticles() : sortedApprovedDailyArticles(category))
-    .filter((article) => !pickedDailyIds.has(article.id))
-    .slice(0, fillTarget);
-  const autoCorporate = sortedApprovedCorporateCases()
-    .filter((item) => !pickedCorporateIds.has(item.id))
-    .slice(0, Math.max(0, (format.caseLimit || 0) - selectedCorporate.length));
+  const selectedCases = selectedDigestCaseStudies().slice(0, format.caseLimit || 0);
 
   const dailyArticles = selectedDaily;
-  const corporateCases = selectedCorporate;
+  const caseStudies = selectedCases;
   const dailyMin = format.dailyMin || 0;
   const dailyReady = (format.dailyLimit || 0) === 0 || (dailyArticles.length >= dailyMin && dailyArticles.length > 0);
-  const caseReady = corporateCases.length >= (format.caseLimit || 0);
+  const caseReady = caseStudies.length >= (format.caseLimit || 0);
 
   return {
     format: state.digestFormat,
@@ -544,15 +514,15 @@ function resolveDigestComposition() {
     dailyMin,
     caseLimit: format.caseLimit || 0,
     dailySelected: selectedDaily.length,
-    caseSelected: selectedCorporate.length,
+    caseSelected: selectedCases.length,
     dailySelectedIds: selectedDaily.map((article) => article.id),
     dailyAutoIds: [],
-    caseSelectedIds: selectedCorporate.map((item) => item.id),
+    caseSelectedIds: selectedCases.map((item) => item.id),
     caseAutoIds: [],
     dailyAutoFilled: 0,
     caseAutoFilled: 0,
     dailyArticles,
-    corporateCases,
+    caseStudies,
     isReady: dailyReady && caseReady,
   };
 }
@@ -578,8 +548,8 @@ function topicSubscriberCount(topicSlug) {
 
 function defaultDigestAudienceCount() {
   if (state.digestFormat === "case-study-only") {
-    const corporateAudience = topicSubscriberCount("corporate-case");
-    return corporateAudience > 0 ? corporateAudience : state.subscribers.filter((s) => s.status === "subscribed").length;
+    const caseAudience = topicSubscriberCount("case-study-pool");
+    return caseAudience > 0 ? caseAudience : state.subscribers.filter((s) => s.status === "subscribed").length;
   }
   if (digestFormatConfig().needsCategory && state.digestCategory) {
     return topicSubscriberCount(normalizeTopicSlug(state.digestCategory));
@@ -603,7 +573,7 @@ function updateSubscriberSelectionUi() {
   const selectAll = $("#subSelectAll");
   if (label) {
     const defaultAudienceLabel = state.section === "email-builder" && state.digestFormat === "case-study-only"
-      ? "All Corporate Case subscribers will receive this digest"
+      ? "All case-study subscribers will receive this digest"
       : state.section === "email-builder" && digestFormatConfig().needsCategory && state.digestCategory
         ? `All ${state.digestCategory} subscribers will receive this article email`
     : "All General subscribers will receive the digest";
@@ -631,7 +601,7 @@ function refreshChrome() {
   const rejected = state.articles.filter((a) => a.status === "rejected").length;
   const subs = state.subscribers.filter((s) => s.status === "subscribed").length;
   const dailyWrapSubs = dailyWrapSubscriberCount();
-  const topicDrafts = state.corporateCases.length + state.editorialDrafts.length;
+  const topicDrafts = state.editorialDrafts.length;
 
   // Per-category counts when a category tab is active in Short Articles.
   const cat = state.shortCategory;
@@ -644,9 +614,7 @@ function refreshChrome() {
   $("#badgeRejected").textContent = rejected;
   $("#badgeSubs").textContent = subs;
   $("#badgeTopics").textContent = topicDrafts;
-  const approvedCases =
-    state.corporateCases.filter((c) => (c.status || "draft") === "approved").length +
-    state.editorialDrafts.filter((d) => (d.status || "draft") === "approved").length;
+  const approvedCases = state.editorialDrafts.filter((d) => (d.status || "draft") === "approved").length;
   if ($("#badgeCasesApproved")) $("#badgeCasesApproved").textContent = approvedCases;
 
   const send = $("#sendDigest");
@@ -686,7 +654,7 @@ function refreshChrome() {
 
   const preview = $("#previewDigest");
   preview.style.display = state.section === "email-builder"
-    ? (digestPlan.dailyArticles.length > 0 || digestPlan.corporateCases.length > 0 ? "" : "none")
+    ? (digestPlan.dailyArticles.length > 0 || digestPlan.caseStudies.length > 0 ? "" : "none")
     : state.section === "cases-send"
       ? "none"
       : "none";
@@ -860,8 +828,8 @@ function renderReview() {
 }
 
 // Approved = the QA's selected short articles, shown per category section.
-// Corporate Case can be reviewed here as a bucket, while full case studies live in the Case Studies workspace.
-const SHORT_CATEGORIES = ["Corporate Case", "Real Estate", "Policy Partner", "Money Matters", "Wellness Daily"];
+// Full case studies live in the Case Studies workspace.
+const SHORT_CATEGORIES = ["Real Estate", "Automobile", "Health & Wellness", "Tech & AI", "Markets & Startups"];
 function renderApproved() {
   const node = $("#approvedList");
   if (!node) return;
@@ -889,10 +857,10 @@ function renderEmailBuilder() {
   if (!node) return;
   const plan = resolveDigestComposition();
   if (plan.caseLimit > 0 && plan.dailyLimit === 0) {
-    const cards = topicDraftCards("corporate-case", "approved");
+    const cards = topicDraftCards("all-topics", "approved");
     node.innerHTML = cards.length
       ? cards.map((card) => topicDraftCardHtml(card, { selectable: true })).join("")
-      : `<p class="muted">No approved Corporate Case items available for email selection.</p>`;
+      : `<p class="muted">No approved case studies available for email selection.</p>`;
     return;
   }
   const category = plan.category || state.digestCategory || "";
@@ -914,22 +882,6 @@ function renderRejected() {
 
 function topicDraftCards(topicSlug = state.activeTopicDraft, statusFilter = "") {
   const byStatus = (item) => !statusFilter || (item.status || "draft") === statusFilter;
-  const corporateCards = state.corporateCases.filter(byStatus).map((item) => ({
-    kind: "corporate",
-    id: item.id,
-    cardType: "single",
-    topic: "Corporate Case",
-    status: item.status || "draft",
-    source: item.source,
-    sourceUrl: item.source_url,
-    headline: item.headline,
-    body: `${item.summary || ""}\n\n${item.detail || ""}`.trim(),
-    generatedAt: item.generated_at
-  }));
-
-  if (topicSlug === "corporate-case" || topicSlug === "all-topics") {
-    if (topicSlug === "corporate-case") return corporateCards;
-  }
 
   const editorialCards = state.editorialDrafts
     .filter((draft) => (topicSlug === "all-topics" || draft.topic_slug === topicSlug) && byStatus(draft))
@@ -961,7 +913,7 @@ function topicDraftCards(topicSlug = state.activeTopicDraft, statusFilter = "") 
           headline: content.feature?.headline || draft.headline,
           body: `${content.feature?.summary || draft.summary || ""}\n\n${content.feature?.detail || draft.detail || ""}`.trim(),
           generatedAt: draft.generated_at,
-          label: draft.topic_slug === "money-matters" ? "Take" : "Feature"
+          label: draft.topic_slug === "markets-startups" ? "Take" : "Feature"
         };
         return [...briefs, feature];
       }
@@ -979,10 +931,6 @@ function topicDraftCards(topicSlug = state.activeTopicDraft, statusFilter = "") 
         }];
     });
 
-  if (topicSlug === "all-topics") {
-    return [...corporateCards, ...editorialCards];
-  }
-
   return editorialCards;
 }
 
@@ -997,13 +945,13 @@ function topicDraftCardHtml(card, options = {}) {
   const words = card.body.split(/\s+/).filter(Boolean).length;
   const readTime = Math.max(1, Math.ceil(words / 200));
   const cardId = `${card.kind}:${card.id}:${card.cardType}:${card.briefIndex ?? ""}`;
-  const allowSelect = options.selectable === true && card.kind === "corporate";
-  const selected = allowSelect && state.digestSelections.corporate.has(card.id);
+  const allowSelect = options.selectable === true && card.cardType !== "brief";
+  const selected = allowSelect && state.digestSelections.caseStudy.has(card.id);
   const plan = options.showSendPlan || allowSelect ? resolveDigestComposition() : null;
-  const plannedCorporateId = options.plannedCorporateId || "";
-  const isEmailSelected = card.kind === "corporate" && (
-    card.id === plannedCorporateId ||
-    Boolean(plan?.corporateCases.some((item) => item.id === card.id))
+  const plannedCaseId = options.plannedCaseId || "";
+  const isEmailSelected = card.cardType !== "brief" && (
+    card.id === plannedCaseId ||
+    Boolean(plan?.caseStudies.some((item) => item.id === card.id))
   );
   const isAutoSelected = isEmailSelected && !selected;
   const sendChip = isEmailSelected
@@ -1028,9 +976,9 @@ function topicDraftCardHtml(card, options = {}) {
         <button class="btn-reject" data-action="reject">${rejectLabel}</button>
         <button class="btn-approve" data-action="approve">Approve draft</button>`;
   return `
-    <article class="card topic-draft-card ${selected ? "selected" : ""} ${isEmailSelected ? "email-selected" : ""} ${isAutoSelected ? "email-auto" : ""}" data-kind="${esc(card.kind)}" data-id="${esc(card.id)}" data-card-type="${esc(card.cardType)}" data-brief-index="${card.briefIndex ?? ""}" data-select-kind="${allowSelect ? "corporate" : ""}" data-preview-key="${allowSelect ? corporateDigestKey(card.id) : `${card.kind}:${card.id}:${card.cardType}`}">
+    <article class="card topic-draft-card ${selected ? "selected" : ""} ${isEmailSelected ? "email-selected" : ""} ${isAutoSelected ? "email-auto" : ""}" data-kind="${esc(card.kind)}" data-id="${esc(card.id)}" data-card-type="${esc(card.cardType)}" data-brief-index="${card.briefIndex ?? ""}" data-select-kind="${allowSelect ? "case" : ""}" data-preview-key="${allowSelect ? caseDigestKey(card.id) : `${card.kind}:${card.id}:${card.cardType}`}">
       <header>
-        ${allowSelect ? `<input type="checkbox" class="card-check" data-id="${esc(card.id)}" data-select-kind="corporate" ${selected ? "checked" : ""}>` : ""}
+        ${allowSelect ? `<input type="checkbox" class="card-check" data-id="${esc(card.id)}" data-select-kind="case" ${selected ? "checked" : ""}>` : ""}
         <div class="card-head">
           <div class="chips">
             ${sendChip}
@@ -1057,7 +1005,7 @@ function topicDraftCardHtml(card, options = {}) {
 
 function renderTopicDrafts() {
   const buildText = $("#buildActiveTopicText");
-  if (buildText) buildText.textContent = `Scrape ${topicLabel(state.activeTopicDraft)}`;
+  if (buildText) buildText.textContent = `Build ${topicLabel(state.activeTopicDraft)} case study`;
   const tabs = $("#topicTabs");
   if (tabs) {
     tabs.querySelectorAll(".topic-tab").forEach((tab) => {
@@ -1067,9 +1015,8 @@ function renderTopicDrafts() {
   const list = $("#topicDraftList");
   const cards = topicDraftCards();
   const label = topicLabel(state.activeTopicDraft);
-  $("#topicDraftHint").textContent = state.activeTopicDraft === "corporate-case"
-    ? "Corporate Case drafts are shown as article-style cards with summary and detail together."
-    : `${label} drafts use article-style cards. Hybrid topics split five briefs and the feature/take into separate cards.`;
+  $("#topicDraftHint").textContent =
+    `${label} drafts use article-style cards. Hybrid topics split five briefs and the feature/take into separate cards.`;
   list.innerHTML = cards.length
     ? cards.map(topicDraftCardHtml).join("")
     : `<p class="muted">No ${esc(label)} drafts yet. Use "Build selected topic" to create one.</p>`;
@@ -1085,11 +1032,11 @@ function renderCasesApproved() {
   const node = $("#casesApprovedList");
   if (!node) return;
   const cards = topicDraftCards(topic, "approved");
-  const plannedCorporateId = state.casesSendMode === "case-study-only" && topic === "corporate-case"
-    ? (selectedDigestCorporateCases()[0]?.id || sortedApprovedCorporateCases()[0]?.id || "")
+  const plannedCaseId = state.casesSendMode === "case-study-only" && topic === "all-topics"
+    ? (selectedDigestCaseStudies()[0]?.id || sortedApprovedCaseStudies()[0]?.id || "")
     : "";
   node.innerHTML = cards.length
-    ? cards.map((card) => topicDraftCardHtml(card, { selectable: false, plannedCorporateId })).join("")
+    ? cards.map((card) => topicDraftCardHtml(card, { selectable: false, plannedCaseId })).join("")
     : `<p class="muted">No approved ${esc(topicLabel(topic))} items yet.</p>`;
 }
 
@@ -1384,11 +1331,9 @@ async function loadDigests() {
 }
 
 async function loadTopicDrafts() {
-  const [corporate, editorial] = await Promise.allSettled([
-    cfg.corporateCase ? api("GET", cfg.corporateCase) : Promise.resolve({ cases: [] }),
+  const [editorial] = await Promise.allSettled([
     cfg.editorialTopics ? api("GET", cfg.editorialTopics) : Promise.resolve({ drafts: [] })
   ]);
-  state.corporateCases = corporate.status === "fulfilled" ? corporate.value.cases || [] : [];
   state.editorialDrafts = editorial.status === "fulfilled" ? editorial.value.drafts || [] : [];
 }
 
@@ -1457,16 +1402,6 @@ async function runAiPipeline({ force = false, showProgress = true } = {}) {
       setProgress(`Retry (${sumRes.failed} remaining)...`);
       const retryRes = await api("POST", cfg.summarize, {});
       lines.push(`General retry: ${retryRes.summarized ?? 0} more summarized.`);
-    }
-
-    if (cfg.corporateCase) {
-      setProgress("Building Corporate Case...");
-      try {
-        const caseRes = await api("POST", cfg.corporateCase, {});
-        lines.push(corporateCaseScrapeMessage(caseRes));
-      } catch (error) {
-        lines.push(`Corporate Case: failed - ${error.message}`);
-      }
     }
 
     if (cfg.editorialTopics) {
@@ -1547,9 +1482,8 @@ function splitTopicBody(value) {
 }
 
 async function handleTopicDraftAction(card, action) {
-  const kind = card.dataset.kind;
-  const endpoint = kind === "corporate" ? cfg.corporateCase : cfg.editorialTopics;
-  if (!endpoint) return toast(`Missing ${kind} endpoint`);
+  const endpoint = cfg.editorialTopics;
+  if (!endpoint) return toast("Missing editorial topics endpoint");
   const id = card.dataset.id;
   const cardType = card.dataset.cardType;
 
@@ -1564,10 +1498,7 @@ async function handleTopicDraftAction(card, action) {
   const payload = { action, id };
 
   if (action === "update") {
-    if (kind === "corporate") {
-      const [summary, detail] = splitTopicBody(body);
-      Object.assign(payload, { headline, summary, detail });
-    } else if (cardType === "brief") {
+    if (cardType === "brief") {
       const [what_happened, why_it_matters] = splitTopicBody(body);
       Object.assign(payload, {
         card_type: "brief",
@@ -1649,27 +1580,27 @@ function toggleDigestSelection(kind, id, checked) {
     return;
   }
 
-  if (kind === "corporate") {
+  if (kind === "case") {
     if (format.caseLimit === 0) {
       toast("This format does not use a case study.");
       return;
     }
     if (checked) {
-      if (state.digestSelections.corporate.has(id)) return;
-      if (state.digestSelections.corporate.size >= format.caseLimit) {
+      if (state.digestSelections.caseStudy.has(id)) return;
+      if (state.digestSelections.caseStudy.size >= format.caseLimit) {
         toast(`This format only allows ${format.caseLimit} case study.`);
         return;
       }
-      state.digestSelections.corporate.add(id);
+      state.digestSelections.caseStudy.add(id);
     } else {
-      state.digestSelections.corporate.delete(id);
+      state.digestSelections.caseStudy.delete(id);
     }
   }
 }
 
 function clearDigestSelections() {
   state.digestSelections.daily.clear();
-  state.digestSelections.corporate.clear();
+  state.digestSelections.caseStudy.clear();
 }
 
 async function bulkAction(action) {
@@ -1799,7 +1730,7 @@ function generatePreviewHtml() {
   const liveHeadlines = collectLiveHeadlineOverrides();
   const liveSummaries = collectLiveSummaryOverrides();
   const plan = resolveDigestComposition();
-  if (state.section === "email-builder" && plan.dailyArticles.length === 0 && plan.corporateCases.length === 0) {
+  if (state.section === "email-builder" && plan.dailyArticles.length === 0 && plan.caseStudies.length === 0) {
     return "<p>No approved items ready for this format yet.</p>";
   }
   const approved = state.articles.filter(isApprovedToday);
@@ -1827,7 +1758,7 @@ function generatePreviewHtml() {
 
   function renderItems(items, kind = "daily") {
     return items.map((a, i) => {
-      const previewKey = kind === "daily" ? dailyDigestKey(a.id) : corporateDigestKey(a.id);
+      const previewKey = kind === "daily" ? dailyDigestKey(a.id) : caseDigestKey(a.id);
       const headline = liveHeadlines.get(previewKey) || (a.edited_title || a.title || a.headline || "").trim();
       const text = liveSummaries.get(previewKey) || (a.edited_summary || a.summary || a.detail || "").trim();
       return `<tr><td style="padding:0 0 16px">
@@ -1874,9 +1805,9 @@ function generatePreviewHtml() {
       }[state.digestFormat]
     : "Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!";
 
-  const allText = [...wrapped, ...plan.corporateCases]
+  const allText = [...wrapped, ...plan.caseStudies]
     .map((a) => {
-      const key = a.headline ? corporateDigestKey(a.id) : dailyDigestKey(a.id);
+      const key = a.headline ? caseDigestKey(a.id) : dailyDigestKey(a.id);
       return liveSummaries.get(key) || a.edited_summary || a.summary || a.detail || "";
     })
     .join(" ");
@@ -1898,7 +1829,7 @@ function generatePreviewHtml() {
         </p>
       </div>
       ${renderSection(dailyLabel, wrapped, "daily")}
-      ${renderSection("Corporate Case", plan.corporateCases, "corporate", "#0f9d69")}
+      ${renderSection("Case Study", plan.caseStudies, "case", "#0f9d69")}
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:4px;margin-bottom:20px">
         <tr><td style="text-align:center;padding:10px 20px 14px">
           <img src="${previewFooterLogoUrl}" alt="Shortly" style="display:block;width:96px;max-width:100%;height:auto;margin:0 auto 8px">
@@ -2263,69 +2194,6 @@ $("#importCsvBtn").addEventListener("click", async () => {
 // Fetch Today button — scrape + summarize in one click
 $("#fetchToday").addEventListener("click", async () => {
   await runAiPipeline({ force: true, showProgress: true });
-  return;
-  const btn = $("#fetchToday");
-  const btnText = $("#fetchBtnText");
-  const resultBox = $("#fetchResult");
-  btn.disabled = true;
-  resultBox.classList.add("hidden");
-  const lines = [];
-
-  try {
-    // Step 1: Scrape RSS feeds
-    btnText.innerHTML = `<span class="spinner"></span> Scraping feeds...`;
-    const scrapeRes = await api("POST", cfg.scrape, {});
-    lines.push(`General: scraped ${scrapeRes.scraped ?? 0} articles, ${scrapeRes.inserted ?? 0} new.`);
-
-    // Step 2: Summarize with GPT-4o
-    btnText.innerHTML = `<span class="spinner"></span> Summarizing...`;
-    const sumRes = await api("POST", cfg.summarize, {});
-    lines.push(`General: summarized ${sumRes.summarized ?? 0}, failed ${sumRes.failed ?? 0}.`);
-
-    // Step 3: Second summarize pass for rate-limited articles
-    if (sumRes.failed > 0) {
-      btnText.innerHTML = `<span class="spinner"></span> Retry (${sumRes.failed} remaining)...`;
-      const retryRes = await api("POST", cfg.summarize, {});
-      lines.push(`General retry: ${retryRes.summarized ?? 0} more summarized.`);
-    }
-
-    // Step 4: Run the category/case-study AI agents.
-    if (cfg.corporateCase) {
-      btnText.innerHTML = `<span class="spinner"></span> Building Corporate Case...`;
-      try {
-        const caseRes = await api("POST", cfg.corporateCase, {});
-        lines.push(corporateCaseScrapeMessage(caseRes));
-      } catch (error) {
-        lines.push(`Corporate Case: failed - ${error.message}`);
-      }
-    }
-
-    if (cfg.editorialTopics) {
-      for (const topic of AI_PIPELINE_TOPICS) {
-        btnText.innerHTML = `<span class="spinner"></span> Building ${topicLabel(topic)}...`;
-        try {
-          const topicRes = await api("POST", cfg.editorialTopics, { topic });
-          const inserted = topicRes.shortArticlesInserted;
-          lines.push(`${topicLabel(topic)}: draft created${typeof inserted === "number" ? `, ${inserted} short articles inserted` : ""}.`);
-        } catch (error) {
-          lines.push(`${topicLabel(topic)}: failed - ${error.message}`);
-        }
-      }
-    }
-
-    resultBox.textContent = lines.join("\n");
-    resultBox.classList.remove("hidden");
-    await reload();
-    showSection("review");
-    toast("Full AI pipeline finished.");
-  } catch (e) {
-    toast(`Failed: ${e.message}`);
-    resultBox.textContent = [...lines, `Error: ${e.message}`].join("\n");
-    resultBox.classList.remove("hidden");
-  } finally {
-    btn.disabled = false;
-    btnText.textContent = "Run full pipeline";
-  }
 });
 
 $("#buildActiveTopic").addEventListener("click", async () => {
@@ -2335,13 +2203,8 @@ $("#buildActiveTopic").addEventListener("click", async () => {
   btn.disabled = true;
   btnText.textContent = "Researching...";
   try {
-    if (topic === "corporate-case") {
-      if (!cfg.corporateCase) throw new Error("Missing corporate case endpoint");
-      await api("POST", cfg.corporateCase, {});
-    } else {
-      if (!cfg.editorialTopics) throw new Error("Missing editorial topics endpoint");
-      await api("POST", cfg.editorialTopics, { topic });
-    }
+    if (!cfg.editorialTopics) throw new Error("Missing editorial topics endpoint");
+    await api("POST", cfg.editorialTopics, { topic });
     await reload();
     showSection("topics");
     toast(`${topicLabel(topic)} draft created.`);
@@ -2349,7 +2212,7 @@ $("#buildActiveTopic").addEventListener("click", async () => {
     toast("Failed: " + e.message);
   } finally {
     btn.disabled = false;
-    btnText.textContent = `Scrape ${topicLabel(state.activeTopicDraft)}`;
+    btnText.textContent = `Build ${topicLabel(state.activeTopicDraft)} case study`;
   }
 });
 
@@ -2425,10 +2288,10 @@ async function sendCuratedDigest() {
     toast("This format does not have enough approved items yet.");
     return;
   }
-  const itemCount = plan.dailyArticles.length + plan.corporateCases.length;
+  const itemCount = plan.dailyArticles.length + plan.caseStudies.length;
   const detail = [
     plan.dailyLimit ? `${plan.dailyArticles.length} daily article${plan.dailyArticles.length === 1 ? "" : "s"}` : "",
-    plan.caseLimit ? `${plan.corporateCases.length} case stud${plan.corporateCases.length === 1 ? "y" : "ies"}` : ""
+    plan.caseLimit ? `${plan.caseStudies.length} case stud${plan.caseStudies.length === 1 ? "y" : "ies"}` : ""
   ].filter(Boolean).join(" + ");
   if (!confirm(`Send ${plan.formatLabel} to ${subCount} subscribers?\n\n${detail}`)) return;
 
@@ -2439,7 +2302,9 @@ async function sendCuratedDigest() {
       category: plan.category,
       // Send only QA-selected items. No auto-fill.
       article_ids: plan.dailyArticles.map((article) => article.id),
-      corporate_case_id: plan.corporateCases[0]?.id || null,
+      // Field name kept for the deployed send-curated-digest function;
+      // it now carries the chosen editorial draft id.
+      corporate_case_id: plan.caseStudies[0]?.id || null,
       ...(selectedIds.length ? { subscriber_ids: selectedIds } : {})
     });
     clearDigestSelections();
