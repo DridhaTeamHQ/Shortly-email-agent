@@ -300,7 +300,8 @@ const istDateKey = (value = new Date()) => new Intl.DateTimeFormat("en-CA", {
   day: "2-digit"
 }).format(new Date(value));
 const todayIst = () => istDateKey();
-const isScrapedToday = (a) => Boolean(a.scraped_at) && istDateKey(a.scraped_at) === todayIst();
+const reviewFreshAt = (a) => a.summarized_at || a.scraped_at;
+const isScrapedToday = (a) => Boolean(reviewFreshAt(a)) && istDateKey(reviewFreshAt(a)) === todayIst();
 const isApprovedToday = (a) =>
   a.status === "approved" && Boolean(a.reviewed_at || a.scraped_at) && istDateKey(a.reviewed_at || a.scraped_at) === todayIst();
 const isDraftActiveToday = (draft) =>
@@ -427,11 +428,12 @@ function sortedApprovedGeneralArticles() {
 }
 
 function sortedSummarizedDailyArticles(category = "") {
+  // Review queue: newest scrape first so a fresh scrape run is immediately visible.
   return state.articles
     .filter((a) => a.status === "summarized" && isScrapedToday(a) && (!category || articleCategory(a) === category))
     .sort((a, b) =>
-      (Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0)) ||
-      (new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime())
+      (new Date(reviewFreshAt(b)).getTime() - new Date(reviewFreshAt(a)).getTime()) ||
+      (Number(b.rank_score ?? 0) - Number(a.rank_score ?? 0))
     );
 }
 
@@ -734,8 +736,9 @@ function populateTopicFilter() {
 function cardHtml(a, mode) {
   const headline = a.edited_title || a.title || "";
   const text = a.edited_summary || a.summary || "";
-  const date = new Date(a.scraped_at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  const time = new Date(a.scraped_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const displayTime = reviewFreshAt(a) || a.scraped_at;
+  const date = new Date(displayTime).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const time = new Date(displayTime).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   const source = a.source ? `<span class="source-pill">${esc(a.source)}</span>` : "";
   const topic = a.topic ? `<span class="topic-chip">${esc(a.topic)}</span>` : "";
   const category = articleCategory(a);

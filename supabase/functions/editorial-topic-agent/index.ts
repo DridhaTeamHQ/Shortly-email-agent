@@ -339,7 +339,10 @@ async function upsertSourceCandidateArticles(
       status: "summarized",
       prominence,
       rank_score: candidate.sourceWeight,
-      scraped_at: candidate.publishedAt ?? new Date().toISOString(),
+      // scraped_at must be the SCRAPE time, not the RSS publish date: the
+      // dashboard and list-articles only show today's (IST) scraped_at window,
+      // so backdating to publishedAt makes fresh scrapes invisible.
+      scraped_at: new Date().toISOString(),
       summarized_at: new Date().toISOString()
     };
   });
