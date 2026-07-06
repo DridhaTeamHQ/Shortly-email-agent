@@ -69,13 +69,8 @@ body {
   font-family: var(--font-body);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
-  padding: 26px clamp(14px, 3vw, 44px);
-  background:
-    radial-gradient(1100px 600px at 8% -10%, rgba(255, 255, 255, 0.07), transparent 60%),
-    radial-gradient(900px 560px at 96% 112%, rgba(255, 255, 255, 0.05), transparent 60%),
-    var(--page);
-  background-attachment: fixed;
-  transition: color var(--t-med) var(--ease);
+  background: var(--bg);
+  transition: color var(--t-med) var(--ease), background var(--t-med) var(--ease);
 }
 h1, h2, h3, .stat-value {
   font-family: var(--font-display);
@@ -116,21 +111,17 @@ a:hover { text-decoration-color: var(--ink); }
 *::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 999px; }
 *::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
-/* ── Layout: floating app window on black ── */
+/* ── Layout: full-screen app ── */
 .app {
   display: grid; grid-template-columns: 252px 1fr;
-  height: calc(100vh - 52px);
-  max-width: 1560px; margin: 0 auto;
+  height: 100vh;
   background: var(--bg);
-  border-radius: 30px;
-  overflow: hidden;
-  box-shadow: var(--shadow-window);
-  animation: windowIn 0.55s var(--ease) both;
+  animation: windowIn 0.45s var(--ease) both;
   transition: background var(--t-med) var(--ease);
 }
 @keyframes windowIn {
-  from { opacity: 0; transform: translateY(18px) scale(0.985); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ── Sidebar ── */
