@@ -326,7 +326,6 @@ const state = {
   digestCategory: "",
   search: "",
   filterTopic: "",
-  filterSection: "",
   selected: new Set(),
   digestSelections: {
     daily: new Set(),
@@ -388,9 +387,6 @@ function filteredArticles(statusFilter) {
   // Short Articles category nav bar (set by the editorial agents, not per-card).
   if (state.shortCategory) {
     items = items.filter((a) => articleMatchesShortCategory(a));
-  }
-  if (state.filterSection) {
-    items = items.filter((a) => (a.section || "wrapped") === state.filterSection);
   }
   return items;
 }
@@ -744,7 +740,6 @@ function cardHtml(a, mode) {
   const topic = a.topic ? `<span class="topic-chip">${esc(a.topic)}</span>` : "";
   const category = articleCategory(a);
   const categoryChip = category ? `<span class="topic-chip cat-chip">${esc(category)}</span>` : "";
-  const sec = "wrapped";
   const isReviewSelected = state.selected.has(a.id);
   const isDigestSelected = state.digestSelections.daily.has(a.id);
   const plan = mode === "email" ? resolveDigestComposition() : null;
@@ -756,15 +751,6 @@ function cardHtml(a, mode) {
     ? `<span class="send-chip ${isAutoSelected ? "auto" : "picked"}">${isAutoSelected ? "Auto-selected for email" : "Selected for email"}</span>`
     : "";
 
-  // Section picker
-  const sectionPicker = mode !== "rejected" ? `
-    <div class="section-picker">
-      <label class="section-label">Section:</label>
-      <select data-role="section" disabled>
-        <option value="wrapped" selected>Wrapped</option>
-      </select>
-    </div>` : "";
-
   const canSelect = mode === "review" || (mode === "email" && digestFormatConfig().dailyLimit > 0);
   const checkbox = canSelect
     ? `<input type="checkbox" class="card-check" data-id="${a.id}" data-select-kind="${mode === "email" ? "daily" : "review"}" ${checked ? "checked" : ""}>`
@@ -774,7 +760,6 @@ function cardHtml(a, mode) {
   if (mode === "review") {
     actions = `
       <div class="actions">
-        ${sectionPicker}
         <button class="btn-save" data-action="edit">Save</button>
         <button class="btn-reject" data-action="reject">Reject</button>
         <button class="btn-approve" data-action="approve">Approve</button>
@@ -782,7 +767,6 @@ function cardHtml(a, mode) {
   } else if (mode === "approved") {
     actions = `
       <div class="actions">
-        ${sectionPicker}
         <button class="btn-save" data-action="edit">Save</button>
         <button class="btn-reject" data-action="reject">Remove</button>
       </div>`;
@@ -790,7 +774,6 @@ function cardHtml(a, mode) {
     actions = "";
   }
 
-  const sectionTag = `<span class="tag section-${sec}">${sec}</span>`;
   const readonly = mode === "rejected" ? "readonly" : "";
   const headlineReadonly = mode === "rejected" ? "readonly" : "";
 
@@ -803,7 +786,7 @@ function cardHtml(a, mode) {
       <header>
         ${checkbox}
           <div class="card-head">
-            <div class="chips">${sendChip}${categoryChip}${source}${topic}${sectionTag}<span class="tag ${a.status}">${a.status}</span></div>
+            <div class="chips">${sendChip}${categoryChip}${source}${topic}<span class="tag ${a.status}">${a.status}</span></div>
             <input class="headline-input" data-role="headline" type="text" value="${esc(headline)}" ${headlineReadonly} />
             <div class="meta">
               ${date} &middot; ${time}
@@ -1012,7 +995,7 @@ function topicDraftCardHtml(card, options = {}) {
 
 function renderTopicDrafts() {
   const buildText = $("#buildActiveTopicText");
-  if (buildText) buildText.textContent = `Build ${topicLabel(state.activeTopicDraft)} case study`;
+  if (buildText) buildText.textContent = "Scrape";
   const tabs = $("#topicTabs");
   if (tabs) {
     tabs.querySelectorAll(".topic-tab").forEach((tab) => {
@@ -1026,7 +1009,7 @@ function renderTopicDrafts() {
     `${label} drafts use article-style cards. Hybrid topics split five briefs and the feature/take into separate cards.`;
   list.innerHTML = cards.length
     ? cards.map(topicDraftCardHtml).join("")
-    : `<p class="muted">No ${esc(label)} drafts yet. Use "Build selected topic" to create one.</p>`;
+    : `<p class="muted">No ${esc(label)} drafts yet. Use "Scrape" to create one.</p>`;
 }
 
 // ---------- Case Studies workspace: approved review + send ----------
@@ -1454,7 +1437,7 @@ async function handleArticleAction(card, action) {
   const id = card.dataset.id;
   const headline = card.querySelector("input[data-role=headline]")?.value.trim();
   const summary = card.querySelector("textarea")?.value.trim();
-  const section = card.querySelector("select[data-role=section]")?.value || "wrapped";
+  const section = "wrapped";
   const body = { id, action, reviewer: cfg.reviewer, section };
   if (action === "edit" || action === "approve") body.edited_title = headline;
   if (action === "edit" || action === "approve") body.edited_summary = summary;
@@ -1625,7 +1608,7 @@ async function bulkAction(action) {
         reviewer: cfg.reviewer,
         edited_title: card?.querySelector('[data-role="headline"]')?.value || undefined,
         edited_summary: card?.querySelector('[data-role="summary"]')?.value || undefined,
-        section: card?.querySelector('[data-role="section"]')?.value || undefined
+        section: "wrapped"
       };
     });
     const results = await Promise.allSettled(
@@ -1967,10 +1950,6 @@ $("#filterTopic").addEventListener("change", (e) => {
   state.filterTopic = e.target.value;
   renderReview();
 });
-$("#filterSection").addEventListener("change", (e) => {
-  state.filterSection = e.target.value;
-  renderReview();
-});
 $$(".short-cat-tabs").forEach((bar) => bar.addEventListener("click", (e) => {
   const tab = e.target.closest(".topic-tab");
   if (!tab) return;
@@ -2208,7 +2187,7 @@ $("#buildActiveTopic").addEventListener("click", async () => {
   const btnText = $("#buildActiveTopicText");
   const topic = state.activeTopicDraft;
   btn.disabled = true;
-  btnText.textContent = "Researching...";
+  btnText.textContent = "Scraping...";
   try {
     if (!cfg.editorialTopics) throw new Error("Missing editorial topics endpoint");
     await api("POST", cfg.editorialTopics, { topic });
@@ -2219,7 +2198,7 @@ $("#buildActiveTopic").addEventListener("click", async () => {
     toast("Failed: " + e.message);
   } finally {
     btn.disabled = false;
-    btnText.textContent = `Build ${topicLabel(state.activeTopicDraft)} case study`;
+    btnText.textContent = "Scrape";
   }
 });
 

@@ -20,7 +20,7 @@
     <meta name="twitter:image" content="/assets/email-banner.jpg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Playfair+Display:wght@500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
     <script src="./config.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
@@ -103,11 +103,6 @@
             <select id="filterTopic">
               <option value="">All topics</option>
             </select>
-            <select id="filterSection">
-              <option value="">All sections</option>
-              <option value="wrapped">Wrapped</option>
-              <option value="ahead">Ahead</option>
-            </select>
             <button class="btn-primary" id="scrapeReviewBtn" type="button" title="Scrape fresh content for the selected topic">
               <span id="scrapeReviewText">Scrape news</span>
             </button>
@@ -177,7 +172,7 @@
               <button class="topic-tab" data-topic="markets-startups">Markets &amp; Startups</button>
             </div>
             <button class="btn-primary" id="buildActiveTopic">
-              <span id="buildActiveTopicText">Build selected topic</span>
+              <span id="buildActiveTopicText">Scrape</span>
             </button>
           </div>
           <p class="muted" id="topicDraftHint" style="margin:0 0 12px;font-size:13px">
