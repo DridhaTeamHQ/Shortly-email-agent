@@ -303,6 +303,10 @@ const todayIst = () => istDateKey();
 const isScrapedToday = (a) => Boolean(a.scraped_at) && istDateKey(a.scraped_at) === todayIst();
 const isApprovedToday = (a) =>
   a.status === "approved" && Boolean(a.reviewed_at || a.scraped_at) && istDateKey(a.reviewed_at || a.scraped_at) === todayIst();
+const isDraftActiveToday = (draft) =>
+  ["draft", "approved", "rejected"].includes(draft.status || "draft") &&
+  Boolean(draft.updated_at || draft.generated_at) &&
+  istDateKey(draft.updated_at || draft.generated_at) === todayIst();
 
 // ---------- state ----------
 const state = {
@@ -437,7 +441,7 @@ function sortedSummarizedDailyArticles(category = "") {
 
 function sortedApprovedCaseStudies() {
   return [...state.editorialDrafts]
-    .filter((item) => (item.status || "draft") === "approved")
+    .filter((item) => (item.status || "draft") === "approved" && isDraftActiveToday(item))
     .sort((a, b) => new Date(b.generated_at || 0).getTime() - new Date(a.generated_at || 0).getTime());
 }
 
@@ -452,7 +456,7 @@ function selectedDigestCaseStudies() {
   const lookup = new Map(state.editorialDrafts.map((item) => [item.id, item]));
   return [...state.digestSelections.caseStudy]
     .map((id) => lookup.get(id))
-    .filter((item) => item && (item.status || "draft") === "approved");
+    .filter((item) => item && (item.status || "draft") === "approved" && isDraftActiveToday(item));
 }
 
 function trimSelectionSet(set, limit) {
@@ -884,7 +888,7 @@ function topicDraftCards(topicSlug = state.activeTopicDraft, statusFilter = "") 
   const byStatus = (item) => !statusFilter || (item.status || "draft") === statusFilter;
 
   const editorialCards = state.editorialDrafts
-    .filter((draft) => (topicSlug === "all-topics" || draft.topic_slug === topicSlug) && byStatus(draft))
+    .filter((draft) => (topicSlug === "all-topics" || draft.topic_slug === topicSlug) && byStatus(draft) && isDraftActiveToday(draft))
     .flatMap((draft) => {
       const content = draft.content || {};
       if (draft.format === "hybrid") {
@@ -900,6 +904,7 @@ function topicDraftCards(topicSlug = state.activeTopicDraft, statusFilter = "") 
           headline: brief.headline || `Brief ${index + 1}`,
           body: `${brief.what_happened || ""}\n\n${brief.why_it_matters || ""}`.trim(),
           generatedAt: draft.generated_at,
+          updatedAt: draft.updated_at,
           label: `Brief ${index + 1}`
         }));
         const feature = {
@@ -913,6 +918,7 @@ function topicDraftCards(topicSlug = state.activeTopicDraft, statusFilter = "") 
           headline: content.feature?.headline || draft.headline,
           body: `${content.feature?.summary || draft.summary || ""}\n\n${content.feature?.detail || draft.detail || ""}`.trim(),
           generatedAt: draft.generated_at,
+          updatedAt: draft.updated_at,
           label: draft.topic_slug === "markets-startups" ? "Take" : "Feature"
         };
         return [...briefs, feature];
@@ -927,7 +933,8 @@ function topicDraftCards(topicSlug = state.activeTopicDraft, statusFilter = "") 
         sourceUrl: draft.primary_source_url,
         headline: draft.headline,
         body: `${draft.summary || ""}\n\n${draft.detail || ""}`.trim(),
-        generatedAt: draft.generated_at
+        generatedAt: draft.generated_at,
+        updatedAt: draft.updated_at
         }];
     });
 

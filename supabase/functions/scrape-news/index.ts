@@ -23,6 +23,7 @@ Deno.serve(async (request) => {
     SOURCES.map(async (src) => {
       try {
         const response = await fetch(src.url, {
+          signal: AbortSignal.timeout(15_000),
           headers: { "User-Agent": "ShortlyDigestBot/1.0 (+https://shortly.example)" }
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -84,9 +85,9 @@ Deno.serve(async (request) => {
   }
   const fresh = unique.filter((r) => !existing.has(r.url as string));
 
-  // Cap each run to the 30 highest-ranked NEW items so we never flood the pipeline
+  // Cap each run to the 50 highest-ranked NEW items so we keep a useful QA pool
   // (the downstream summarizer is rate-limited and must finish in the edge budget).
-  const SCRAPE_LIMIT = 30;
+  const SCRAPE_LIMIT = 50;
   const ranked = fresh
     .slice()
     .sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0))

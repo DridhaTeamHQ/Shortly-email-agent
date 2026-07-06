@@ -22,12 +22,10 @@ type RankedCandidate = {
   selection_reason?: string;
 };
 
-// Kept small: the account's OpenAI tokens-per-minute limit is low, so a big burst
-// of summary calls starves the main draft pipeline. Re-scrape for more.
-const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 6;
-// Target UP TO 3 single case-study drafts per topic run (each write + at most one
-// repair). Keeps per-run gpt-4o calls modest on a ~30k TPM account.
-const MAX_CASE_DRAFTS_PER_RUN = 3;
+// Keep a 20-50 item review pool without flooding the downstream send step.
+const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 25;
+// Target up to 5 case-study drafts per topic run for a useful QA pool.
+const MAX_CASE_DRAFTS_PER_RUN = 5;
 
 async function handleRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });

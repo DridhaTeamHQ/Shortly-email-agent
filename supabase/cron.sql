@@ -8,12 +8,11 @@
 -- ygxdrphajvrbjcaxhvcn). It is idempotent: re-running it unschedules the
 -- shortly-* jobs and recreates them, so `supabase db push` never duplicates.
 --
--- SCOPE: this schedules only content GENERATION (scrape -> summarize ->
--- corporate-case + editorial topics). It deliberately does NOT auto-send the
--- newsletter. send-newsletter / send-daily-digest only ship status='approved'
--- content, which requires human QA, so sending stays a manual operator action
--- in the dashboard. An optional auto-send block is provided (commented out) at
--- the bottom for when a same-day or prior-day QA-approval workflow exists.
+-- SCOPE: this schedules the full production pipeline:
+--   midnight cleanup -> General scrape/summarize -> category short articles +
+--   case-study drafts -> one coordinated 09:00 IST send-newsletter run.
+-- send-newsletter only ships same-day status='approved' content, so QA still
+-- controls what goes out; old approved/review rows are cleared after midnight.
 
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
@@ -58,6 +57,29 @@ begin
 end;
 $fn$;
 
+-- Clear yesterday's unreviewed QA pools just after IST midnight so Review never
+-- mixes old rows with today's scrape. Approved rows are preserved as database
+-- history, but list/send functions only show/use same-day approved content.
+create or replace function public.shortly_cleanup_daily_review_pools()
+returns void
+language plpgsql
+security definer
+as $cleanup$
+declare
+  ist_start timestamptz;
+begin
+  ist_start := ((now() at time zone 'Asia/Kolkata')::date at time zone 'Asia/Kolkata');
+
+  delete from public.articles
+  where status in ('pending', 'summarized', 'rejected')
+    and coalesce(reviewed_at, summarized_at, scraped_at, created_at) < ist_start;
+
+  delete from public.editorial_drafts
+  where status in ('draft', 'rejected')
+    and coalesce(updated_at, generated_at, created_at) < ist_start;
+end;
+$cleanup$;
+
 -- Idempotent: drop any prior shortly-* jobs (incl. legacy names from earlier
 -- iterations of this file) before (re)scheduling.
 do $do$
@@ -66,12 +88,15 @@ begin
   foreach j in array array[
     'shortly-scrape-news',
     'shortly-summarize-articles',
+    'shortly-summarize-articles-2',
     'shortly-corporate-case-agent',
     'shortly-editorial-real-estate',
-    'shortly-editorial-policy-partner',
-    'shortly-editorial-money-matters',
-    'shortly-editorial-wellness-daily',
+    'shortly-editorial-automobile',
+    'shortly-editorial-health-wellness',
+    'shortly-editorial-tech-ai',
+    'shortly-editorial-markets-startups',
     'shortly-send-newsletter',
+    'shortly-cleanup-midnight-ist',
     -- legacy names
     'shortly-scrape','shortly-summarize','shortly-send',
     'shortly-scrape-8am-ist','shortly-summarize-815am-ist','shortly-send-digest-9am-ist',
@@ -86,46 +111,46 @@ begin
 end
 $do$;
 
--- 1) scrape-news      01:30 UTC = 07:00 IST, daily, no GPT (~5s)
-select cron.schedule('shortly-scrape-news', '30 1 * * *',
+-- 0) cleanup old Review/Approved pools 18:35 UTC = 00:05 IST, daily.
+select cron.schedule('shortly-cleanup-midnight-ist', '35 18 * * *',
+  $job$ select public.shortly_cleanup_daily_review_pools(); $job$);
+
+-- 1) General scrape-news 00:30 UTC = 06:00 IST, daily, no GPT.
+select cron.schedule('shortly-scrape-news', '30 0 * * *',
   $job$ select public.invoke_edge('scrape-news', '{}'::jsonb, 60000); $job$);
 
--- 2) summarize        01:45 UTC = 07:15 IST, daily, gpt-4o-mini (~32s). 15-min gap after scrape.
-select cron.schedule('shortly-summarize-articles', '45 1 * * *',
+-- 2) Summarize General in two capped passes to keep a 20-50 article pool.
+select cron.schedule('shortly-summarize-articles', '45 0 * * *',
   $job$ select public.invoke_edge('summarize-articles', '{}'::jsonb, 120000); $job$);
 
--- 3) corporate-case   02:00 UTC = 07:30 IST, daily, gpt-4o (first serialized heavy run)
-select cron.schedule('shortly-corporate-case-agent', '0 2 * * *',
-  $job$ select public.invoke_edge('corporate-case-agent', '{}'::jsonb, 300000); $job$);
+select cron.schedule('shortly-summarize-articles-2', '5 1 * * *',
+  $job$ select public.invoke_edge('summarize-articles', '{}'::jsonb, 120000); $job$);
 
--- gpt-4o agents are serialized 8 min apart to stay under the ~30k TPM limit.
--- Editorial topics are restricted to Mon-Sat (1-6) per their topic configs.
+-- 3) Category agents. Each run creates:
+--    - up to 25 short articles for that category review pool
+--    - up to 5 case-study drafts for that category case-study pool
+-- Serialized to avoid OpenAI TPM/runtime spikes.
 
--- 4) editorial real-estate    02:08 UTC = 07:38 IST, Mon-Sat, gpt-4o
-select cron.schedule('shortly-editorial-real-estate', '8 2 * * 1-6',
+select cron.schedule('shortly-editorial-real-estate', '20 1 * * *',
   $job$ select public.invoke_edge('editorial-topic-agent', '{"topic":"real-estate"}'::jsonb, 300000); $job$);
 
--- 5) editorial policy-partner 02:16 UTC = 07:46 IST, Mon-Sat, gpt-4o
-select cron.schedule('shortly-editorial-policy-partner', '16 2 * * 1-6',
-  $job$ select public.invoke_edge('editorial-topic-agent', '{"topic":"policy-partner"}'::jsonb, 300000); $job$);
+select cron.schedule('shortly-editorial-automobile', '32 1 * * *',
+  $job$ select public.invoke_edge('editorial-topic-agent', '{"topic":"automobile"}'::jsonb, 300000); $job$);
 
--- 6) editorial money-matters  02:24 UTC = 07:54 IST, Mon-Sat, gpt-4o
-select cron.schedule('shortly-editorial-money-matters', '24 2 * * 1-6',
-  $job$ select public.invoke_edge('editorial-topic-agent', '{"topic":"money-matters"}'::jsonb, 300000); $job$);
+select cron.schedule('shortly-editorial-health-wellness', '44 1 * * *',
+  $job$ select public.invoke_edge('editorial-topic-agent', '{"topic":"health-wellness"}'::jsonb, 300000); $job$);
 
--- 7) editorial wellness-daily 02:32 UTC = 08:02 IST, Mon-Sat, gpt-4o (finishes ~08:07 IST)
-select cron.schedule('shortly-editorial-wellness-daily', '32 2 * * 1-6',
-  $job$ select public.invoke_edge('editorial-topic-agent', '{"topic":"wellness-daily"}'::jsonb, 300000); $job$);
+select cron.schedule('shortly-editorial-tech-ai', '56 1 * * *',
+  $job$ select public.invoke_edge('editorial-topic-agent', '{"topic":"tech-ai"}'::jsonb, 300000); $job$);
 
--- ---------------------------------------------------------------------------
--- OPTIONAL: automated daily send at 09:00 IST (03:30 UTC).
--- DISABLED by default. send-newsletter only ships status='approved' content,
--- so before enabling this you need content to be APPROVED (human QA) ahead of
--- the send -- otherwise it ships the prior approved backlog or an empty issue.
--- Uncomment only once an approval workflow guarantees approved content by 03:30 UTC.
---
--- select cron.schedule('shortly-send-newsletter', '30 3 * * *',
---   $job$ select public.invoke_edge('send-newsletter', '{"scheduled":true}'::jsonb, 300000); $job$);
+select cron.schedule('shortly-editorial-markets-startups', '8 2 * * *',
+  $job$ select public.invoke_edge('editorial-topic-agent', '{"topic":"markets-startups"}'::jsonb, 300000); $job$);
+
+-- 4) Send every subscribed product at 09:00 IST (03:30 UTC). General and
+-- case-study products are daily; category short-article products are sent on
+-- their chosen weekday/rhythm inside send-newsletter.
+select cron.schedule('shortly-send-newsletter', '30 3 * * *',
+  $job$ select public.invoke_edge('send-newsletter', '{"scheduled":true}'::jsonb, 300000); $job$);
 
 -- ---------------------------------------------------------------------------
 -- VERIFY

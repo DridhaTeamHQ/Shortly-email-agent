@@ -39,7 +39,7 @@ Deno.serve(async (request) => {
   // ~30k TPM), so we never process more than MAX_PER_RUN in one call — that keeps
   // the function comfortably inside the edge time budget and avoids 504s. Anything
   // beyond the cap is picked up on the next run or ages out of the 24h window.
-  const MAX_PER_RUN = 30;
+  const MAX_PER_RUN = 40;
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data: pending, error } = await supabase
     .from("articles")

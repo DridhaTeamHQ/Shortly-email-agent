@@ -7,9 +7,9 @@
 //   case-only      -> 1 case study from their category
 //
 // Content pools are everything currently `approved` and unsent:
-//   Daily Wrap   -> articles (status=approved, category IS NULL)
-//   Cat. shorts  -> articles (status=approved, category = X)
-//   Case study   -> editorial_drafts (status=approved), newest per topic
+//   Daily Wrap   -> today's articles (status=approved, category IS NULL)
+//   Cat. shorts  -> today's articles (status=approved, category = X)
+//   Case study   -> today's editorial_drafts (status=approved), newest per topic
 //
 // Fired by pg_cron at 09:00 IST. Idempotent per IST day.
 
@@ -28,6 +28,8 @@ type Article = {
   topic: string | null;
   category: string | null;
   rank_score: number | null;
+  scraped_at: string;
+  reviewed_at: string | null;
 };
 
 type CaseStudy = {
@@ -105,9 +107,10 @@ Deno.serve(async (request) => {
     recipients = Array.isArray(body?.recipients) ? body.recipients : [];
   }
 
+  const { start: istStart, end: istEnd } = istDayWindow();
+
   // Idempotency: one scheduled send per IST day (unless forced).
   if (isScheduled && !forceSend) {
-    const { start: istStart, end: istEnd } = istDayWindow();
     const { data: existing } = await supabase
       .from("digests")
       .select("id,sent_at,recipients")
@@ -125,10 +128,12 @@ Deno.serve(async (request) => {
   // ---- 1. Load approved (unsent) content pools ----
   const { data: approvedArticles, error: articlesError } = await supabase
     .from("articles")
-    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score")
+    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,scraped_at,reviewed_at")
     .eq("status", "approved")
-    .order("rank_score", { ascending: false })
+    .gte("reviewed_at", istStart)
+    .lt("reviewed_at", istEnd)
     .order("scraped_at", { ascending: false })
+    .order("rank_score", { ascending: false })
     .limit(500);
   if (articlesError) return json({ error: articlesError.message }, 500);
 
@@ -140,7 +145,7 @@ Deno.serve(async (request) => {
     else if (!a.category) wrapPool.push(a);
   }
 
-  const caseStudies = await loadCaseStudies(supabase);
+  const caseStudies = await loadCaseStudies(supabase, istStart, istEnd);
 
   // ---- Test/recipients override: explicit recipients with independent shorts/case
   // categories. Sends real emails, logs nothing, and never marks content as sent. ----
@@ -290,7 +295,7 @@ Deno.serve(async (request) => {
     }
     if (usedEditorialIds.size > 0) {
       await supabase.from("editorial_drafts")
-        .update({ status: "sent", updated_at: new Date().toISOString() })
+        .update({ status: "published", updated_at: new Date().toISOString() })
         .in("id", [...usedEditorialIds]);
     }
   }
@@ -400,13 +405,15 @@ function buildAccountEmails(
 
 // Every topic's daily case study now comes from editorial_drafts (the
 // corporate_cases pipeline is retired along with the Corporate Cases category).
-async function loadCaseStudies(supabase: ReturnType<typeof createClient>): Promise<Record<string, CaseStudy>> {
+async function loadCaseStudies(supabase: ReturnType<typeof createClient>, istStart: string, istEnd: string): Promise<Record<string, CaseStudy>> {
   const map: Record<string, CaseStudy> = {};
 
   const { data: drafts } = await supabase
     .from("editorial_drafts")
-    .select("id,topic_slug,topic_name,headline,summary,detail,primary_source_url,primary_source_title,generated_at")
+    .select("id,topic_slug,topic_name,headline,summary,detail,primary_source_url,primary_source_title,generated_at,updated_at")
     .eq("status", "approved")
+    .gte("updated_at", istStart)
+    .lt("updated_at", istEnd)
     .order("generated_at", { ascending: false })
     .limit(50);
   for (const d of drafts ?? []) {

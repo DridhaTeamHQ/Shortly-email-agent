@@ -23,8 +23,8 @@ type RankedCandidate = {
 };
 
 const CASE_TYPES = new Set(["listed", "startup", "consumer", "failure", "compounder"]);
-// Kept small: low OpenAI tokens-per-minute account. Re-scrape for more.
-const MAX_SHORT_ARTICLE_CARDS_PER_RUN = 6;
+// Keep a useful short-article QA pool without overfilling the send queue.
+const MAX_SHORT_ARTICLE_CARDS_PER_RUN = 25;
 const EDITOR_CHECKLIST = [
   "Original article link verified and still accessible.",
   "Every number traced back to the source article.",
