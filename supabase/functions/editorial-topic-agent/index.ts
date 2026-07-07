@@ -22,10 +22,14 @@ type RankedCandidate = {
   selection_reason?: string;
 };
 
-// Keep a 20-50 item review pool without flooding the downstream send step.
-const MAX_SMALL_ARTICLE_CARDS_PER_RUN = 25;
-// Target up to 5 case-study drafts per topic run for a useful QA pool.
-const MAX_CASE_DRAFTS_PER_RUN = 5;
+// Cost guardrails (2026-07-07). Short summaries run on the cheap model; case
+// studies (the pricey gpt-4o calls) are capped at ONE per topic per run.
+// Override via env if needed.
+const MAX_SMALL_ARTICLE_CARDS_PER_RUN = Number(Deno.env.get("MAX_SMALL_ARTICLES") ?? "4");
+const MAX_CASE_DRAFTS_PER_RUN = Number(Deno.env.get("MAX_CASE_DRAFTS") ?? "1");
+// If unreviewed drafts pile up for a topic, skip its run entirely so we never
+// spend on content nobody is approving. Approve/reject some to resume.
+const EDITORIAL_BACKLOG_LIMIT = Number(Deno.env.get("EDITORIAL_BACKLOG_LIMIT") ?? "9");
 
 async function handleRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -103,6 +107,22 @@ async function handleRequest(request: Request): Promise<Response> {
   const topic = getEditorialTopic(String(body.topic ?? ""));
   if (!topic) return json({ error: "Unknown topic", allowed: Object.keys(EDITORIAL_TOPICS) }, 400);
 
+  // Cost guardrail: skip the whole (OpenAI-spending) run when unreviewed drafts
+  // are stacking up for this topic. Manual `force:true` bypasses it.
+  if (body.force !== true) {
+    const { count: backlog } = await supabase
+      .from("editorial_drafts")
+      .select("id", { count: "exact", head: true })
+      .eq("topic_slug", topic.slug)
+      .eq("status", "draft");
+    if ((backlog ?? 0) >= EDITORIAL_BACKLOG_LIMIT) {
+      return json({
+        skipped: true,
+        reason: `Backlog guard: ${backlog} unreviewed ${topic.name} drafts (limit ${EDITORIAL_BACKLOG_LIMIT}). Approve or reject some to resume, or POST {force:true}.`,
+      });
+    }
+  }
+
   const sourceErrors: Array<{ source: string; error: string }> = [];
   const candidates = await collectCandidates(topic, sourceErrors);
   // Cited candidates only (Reddit is compass-only and never a case-study source).
@@ -112,10 +132,13 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 
   const openAiKey = requiredEnv("OPENAI_API_KEY");
+  // Pricey model for the flagship case-study drafts + ranking; cheap model for
+  // the high-volume short-article summaries.
   const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
+  const shortModel = Deno.env.get("SUMMARIZE_MODEL") ?? "gpt-4o-mini";
 
   // Short-article generation into the articles table (category = topic name).
-  const sourceArticleUrls = await upsertSourceCandidateArticles(supabase, topic, citedCandidates, openAiKey, model);
+  const sourceArticleUrls = await upsertSourceCandidateArticles(supabase, topic, citedCandidates, openAiKey, shortModel);
   const shortArticlesInserted = await countArticlesByUrl(supabase, sourceArticleUrls);
 
   // Dedup vs recent editorial_drafts primary sources (last 30 days) so each run
