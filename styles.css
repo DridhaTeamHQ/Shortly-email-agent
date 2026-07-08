@@ -25,8 +25,8 @@
   --shadow-window: 0 30px 90px rgba(0, 0, 0, 0.55), 0 8px 28px rgba(0, 0, 0, 0.35);
   --radius: 18px;
   --radius-sm: 12px;
-  --font-body: "Be Vietnam Pro", Roboto, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-display: "Playfair Display", Playfair, Georgia, serif;
+  --font-body: "Segoe UI", Arial, Helvetica, sans-serif;
+  --font-display: var(--font-body);
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
   --t-fast: 0.18s;
