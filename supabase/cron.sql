@@ -89,6 +89,17 @@ $cleanup$;
 -- runs as. SECURITY DEFINER means the revoke does not stop pg_cron from calling
 -- them.
 revoke all on function public.invoke_edge(text, jsonb, integer) from public, anon, authenticated;
+-- Legacy single-arg overload from an earlier iteration may still exist; lock it
+-- too. Wrapped so this file stays runnable on projects that never had it.
+do $revoke$ begin
+  if exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.oid = 'public.invoke_edge(text)'::regprocedure
+  ) then
+    revoke all on function public.invoke_edge(text) from public, anon, authenticated;
+  end if;
+exception when undefined_function then null;
+end $revoke$;
 revoke all on function public.shortly_cleanup_daily_review_pools() from public, anon, authenticated;
 
 -- Idempotent: drop any prior shortly-* jobs (incl. legacy names from earlier
