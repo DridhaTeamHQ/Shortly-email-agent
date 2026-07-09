@@ -29,6 +29,10 @@ create table if not exists public.articles (
   status text not null default 'pending'
     check (status in ('pending', 'summarized', 'approved', 'rejected', 'sent')),
   rank_score numeric default 0,
+  fact_score numeric,
+  fact_label text,
+  fact_notes jsonb,
+  versions jsonb,
   scraped_at timestamptz not null default now(),
   summarized_at timestamptz,
   reviewed_at timestamptz,
@@ -84,6 +88,10 @@ create table if not exists public.editorial_drafts (
   editor_checklist jsonb not null default '[]'::jsonb,
   inference_notes jsonb not null default '[]'::jsonb,
   status text not null default 'draft' check (status in ('draft', 'approved', 'rejected', 'published')),
+  fact_score numeric,
+  fact_label text,
+  fact_notes jsonb,
+  versions jsonb,
   generated_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

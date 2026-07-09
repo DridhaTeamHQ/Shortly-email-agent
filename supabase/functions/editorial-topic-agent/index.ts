@@ -5,6 +5,8 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { parseFeed } from "../_shared/rss.ts";
 import { EDITORIAL_TOPICS, getEditorialTopic, type EditorialSource, type EditorialTopic } from "../_shared/editorial-topics.ts";
 import { summarizeForBriefing, chatCompletionRaw } from "../_shared/summary-clean.ts";
+import { factCheckArticle } from "../_shared/fact-check.ts";
+import { generateArticleVersions, versionsEnabled } from "../_shared/versions.ts";
 
 type Candidate = {
   title: string;
@@ -101,6 +103,17 @@ async function handleRequest(request: Request): Promise<Response> {
       .select("*")
       .single();
     if (error) return json({ error: error.message }, 500);
+
+    // On approve, enrich the long read for the website in the background:
+    // fact score (graded against the refetched primary source) + alternate
+    // reader versions. Never blocks or fails the approval itself.
+    if (body.action === "approve" && data) {
+      const task = enrichApprovedDraft(supabase, data);
+      const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+      if (runtime?.waitUntil) runtime.waitUntil(task);
+      else await task;
+    }
+
     return json({ draft: data });
   }
 
@@ -306,6 +319,45 @@ function topicMeta(topic: EditorialTopic) {
   return { slug: topic.slug, name: topic.name, format: topic.format, cadence: topic.cadence, description: topic.description };
 }
 
+// Post-approval enrichment for a long read: fact score + alternate reader
+// versions, stored on the draft row for the website. The fact check grades
+// the published detail against the primary source refetched now (drafts don't
+// store source text). Every step is optional — whatever fails stays null.
+async function enrichApprovedDraft(supabase: any, draft: any): Promise<void> {
+  try {
+    const openAiKey = requiredEnv("OPENAI_API_KEY");
+    const headline = String(draft.headline || "");
+    const detail = String(draft.detail || draft.summary || "");
+    if (!headline || !detail) return;
+
+    const sourceText = draft.fact_score == null && draft.primary_source_url
+      ? await fetchPublicArticleText(String(draft.primary_source_url)).catch(() => "")
+      : "";
+
+    const [fact, versions] = await Promise.all([
+      draft.fact_score == null && sourceText
+        ? factCheckArticle(openAiKey, { title: headline, summary: detail, sourceText })
+        : Promise.resolve(null),
+      !draft.versions && versionsEnabled()
+        ? generateArticleVersions(openAiKey, { headline, body: detail, sourceText })
+        : Promise.resolve(null),
+    ]);
+
+    const patch: Record<string, unknown> = {};
+    if (fact) {
+      patch.fact_score = fact.fact_score;
+      patch.fact_label = fact.fact_label;
+      patch.fact_notes = fact.fact_notes;
+    }
+    if (versions) patch.versions = versions;
+    if (Object.keys(patch).length > 0) {
+      await supabase.from("editorial_drafts").update(patch).eq("id", draft.id);
+    }
+  } catch {
+    // Non-fatal by design.
+  }
+}
+
 // Topic names now double as the articles.category value ("Real Estate",
 // "Automobile", "Health & Wellness", "Tech & AI", "Markets & Startups").
 function shortArticleCategory(topic: EditorialTopic): string {
@@ -350,6 +402,10 @@ async function upsertSourceCandidateArticles(
       return null; // skip rather than ship a raw excerpt
     }
     if (!summary || !isGoodSmallArticleCandidate(topic, candidate, rawContent, summary)) return null;
+    // AI fact score against the scraped source text; null (unscored) on failure.
+    const fact = await factCheckArticle(openAiKey, {
+      title: candidate.title, summary, sourceText: rawContent
+    });
     return {
       title: candidate.title.trim().slice(0, 500),
       url: candidate.url,
@@ -361,7 +417,13 @@ async function upsertSourceCandidateArticles(
       section,
       status: "summarized",
       prominence,
-      rank_score: candidate.sourceWeight,
+      // Weight the source rank by grounding: a well-fact-checked article ranks
+      // up to ~30% higher, a poorly-grounded one up to ~30% lower. Unscored
+      // articles (fact === null) keep their plain source weight.
+      rank_score: candidate.sourceWeight * (fact ? 0.7 + 0.6 * (fact.fact_score / 100) : 1),
+      fact_score: fact?.fact_score ?? null,
+      fact_label: fact?.fact_label ?? null,
+      fact_notes: fact?.fact_notes ?? null,
       // scraped_at must be the SCRAPE time, not the RSS publish date: the
       // dashboard and list-articles only show today's (IST) scraped_at window,
       // so backdating to publishedAt makes fresh scrapes invisible.

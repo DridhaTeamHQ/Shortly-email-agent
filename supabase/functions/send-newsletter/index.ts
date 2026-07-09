@@ -28,6 +28,8 @@ type Article = {
   topic: string | null;
   category: string | null;
   rank_score: number | null;
+  fact_score: number | null;
+  fact_label: string | null;
   scraped_at: string;
   reviewed_at: string | null;
 };
@@ -128,7 +130,7 @@ Deno.serve(async (request) => {
   // ---- 1. Load approved (unsent) content pools ----
   const { data: approvedArticles, error: articlesError } = await supabase
     .from("articles")
-    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,scraped_at,reviewed_at")
+    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,fact_score,fact_label,scraped_at,reviewed_at")
     .eq("status", "approved")
     .gte("reviewed_at", istStart)
     .lt("reviewed_at", istEnd)
@@ -491,6 +493,17 @@ function renderLabelBar(text: string, bg: string): string {
     </tr></table>`;
 }
 
+// Fact-score badge: only shown when the AI fact check scored the article well
+// (>= 65). Weak/unscored articles carry no badge — an email should never
+// advertise its own doubts; low scores are for the QA dashboard to catch.
+function renderFactBadge(a: Article): string {
+  if (a.fact_score == null || a.fact_score < 65) return "";
+  const verified = a.fact_label === "verified";
+  const color = verified ? "#0f9d69" : "#8a6d00";
+  const text = verified ? `Fact-checked ${Math.round(a.fact_score)}/100` : `Fact score ${Math.round(a.fact_score)}/100`;
+  return `<div style="display:inline-block;border:2px solid ${color};color:${color};font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:1px 8px;border-radius:999px;margin:0 0 8px;font-family:Roboto,Arial,sans-serif">${text}</div>`;
+}
+
 function renderItems(articles: Article[]): string {
   return articles.map((a, i) => {
     const headline = (a.edited_title || a.title || "").trim();
@@ -503,6 +516,7 @@ function renderItems(articles: Article[]): string {
               <div style="width:36px;height:36px;border-radius:50%;background:#efe7ff;color:#6d28d9;border:2px solid #6d28d9;font-size:15px;font-weight:700;text-align:center;line-height:32px">${i + 1}</div>
             </td>
             <td style="padding-left:14px">
+              ${renderFactBadge(a)}
               <h2 style="font-size:18px;line-height:1.28;margin:0 0 10px;color:#191919;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(headline)}</h2>
               <p style="font-size:15px;line-height:1.72;color:#2f2f39;margin:0;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</p>
             </td>

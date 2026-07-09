@@ -1,8 +1,31 @@
 // review-article: QA action endpoint.
 // POST { id, action: "approve"|"reject"|"edit"|"reorder", edited_title?, edited_summary?, rank_score?, reviewer? }
+// On approve, reader-facing alternate versions (ELI5 / TL;DR / deep dive /
+// key numbers) are generated in the background and stored in articles.versions
+// for the website. The approve response never waits on or fails from this.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
+import { generateArticleVersions, versionsEnabled } from "../_shared/versions.ts";
+
+async function generateAndStoreVersions(supabase: ReturnType<typeof createClient>, id: string): Promise<void> {
+  try {
+    const { data: a } = await supabase
+      .from("articles")
+      .select("id,title,edited_title,summary,edited_summary,raw_content,versions")
+      .eq("id", id)
+      .single();
+    if (!a || a.versions) return; // already generated on a prior approve
+    const versions = await generateArticleVersions(requiredEnv("OPENAI_API_KEY"), {
+      headline: (a.edited_title || a.title || "") as string,
+      body: (a.edited_summary || a.summary || "") as string,
+      sourceText: (a.raw_content || "") as string,
+    });
+    if (versions) await supabase.from("articles").update({ versions }).eq("id", id);
+  } catch {
+    // Non-fatal by design: the article is approved either way.
+  }
+}
 
 type Action = "approve" | "reject" | "edit" | "reorder";
 
@@ -80,5 +103,15 @@ Deno.serve(async (request) => {
     .single();
 
   if (error) return json({ error: error.message }, 500);
+
+  if (action === "approve" && versionsEnabled()) {
+    const task = generateAndStoreVersions(supabase, id);
+    // Finish after the response when the runtime allows it; otherwise wait so
+    // the work isn't killed with the isolate. Either way, failures are silent.
+    const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+    if (runtime?.waitUntil) runtime.waitUntil(task);
+    else await task;
+  }
+
   return json({ article: data });
 });

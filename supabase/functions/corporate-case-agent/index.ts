@@ -5,6 +5,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { parseFeed } from "../_shared/rss.ts";
 import { CORPORATE_CASE_SOURCES } from "../_shared/corporate-case-sources.ts";
 import { summarizeForBriefing, chatCompletionRaw } from "../_shared/summary-clean.ts";
+import { factCheckArticle } from "../_shared/fact-check.ts";
 
 type Candidate = {
   title: string;
@@ -259,6 +260,10 @@ async function upsertCorporateShortArticles(supabase: any, candidates: Candidate
       return null;
     }
     if (!candidate.title || !candidate.url || summary.split(/\s+/).filter(Boolean).length < 35) return null;
+    // AI fact score against the scraped source text; null (unscored) on failure.
+    const fact = await factCheckArticle(openAiKey, {
+      title: candidate.title, summary, sourceText: rawContent
+    });
     return {
       title: candidate.title.trim().slice(0, 500),
       url: candidate.url,
@@ -270,7 +275,13 @@ async function upsertCorporateShortArticles(supabase: any, candidates: Candidate
       section,
       status: "summarized",
       prominence,
-      rank_score: candidate.sourceWeight,
+      // Weight the source rank by grounding: a well-fact-checked article ranks
+      // up to ~30% higher, a poorly-grounded one up to ~30% lower. Unscored
+      // articles (fact === null) keep their plain source weight.
+      rank_score: candidate.sourceWeight * (fact ? 0.7 + 0.6 * (fact.fact_score / 100) : 1),
+      fact_score: fact?.fact_score ?? null,
+      fact_label: fact?.fact_label ?? null,
+      fact_notes: fact?.fact_notes ?? null,
       // scraped_at must be the SCRAPE time, not the RSS publish date: the
       // dashboard and list-articles only show today's (IST) scraped_at window,
       // so backdating to publishedAt makes fresh scrapes invisible.

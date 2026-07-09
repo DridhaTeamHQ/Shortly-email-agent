@@ -29,7 +29,7 @@ Deno.serve(async (request) => {
   const { start: istStart, end: istEnd } = istDayWindow();
   let query = supabase
     .from("articles")
-    .select("id,title,url,summary,edited_title,edited_summary,source,topic,category,section,status,rank_score,scraped_at,summarized_at,reviewed_at,sent_at")
+    .select("id,title,url,summary,edited_title,edited_summary,source,topic,category,section,status,rank_score,fact_score,fact_label,fact_notes,scraped_at,summarized_at,reviewed_at,sent_at")
     .order("scraped_at", { ascending: false })
     .order("rank_score", { ascending: false })
     .limit(limit);

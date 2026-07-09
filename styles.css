@@ -491,6 +491,24 @@ a:hover { text-decoration-color: var(--ink); }
   color: var(--muted);
   border: 1px dashed var(--line-strong);
 }
+/* AI fact-check score chip. Bands mirror _shared/fact-check.ts labels:
+   high >= 85 (verified), good >= 65 (mostly-factual), mixed >= 40, low < 40.
+   Bordered pills with tinted text so they sit quietly in the monochrome chip
+   row; hover shows the per-claim rationale (title attr). */
+.fact-chip {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 3px 10px; border-radius: 999px;
+  background: transparent; border: 1px solid currentColor;
+  cursor: help;
+}
+.fact-chip.fact-high  { color: #0f7a52; }
+.fact-chip.fact-good  { color: #7a5d0f; }
+.fact-chip.fact-mixed { color: #9a4a0f; }
+.fact-chip.fact-low   { color: #9d1f1f; }
+[data-theme="dark"] .fact-chip.fact-high  { color: #4cc596; }
+[data-theme="dark"] .fact-chip.fact-good  { color: #cfa93f; }
+[data-theme="dark"] .fact-chip.fact-mixed { color: #d97e42; }
+[data-theme="dark"] .fact-chip.fact-low   { color: #e06060; }
 .tag {
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
   padding: 3px 9px; border-radius: 999px; font-weight: 700;

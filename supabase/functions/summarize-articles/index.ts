@@ -8,6 +8,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { cleanArticleText, fetchReadableArticleText, needsFullArticleFetch } from "../_shared/article-text.ts";
 import { summarizeForBriefing } from "../_shared/summary-clean.ts";
+import { factCheckArticle, type FactCheckResult } from "../_shared/fact-check.ts";
 
 type Article = {
   id: string;
@@ -57,7 +58,7 @@ Deno.serve(async (request) => {
 
   // Summarize in parallel (capped) to keep within edge time budget
   const CONCURRENCY = 4;
-  const results: Array<{ id: string; summary: string | null; section: string; prominence: number; error?: string }> = [];
+  const results: Array<{ id: string; summary: string | null; section: string; prominence: number; fact: FactCheckResult | null; error?: string }> = [];
 
   for (let i = 0; i < articles.length; i += CONCURRENCY) {
     const batch = articles.slice(i, i + CONCURRENCY);
@@ -65,9 +66,9 @@ Deno.serve(async (request) => {
       batch.map(async (a) => {
         try {
           const result = await summarize(openAiKey, model, a);
-          return { id: a.id, summary: result.summary, section: result.section, prominence: result.prominence };
+          return { id: a.id, summary: result.summary, section: result.section, prominence: result.prominence, fact: result.fact };
         } catch (e) {
-          return { id: a.id, summary: null, section: "wrapped", prominence: 2, error: String(e) };
+          return { id: a.id, summary: null, section: "wrapped", prominence: 2, fact: null, error: String(e) };
         }
       })
     );
@@ -82,15 +83,22 @@ Deno.serve(async (request) => {
       const a = articles.find((x) => x.id === r.id)!;
       const ageHours = (now - new Date(a.scraped_at).getTime()) / 3_600_000;
       const freshness = Math.max(0, 1 - ageHours / 24);
-      // Score = 40% source weight + 30% prominence + 30% freshness
+      // Score = 35% source weight + 25% prominence + 20% freshness + 20% fact.
+      // Folding the fact score in floats well-grounded articles to the top of the
+      // review queue and the auto-select for email. Unscored articles get a
+      // neutral 0.6 prior so a missing score neither helps nor buries them.
       const prominenceNorm = (r.prominence ?? 2) / 5;
-      const score = Number(a.rank_score ?? 0) * 0.4 + prominenceNorm * 0.3 + freshness * 0.3;
+      const factNorm = r.fact ? r.fact.fact_score / 100 : 0.6;
+      const score = Number(a.rank_score ?? 0) * 0.35 + prominenceNorm * 0.25 + freshness * 0.2 + factNorm * 0.2;
       return {
         id: a.id,
         summary: r.summary!,
         section: r.section,
         prominence: r.prominence,
         rank_score: score,
+        fact_score: r.fact?.fact_score ?? null,
+        fact_label: r.fact?.fact_label ?? null,
+        fact_notes: r.fact?.fact_notes ?? null,
         status: "summarized",
         summarized_at: new Date().toISOString()
       };
@@ -103,6 +111,9 @@ Deno.serve(async (request) => {
       section: row.section,
       prominence: row.prominence,
       rank_score: row.rank_score,
+      fact_score: row.fact_score,
+      fact_label: row.fact_label,
+      fact_notes: row.fact_notes,
       status: row.status,
       summarized_at: row.summarized_at
     }).eq("id", row.id);
@@ -123,28 +134,43 @@ Deno.serve(async (request) => {
   });
 });
 
-async function summarize(apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string; prominence: number }> {
-  let excerpt = cleanArticleText(article.raw_content || "");
+async function summarize(apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string; prominence: number; fact: FactCheckResult | null }> {
+  let fullText = cleanArticleText(article.raw_content || "");
 
-  if (excerpt.length < 180 && needsFullArticleFetch(article.raw_content || "")) {
+  // Fetch the readable article body when the RSS excerpt is thin. Raised the
+  // trigger from 180 -> 700 chars: thin snippets were the main cause of
+  // spuriously LOW fact scores — the fact-checker graded the summary against a
+  // headline-length blurb, so genuinely-true claims read as "unsupported".
+  // Fetching the real body gives it real evidence to confirm claims against.
+  if (fullText.length < 700 && needsFullArticleFetch(article.raw_content || "")) {
     try {
       const readable = await fetchReadableArticleText(article.url);
-      if (readable.length > excerpt.length) excerpt = readable;
+      if (readable.length > fullText.length) fullText = readable;
     } catch {
       // Keep the cleaned RSS excerpt if page extraction fails.
     }
   }
 
-  // Cap the excerpt so the prompt stays compact — a brief only needs the lede, and
-  // smaller prompts keep a full run within the OpenAI rate budget (avoids 504s).
-  if (excerpt.length > 1800) excerpt = excerpt.slice(0, 1800);
+  // Cap the SUMMARY excerpt so the prompt stays compact — a brief only needs the
+  // lede, and smaller prompts keep a full run within the OpenAI rate budget.
+  const summaryExcerpt = fullText.length > 1800 ? fullText.slice(0, 1800) : fullText;
 
   const result = await summarizeForBriefing(apiKey, model, {
     title: article.title,
     source: article.source,
     url: article.url,
-    excerpt
+    excerpt: summaryExcerpt
   });
   if (!result.summary) throw new Error("empty summary after cleaning");
-  return result;
+
+  // Second cheap-model call: fact score. Grade against the FULLEST text we have
+  // (fact-check.ts caps it) — never less than the summary saw, so more evidence
+  // can only raise a legitimate score. Non-fatal: a null score never blocks the
+  // article, and FACT_CHECK_ENABLED=false skips it entirely.
+  const fact = await factCheckArticle(apiKey, {
+    title: article.title,
+    summary: result.summary,
+    sourceText: fullText
+  });
+  return { ...result, fact };
 }

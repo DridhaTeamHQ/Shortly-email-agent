@@ -17,12 +17,16 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number.parseInt(process.env.PORT || "4173", 10);
 const now = () => new Date().toISOString();
 
-const ART = (title, topic, source, status, category = null) => ({
+const ART = (title, topic, source, status, category = null, fact = null) => ({
   id: randomUUID(), title, edited_title: null,
   url: `https://example.com/${randomUUID().slice(0, 8)}`,
   summary: `${title}. A clean ~300-character preview summary so each Short Article card renders with its source, topic, the new editorial category tag, and status while you test the workspace flow.`,
   edited_summary: null, source, topic, section: "wrapped", category, status,
-  rank_score: 0.9, scraped_at: now(), summarized_at: now(),
+  rank_score: 0.9,
+  fact_score: fact ? fact.score : null,
+  fact_label: fact ? fact.label : null,
+  fact_notes: fact ? { claims: fact.claims || [], signals: { attribution: 2, specificity: 2, tone: 2 }, rationale: fact.rationale || "", method: "source-grounding-v1" } : null,
+  scraped_at: now(), summarized_at: now(),
   reviewed_at: ["approved", "rejected", "sent"].includes(status) ? now() : null,
   reviewed_by: status === "approved" ? "qa" : null, sent_at: null
 });
@@ -40,11 +44,16 @@ const DRAFT = (slug, name, format, status) => ({
 
 const store = {
   articles: [
-    ART("FERC gives grid operators 60 days on data center power rules", "World", "TOI", "summarized"),
-    ART("RBI holds repo rate at 6.5%", "India Business", "ET", "summarized", "Money Matters"),
-    ART("SC upholds new data-protection rules under DPDP", "India", "The Hindu", "summarized"),
-    ART("DLF launches new Gurgaon phase, 1,200 units", "India Business", "ET", "summarized"),
-    ART("Cabinet approves new rail corridor", "India", "TOI", "approved", "Policy Partner"),
+    ART("FERC gives grid operators 60 days on data center power rules", "World", "TOI", "summarized", null,
+      { score: 92, label: "verified", rationale: "All claims and figures match the source; deadline attributed to the FERC order." }),
+    ART("RBI holds repo rate at 6.5%", "India Business", "ET", "summarized", "Money Matters",
+      { score: 74, label: "mostly-factual", rationale: "Rate figure matches; growth projection lacks named attribution in the source.", claims: [{ claim: "RBI projected 7% GDP growth for FY27", verdict: "partially-supported" }] }),
+    ART("SC upholds new data-protection rules under DPDP", "India", "The Hindu", "summarized", null,
+      { score: 55, label: "mixed", rationale: "Core ruling supported; penalty amount not found in the source text.", claims: [{ claim: "Penalties up to Rs 250 crore per breach", verdict: "unsupported" }] }),
+    ART("DLF launches new Gurgaon phase, 1,200 units", "India Business", "ET", "summarized", null,
+      { score: 31, label: "unverified", rationale: "Unit count contradicts the source (source says 900 units); pricing unattributed.", claims: [{ claim: "The phase adds 1,200 units", verdict: "contradicted" }] }),
+    ART("Cabinet approves new rail corridor", "India", "TOI", "approved", "Policy Partner",
+      { score: 88, label: "verified", rationale: "Approval, route, and outlay all stated in the source." }),
     ART("Niche local festival writeup", "India", "TOI", "rejected")
   ],
   corporateCases: [CASE("How Zomato turned profitable", "Zomato", "approved"), CASE("Why a D2C brand shut down", "ExampleCo", "draft")],

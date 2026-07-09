@@ -733,6 +733,23 @@ function populateTopicFilter() {
     topics.map((t) => `<option value="${esc(t)}" ${t === current ? "selected" : ""}>${esc(t)}</option>`).join("");
 }
 
+// AI fact-check chip. Color band mirrors _shared/fact-check.ts labels; the
+// title attribute carries the per-claim audit rationale for reviewers.
+function factChipHtml(a) {
+  if (a.fact_score == null) return "";
+  const score = Math.round(Number(a.fact_score));
+  const band = score >= 85 ? "fact-high" : score >= 65 ? "fact-good" : score >= 40 ? "fact-mixed" : "fact-low";
+  const notes = a.fact_notes || {};
+  const claims = Array.isArray(notes.claims) ? notes.claims : [];
+  const flagged = claims.filter((c) => c.verdict !== "supported");
+  const tipLines = [
+    notes.rationale || "",
+    ...flagged.map((c) => `[${c.verdict}] ${c.claim}`)
+  ].filter(Boolean);
+  const tip = tipLines.length ? ` title="${esc(tipLines.join("\n"))}"` : "";
+  return `<span class="fact-chip ${band}"${tip}>Fact ${score}</span>`;
+}
+
 function cardHtml(a, mode) {
   const headline = a.edited_title || a.title || "";
   const text = a.edited_summary || a.summary || "";
@@ -741,6 +758,7 @@ function cardHtml(a, mode) {
   const time = new Date(displayTime).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   const source = a.source ? `<span class="source-pill">${esc(a.source)}</span>` : "";
   const topic = a.topic ? `<span class="topic-chip">${esc(a.topic)}</span>` : "";
+  const factChip = factChipHtml(a);
   const category = articleCategory(a);
   const categoryChip = category ? `<span class="topic-chip cat-chip">${esc(category)}</span>` : "";
   const isReviewSelected = state.selected.has(a.id);
@@ -789,7 +807,7 @@ function cardHtml(a, mode) {
       <header>
         ${checkbox}
           <div class="card-head">
-            <div class="chips">${sendChip}${categoryChip}${source}${topic}<span class="tag ${a.status}">${a.status}</span></div>
+            <div class="chips">${sendChip}${factChip}${categoryChip}${source}${topic}<span class="tag ${a.status}">${a.status}</span></div>
             <input class="headline-input" data-role="headline" type="text" value="${esc(headline)}" ${headlineReadonly} />
             <div class="meta">
               ${date} &middot; ${time}
