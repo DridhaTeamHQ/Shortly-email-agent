@@ -179,15 +179,19 @@ Deno.serve(async (request) => {
   // Pure DB lookups — findRelatedSources + the row's own source — so this is
   // free to run and lets the whole library show "Checked across N sources".
   let sourced = 0;
+  // Use the ->> (text) accessor for the is-null filter; the -> (jsonb) form
+  // silently matched nothing. A TS guard below double-checks in case the
+  // filter is ignored, so already-sourced rows are never re-processed.
   const { data: needSources } = await supabase
     .from("articles")
     .select("id,title,source,url,fact_notes")
     .not("fact_score", "is", null)
     .in("status", ["summarized", "approved", "sent"])
-    .is("fact_notes->source_count", null)
+    .is("fact_notes->>source_count", null)
     .order("scraped_at", { ascending: false })
     .limit(limit);
   for (const a of (needSources ?? []) as Array<{ id: string; title: string; source: string | null; url: string | null; fact_notes: Record<string, unknown> | null }>) {
+    if (a.fact_notes && (a.fact_notes as Record<string, unknown>).source_count != null) continue; // already done
     try {
       const related = await findRelatedSources(supabase, { id: a.id, title: a.title, source: a.source, url: a.url });
       const list: Array<{ source: string; url: string }> = [];
@@ -206,7 +210,7 @@ Deno.serve(async (request) => {
     .select("id", { count: "exact", head: true })
     .not("fact_score", "is", null)
     .in("status", ["summarized", "approved", "sent"])
-    .is("fact_notes->source_count", null);
+    .is("fact_notes->>source_count", null);
 
   // Progress-based remaining: if a full batch of scoreable rows produced zero
   // scores, every remaining candidate is a permanent straggler (e.g. the fact
