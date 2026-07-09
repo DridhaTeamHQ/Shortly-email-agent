@@ -37,17 +37,34 @@ type Row = {
   versions: unknown | null;
 };
 
+// Read the `role` claim from a JWT WITHOUT verifying the signature — the
+// Supabase gateway (verify_jwt on) has already validated it before the request
+// reaches us, so we can trust the payload. Used to tell a service_role caller
+// (cron / admin) from the public anon key.
+function jwtRole(token: string): string | null {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const b64 = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    const claims = JSON.parse(atob(b64));
+    return typeof claims?.role === "string" ? claims.role : null;
+  } catch {
+    return null;
+  }
+}
+
 // Admin-only: this endpoint spends OpenAI credits per call, so it must NOT be
-// triggerable by the public anon key (which ships in the website). We accept
-// only the service-role key (used by the pg_cron safety net via invoke_edge)
-// or an explicit BACKFILL_ADMIN_TOKEN. Constant-time-ish compare via length +
-// value; tokens are long and high-entropy so this is adequate here.
+// triggerable by the public anon key (which ships in the website). We accept a
+// service_role JWT (used by the pg_cron safety net via invoke_edge, and by an
+// admin running it by hand) or an explicit BACKFILL_ADMIN_TOKEN. The anon key
+// has role "anon" and is rejected.
 function isAuthorized(request: Request, serviceKey: string): boolean {
   const bearer = (request.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  const xAdmin = (request.headers.get("x-admin-token") ?? "").trim();
   const adminToken = Deno.env.get("BACKFILL_ADMIN_TOKEN") ?? "";
-  const provided = bearer || (request.headers.get("x-admin-token") ?? "").trim();
-  if (provided && provided === serviceKey) return true;
-  if (adminToken && (provided === adminToken || (request.headers.get("x-admin-token") ?? "").trim() === adminToken)) return true;
+  if (jwtRole(bearer) === "service_role") return true;       // any valid service_role JWT
+  if (bearer && bearer === serviceKey) return true;          // exact configured key
+  if (adminToken && (bearer === adminToken || xAdmin === adminToken)) return true;
   return false;
 }
 
