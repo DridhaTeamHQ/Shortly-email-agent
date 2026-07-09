@@ -11,12 +11,16 @@
 //     ?limit=N            max articles to process this run (default 30, max 60)
 //     ?versions=false     skip version backfill (score only)
 //
-// Returns { scored, versioned, processed, remaining, failures }.
+// Also fills the multi-source list ("Checked across N sources") onto rows that
+// were scored before corroboration existed — a COST-FREE DB-only pass (no LLM).
+// Returns { scored, versioned, sourced, processed, remaining, sources_remaining, failures }.
+// Loop the manual call until BOTH remaining AND sources_remaining are 0.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { factCheckArticle } from "../_shared/fact-check.ts";
 import { generateArticleVersions, versionsEnabled } from "../_shared/versions.ts";
+import { findRelatedSources } from "../_shared/related-sources.ts";
 
 type Row = {
   id: string;
@@ -27,6 +31,8 @@ type Row = {
   raw_content: string | null;
   status: string;
   category: string | null;
+  source: string | null;
+  url: string | null;
   fact_score: number | null;
   versions: unknown | null;
 };
@@ -76,7 +82,7 @@ Deno.serve(async (request) => {
   // safety-net cron retry it every day with no progress.
   const { data, error } = await supabase
     .from("articles")
-    .select("id,title,edited_title,summary,edited_summary,raw_content,status,category,fact_score,versions")
+    .select("id,title,edited_title,summary,edited_summary,raw_content,status,category,source,url,fact_score,versions")
     .is("fact_score", null)
     .in("status", ["summarized", "approved", "sent"])
     .not("summary", "is", null)
@@ -112,10 +118,15 @@ Deno.serve(async (request) => {
       try {
         const patch: Record<string, unknown> = {};
 
+        const relatedSources = await findRelatedSources(supabase, {
+          id: a.id, title: headline, source: a.source, url: a.url,
+        });
         const fact = await factCheckArticle(openAiKey, {
           title: headline,
           summary: body,
           sourceText: a.raw_content || "",
+          primarySource: a.url ? { source: a.source || "Source", url: a.url } : null,
+          relatedSources,
         });
         if (fact) {
           patch.fact_score = fact.fact_score;
@@ -146,16 +157,52 @@ Deno.serve(async (request) => {
     }));
   }
 
+  // Pass B (COST-FREE, no OpenAI): fill the multi-source list onto rows that
+  // were scored BEFORE corroboration existed (fact_notes has no source_count).
+  // Pure DB lookups — findRelatedSources + the row's own source — so this is
+  // free to run and lets the whole library show "Checked across N sources".
+  let sourced = 0;
+  const { data: needSources } = await supabase
+    .from("articles")
+    .select("id,title,source,url,fact_notes")
+    .not("fact_score", "is", null)
+    .in("status", ["summarized", "approved", "sent"])
+    .is("fact_notes->source_count", null)
+    .order("scraped_at", { ascending: false })
+    .limit(limit);
+  for (const a of (needSources ?? []) as Array<{ id: string; title: string; source: string | null; url: string | null; fact_notes: Record<string, unknown> | null }>) {
+    try {
+      const related = await findRelatedSources(supabase, { id: a.id, title: a.title, source: a.source, url: a.url });
+      const list: Array<{ source: string; url: string }> = [];
+      if (a.url) list.push({ source: (a.source || "Source").trim(), url: a.url });
+      for (const r of related) if (r.url && !list.some((s) => s.url === r.url)) list.push({ source: r.source, url: r.url });
+      const notes = { ...(a.fact_notes ?? {}), sources: list, source_count: list.length };
+      const { error: upErr } = await supabase.from("articles").update({ fact_notes: notes }).eq("id", a.id);
+      if (!upErr) sourced++;
+    } catch { /* skip this row */ }
+  }
+
+  // Scored rows still missing a source list — Pass B always makes progress, so
+  // this strictly decreases and safely reaches 0 (no straggler risk).
+  const { count: sourcesRemaining } = await supabase
+    .from("articles")
+    .select("id", { count: "exact", head: true })
+    .not("fact_score", "is", null)
+    .in("status", ["summarized", "approved", "sent"])
+    .is("fact_notes->source_count", null);
+
   // Progress-based remaining: if a full batch of scoreable rows produced zero
   // scores, every remaining candidate is a permanent straggler (e.g. the fact
   // check keeps returning null for genuinely un-gradeable text). Report 0 so a
   // "call until remaining==0" loop terminates instead of re-spending forever.
   const remaining = scored === 0 ? 0 : Math.max(0, (totalUnscored ?? rows.length) - scored);
   return json({
+    sourced,
     scored,
     versioned,
     processed: rows.length,
     remaining,
+    sources_remaining: Math.max(0, (sourcesRemaining ?? 0) - sourced),
     stuck: Math.max(0, rows.length - scored), // processed but un-scoreable this run
     failures: failures.slice(0, 5),
   });

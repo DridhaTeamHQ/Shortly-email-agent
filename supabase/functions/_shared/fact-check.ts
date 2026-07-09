@@ -24,8 +24,11 @@
 // Kill-switch: set FACT_CHECK_ENABLED=false to skip scoring entirely.
 
 import { chatCompletionRaw, stripSourceArtifacts } from "./summary-clean.ts";
+import type { RelatedSource } from "./related-sources.ts";
 
 export type ClaimVerdict = "supported" | "partially-supported" | "unsupported" | "contradicted";
+
+export type FactSource = { source: string; url: string };
 
 export type FactCheckResult = {
   fact_score: number; // 0-100
@@ -34,6 +37,10 @@ export type FactCheckResult = {
     claims: Array<{ claim: string; verdict: ClaimVerdict }>;
     signals: { attribution: number; specificity: number; tone: number }; // each 0-2
     rationale: string;
+    // Independent outlets whose coverage the claims were checked against — the
+    // primary source first, then corroborating siblings from our scrape pool.
+    sources: FactSource[];
+    source_count: number;
     method: "source-grounding-v1";
   };
 };
@@ -52,7 +59,9 @@ TASK 2 — SIGNALS: Grade the SOURCE text itself, each 0-2:
 - "specificity": 2 = concrete dates, figures, named actors throughout; 1 = some specifics; 0 = vague, generic, or opinion-like.
 - "tone": 2 = sober news register; 1 = mildly promotional or emotive; 0 = sensational, clickbait, or advocacy language.
 
-TASK 3 — RATIONALE: One plain sentence (max 25 words) a busy editor can read on a card, naming the weakest point if any (e.g. "All figures match the source; funding amount attributed to unnamed people familiar with the deal.").
+CORROBORATION: a CORROBORATION block may follow with headlines/excerpts from OTHER independent outlets that covered the same story. Use it only to CONFIRM claims — a fact echoed by several independent outlets is well corroborated, so grade it "supported" with more confidence and you may raise "attribution" accordingly. Never invent a claim that is only in the corroboration block and not in the summary, and if the other outlets CONTRADICT the summary, reflect that in the verdicts. If no corroboration block is present, grade on the source alone.
+
+TASK 3 — RATIONALE: One plain sentence (max 25 words) a busy editor can read on a card, naming the weakest point if any (e.g. "All figures match the source; funding amount attributed to unnamed people familiar with the deal."). When several outlets corroborate, you may note it (e.g. "Figures consistent across 3 outlets.").
 
 OUTPUT: a single JSON object, no markdown fences:
 {"claims":[{"claim":"...","verdict":"supported"}],"signals":{"attribution":2,"specificity":2,"tone":2},"rationale":"..."}
@@ -126,7 +135,16 @@ function factCheckModel(): string {
 // unscored rather than dropping it.
 export async function factCheckArticle(
   apiKey: string,
-  input: { title: string; summary: string; sourceText: string }
+  input: {
+    title: string;
+    summary: string;
+    sourceText: string;
+    // The article's own outlet, recorded as the primary source.
+    primarySource?: FactSource | null;
+    // Other outlets that covered the same story (from findRelatedSources) —
+    // corroboration evidence + recorded as additional sources.
+    relatedSources?: RelatedSource[];
+  }
 ): Promise<FactCheckResult | null> {
   if (!factCheckEnabled()) return null;
   const summary = String(input.summary || "").trim();
@@ -139,13 +157,31 @@ export async function factCheckArticle(
   const sourceText = title ? `${title}\n\n${bodyText}` : bodyText;
   if (sourceText.trim().length < 40) return null;
 
+  // Build the list of independent sources: primary outlet first, then siblings.
+  const related = (input.relatedSources ?? []).slice(0, 4);
+  const sources: FactSource[] = [];
+  if (input.primarySource?.url) {
+    sources.push({ source: String(input.primarySource.source || "").trim() || "Source", url: input.primarySource.url });
+  }
+  for (const r of related) {
+    if (r.url && !sources.some((s) => s.url === r.url)) sources.push({ source: r.source, url: r.url });
+  }
+
+  // Corroboration block: fenced sibling headlines/excerpts so the model can
+  // confirm claims across outlets. Untrusted, so same data-not-instructions rule.
+  const corroboration = related.length
+    ? "\n\n" + `<<<CORROBORATION (${related.length} other outlet${related.length > 1 ? "s" : ""} on this story)>>>\n` +
+      related.map((r, i) => `${i + 1}. [${r.source}] ${r.title}${r.excerpt ? ` — ${r.excerpt}` : ""}`).join("\n") +
+      "\n<<<END>>>"
+    : "";
+
   // Fence the untrusted scraped content so the model treats it as data, not
   // instructions (prompt-injection defence-in-depth). The score itself is
   // computed in code from the verdicts, never taken from the model.
   const userPrompt = [
     `<<<SUMMARY>>>\n${summary}\n<<<END>>>`,
     `<<<SOURCE>>>\n${sourceText}\n<<<END>>>`,
-  ].join("\n\n");
+  ].join("\n\n") + corroboration;
 
   try {
     const raw = await chatCompletionRaw(apiKey, factCheckModel(), FACT_CHECK_SYSTEM_PROMPT, userPrompt, 380, {
@@ -173,6 +209,8 @@ export async function factCheckArticle(
       fact_notes: {
         claims,
         signals,
+        sources,
+        source_count: sources.length,
         rationale: String(parsed.rationale ?? "").trim().slice(0, 240),
         method: "source-grounding-v1",
       },

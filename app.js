@@ -742,12 +742,17 @@ function factChipHtml(a) {
   const notes = a.fact_notes || {};
   const claims = Array.isArray(notes.claims) ? notes.claims : [];
   const flagged = claims.filter((c) => c.verdict !== "supported");
+  const nSources = Number(notes.source_count) || (Array.isArray(notes.sources) ? notes.sources.length : 0);
+  const sources = Array.isArray(notes.sources) ? notes.sources : [];
   const tipLines = [
+    nSources > 1 ? `Checked across ${nSources} sources:` : "",
+    ...(nSources > 1 ? sources.map((s) => `• ${s.source || s.url}`) : []),
     notes.rationale || "",
     ...flagged.map((c) => `[${c.verdict}] ${c.claim}`)
   ].filter(Boolean);
   const tip = tipLines.length ? ` title="${esc(tipLines.join("\n"))}"` : "";
-  return `<span class="fact-chip ${band}"${tip}>Fact ${score}</span>`;
+  const srcLabel = nSources > 1 ? ` &middot; ${nSources} src` : "";
+  return `<span class="fact-chip ${band}"${tip}>Fact ${score}${srcLabel}</span>`;
 }
 
 function cardHtml(a, mode) {

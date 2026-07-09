@@ -30,6 +30,7 @@ type Article = {
   rank_score: number | null;
   fact_score: number | null;
   fact_label: string | null;
+  fact_notes: { source_count?: number; sources?: Array<{ source: string; url: string }> } | null;
   scraped_at: string;
   reviewed_at: string | null;
 };
@@ -130,7 +131,7 @@ Deno.serve(async (request) => {
   // ---- 1. Load approved (unsent) content pools ----
   const { data: approvedArticles, error: articlesError } = await supabase
     .from("articles")
-    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,fact_score,fact_label,scraped_at,reviewed_at")
+    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,fact_score,fact_label,fact_notes,scraped_at,reviewed_at")
     .eq("status", "approved")
     .gte("reviewed_at", istStart)
     .lt("reviewed_at", istEnd)
@@ -500,8 +501,10 @@ function renderFactBadge(a: Article): string {
   if (a.fact_score == null || a.fact_score < 65) return "";
   const verified = a.fact_label === "verified";
   const color = verified ? "#0f9d69" : "#8a6d00";
-  const text = verified ? `Fact-checked ${Math.round(a.fact_score)}/100` : `Fact score ${Math.round(a.fact_score)}/100`;
-  return `<div style="display:inline-block;border:2px solid ${color};color:${color};font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:1px 8px;border-radius:999px;margin:0 0 8px;font-family:Roboto,Arial,sans-serif">${text}</div>`;
+  const n = Number(a.fact_notes?.source_count) || (Array.isArray(a.fact_notes?.sources) ? a.fact_notes!.sources!.length : 0);
+  const base = verified ? `Fact-checked ${Math.round(a.fact_score)}/100` : `Fact score ${Math.round(a.fact_score)}/100`;
+  const text = n > 1 ? `${base} · ${n} sources` : base;
+  return `<div style="display:inline-block;border:2px solid ${color};color:${color};font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:1px 8px;border-radius:999px;margin:0 0 8px;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</div>`;
 }
 
 function renderItems(articles: Article[]): string {

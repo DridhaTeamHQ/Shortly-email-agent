@@ -6,6 +6,7 @@ import { parseFeed } from "../_shared/rss.ts";
 import { EDITORIAL_TOPICS, getEditorialTopic, type EditorialSource, type EditorialTopic } from "../_shared/editorial-topics.ts";
 import { summarizeForBriefing, chatCompletionRaw } from "../_shared/summary-clean.ts";
 import { factCheckArticle } from "../_shared/fact-check.ts";
+import { findRelatedSources } from "../_shared/related-sources.ts";
 
 type Candidate = {
   title: string;
@@ -391,9 +392,15 @@ async function upsertSourceCandidateArticles(
       return null; // skip rather than ship a raw excerpt
     }
     if (!summary || !isGoodSmallArticleCandidate(topic, candidate, rawContent, summary)) return null;
-    // AI fact score against the scraped source text; null (unscored) on failure.
+    // AI fact score against the scraped source text, corroborated across other
+    // outlets in our pool that ran the same story; null (unscored) on failure.
+    const relatedSources = await findRelatedSources(supabase, {
+      title: candidate.title, source: candidate.source, url: candidate.url
+    });
     const fact = await factCheckArticle(openAiKey, {
-      title: candidate.title, summary, sourceText: rawContent
+      title: candidate.title, summary, sourceText: rawContent,
+      primarySource: { source: candidate.source || "Source", url: candidate.url },
+      relatedSources
     });
     return {
       title: candidate.title.trim().slice(0, 500),

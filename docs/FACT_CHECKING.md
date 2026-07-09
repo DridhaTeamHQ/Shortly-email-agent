@@ -62,6 +62,20 @@ One cheap-model JSON call per article does stages 1–2; stage 3 is plain code.
 Stored on `articles` as `fact_score` (numeric), `fact_label` (text), and
 `fact_notes` (jsonb audit trail: claims + verdicts + signals + one-line rationale).
 
+### Multi-source corroboration
+
+Each article is one scraped URL, but big stories are covered by several of our
+60+ feeds. Before scoring, `_shared/related-sources.ts` finds sibling articles
+about the **same story from other outlets** (significant-title-token overlap in a
+48h window, one per outlet, capped at 4) — no web search, no new API. Those
+sibling headlines/excerpts are added to the fact-check prompt as *corroboration*
+(a claim echoed by several independent outlets grades "supported" with more
+confidence), and the outlet list is recorded in `fact_notes.sources` +
+`source_count`. The website reader shows "Checked across N sources" with the
+links; cards, the dashboard chip, and the newsletter badge show the count.
+The score stays deterministic — corroboration flows through claim verdicts, it is
+not a separate score term.
+
 ### Ranking favors grounded articles
 
 `fact_score` is folded into each article's `rank_score`, so well-grounded stories

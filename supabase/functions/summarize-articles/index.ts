@@ -9,6 +9,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { cleanArticleText, fetchReadableArticleText, needsFullArticleFetch } from "../_shared/article-text.ts";
 import { summarizeForBriefing } from "../_shared/summary-clean.ts";
 import { factCheckArticle, type FactCheckResult } from "../_shared/fact-check.ts";
+import { findRelatedSources } from "../_shared/related-sources.ts";
 
 type Article = {
   id: string;
@@ -65,7 +66,7 @@ Deno.serve(async (request) => {
     const settled = await Promise.all(
       batch.map(async (a) => {
         try {
-          const result = await summarize(openAiKey, model, a);
+          const result = await summarize(supabase, openAiKey, model, a);
           return { id: a.id, summary: result.summary, section: result.section, prominence: result.prominence, fact: result.fact };
         } catch (e) {
           return { id: a.id, summary: null, section: "wrapped", prominence: 2, fact: null, error: String(e) };
@@ -134,7 +135,7 @@ Deno.serve(async (request) => {
   });
 });
 
-async function summarize(apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string; prominence: number; fact: FactCheckResult | null }> {
+async function summarize(supabase: any, apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string; prominence: number; fact: FactCheckResult | null }> {
   let fullText = cleanArticleText(article.raw_content || "");
 
   // Fetch the readable article body when the RSS excerpt is thin. Raised the
@@ -163,6 +164,13 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
   });
   if (!result.summary) throw new Error("empty summary after cleaning");
 
+  // Corroboration: other outlets in our scrape pool that ran the same story, so
+  // the fact check can confirm claims across independent sources and record how
+  // many. Never throws — falls back to single-source on any issue.
+  const relatedSources = await findRelatedSources(supabase, {
+    id: article.id, title: article.title, source: article.source, url: article.url
+  });
+
   // Second cheap-model call: fact score. Grade against the FULLEST text we have
   // (fact-check.ts caps it) — never less than the summary saw, so more evidence
   // can only raise a legitimate score. Non-fatal: a null score never blocks the
@@ -170,7 +178,9 @@ async function summarize(apiKey: string, model: string, article: Article): Promi
   const fact = await factCheckArticle(apiKey, {
     title: article.title,
     summary: result.summary,
-    sourceText: fullText
+    sourceText: fullText,
+    primarySource: { source: article.source || "Source", url: article.url },
+    relatedSources
   });
   return { ...result, fact };
 }

@@ -6,6 +6,7 @@ import { parseFeed } from "../_shared/rss.ts";
 import { CORPORATE_CASE_SOURCES } from "../_shared/corporate-case-sources.ts";
 import { summarizeForBriefing, chatCompletionRaw } from "../_shared/summary-clean.ts";
 import { factCheckArticle } from "../_shared/fact-check.ts";
+import { findRelatedSources } from "../_shared/related-sources.ts";
 
 type Candidate = {
   title: string;
@@ -260,9 +261,15 @@ async function upsertCorporateShortArticles(supabase: any, candidates: Candidate
       return null;
     }
     if (!candidate.title || !candidate.url || summary.split(/\s+/).filter(Boolean).length < 35) return null;
-    // AI fact score against the scraped source text; null (unscored) on failure.
+    // AI fact score against the scraped source text, corroborated across other
+    // outlets in our pool that ran the same story; null (unscored) on failure.
+    const relatedSources = await findRelatedSources(supabase, {
+      title: candidate.title, source: candidate.source, url: candidate.url
+    });
     const fact = await factCheckArticle(openAiKey, {
-      title: candidate.title, summary, sourceText: rawContent
+      title: candidate.title, summary, sourceText: rawContent,
+      primarySource: { source: candidate.source || "Source", url: candidate.url },
+      relatedSources
     });
     return {
       title: candidate.title.trim().slice(0, 500),
