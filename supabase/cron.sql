@@ -80,6 +80,17 @@ begin
 end;
 $cleanup$;
 
+-- SECURITY: both helpers above are SECURITY DEFINER and invoke_edge injects the
+-- service-role bearer for ANY edge function name it is handed. PostgREST exposes
+-- public-schema functions as RPC, and Postgres grants EXECUTE to PUBLIC by
+-- default — so without this revoke, anyone holding the public anon key could
+-- POST /rest/v1/rpc/invoke_edge to run any function (or the cleanup delete) with
+-- full service-role privileges. Lock both to the owner (postgres) that pg_cron
+-- runs as. SECURITY DEFINER means the revoke does not stop pg_cron from calling
+-- them.
+revoke all on function public.invoke_edge(text, jsonb, integer) from public, anon, authenticated;
+revoke all on function public.shortly_cleanup_daily_review_pools() from public, anon, authenticated;
+
 -- Idempotent: drop any prior shortly-* jobs (incl. legacy names from earlier
 -- iterations of this file) before (re)scheduling.
 do $do$
@@ -96,6 +107,7 @@ begin
     'shortly-editorial-tech-ai',
     'shortly-editorial-markets-startups',
     'shortly-send-newsletter',
+    'shortly-backfill-fact-scores',
     'shortly-cleanup-midnight-ist',
     -- legacy names
     'shortly-scrape','shortly-summarize','shortly-send',
@@ -120,11 +132,14 @@ select cron.schedule('shortly-scrape-news', '30 0 * * *',
   $job$ select public.invoke_edge('scrape-news', '{}'::jsonb, 60000); $job$);
 
 -- 2) Summarize General in two capped passes to keep a 20-50 article pool.
+-- 300s timeout (was 120s): each article now makes a summary AND a fact-check
+-- call, so a full 40-article pass with 429 backoff can exceed 120s and log a
+-- spurious pg_net timed_out even though the isolate finishes and writes rows.
 select cron.schedule('shortly-summarize-articles', '45 0 * * *',
-  $job$ select public.invoke_edge('summarize-articles', '{}'::jsonb, 120000); $job$);
+  $job$ select public.invoke_edge('summarize-articles', '{}'::jsonb, 300000); $job$);
 
 select cron.schedule('shortly-summarize-articles-2', '5 1 * * *',
-  $job$ select public.invoke_edge('summarize-articles', '{}'::jsonb, 120000); $job$);
+  $job$ select public.invoke_edge('summarize-articles', '{}'::jsonb, 300000); $job$);
 
 -- 3) Category agents. Each run creates:
 --    - up to 25 short articles for that category review pool
@@ -145,6 +160,16 @@ select cron.schedule('shortly-editorial-tech-ai', '56 1 * * *',
 
 select cron.schedule('shortly-editorial-markets-startups', '8 2 * * *',
   $job$ select public.invoke_edge('editorial-topic-agent', '{"topic":"markets-startups"}'::jsonb, 300000); $job$);
+
+-- 3b) Safety net: after all content is created (agents finish ~02:08 UTC),
+-- score any article the inline fact check missed (e.g. an OpenAI 429 during
+-- summarize left fact_score null). The main pipeline scores everything inline;
+-- this only ever sweeps up rare stragglers, so a small cap is plenty. Runs
+-- BEFORE the 03:30 send so shipped articles carry their score. invoke_edge
+-- authenticates with the service-role key, which the backfill's admin gate
+-- accepts; the public anon key cannot trigger it.
+select cron.schedule('shortly-backfill-fact-scores', '30 2 * * *',
+  $job$ select public.invoke_edge('backfill-fact-scores', '{"limit":40}'::jsonb, 300000); $job$);
 
 -- 4) Send every subscribed product at 09:00 IST (03:30 UTC). General and
 -- case-study products are daily; category short-article products are sent on
