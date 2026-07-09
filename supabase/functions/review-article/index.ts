@@ -12,10 +12,14 @@ async function generateAndStoreVersions(supabase: ReturnType<typeof createClient
   try {
     const { data: a } = await supabase
       .from("articles")
-      .select("id,title,edited_title,summary,edited_summary,raw_content,versions")
+      .select("id,title,edited_title,summary,edited_summary,raw_content,versions,category")
       .eq("id", id)
       .single();
     if (!a || a.versions) return; // already generated on a prior approve
+    // Alternate reader versions (ELI5 / TL;DR / deep dive / key numbers) are
+    // GENERAL-category only. Category short articles (Real Estate, Automobile,
+    // Health & Wellness, Tech & AI, Markets & Startups) keep just the fact score.
+    if (a.category) return;
     const versions = await generateArticleVersions(requiredEnv("OPENAI_API_KEY"), {
       headline: (a.edited_title || a.title || "") as string,
       body: (a.edited_summary || a.summary || "") as string,

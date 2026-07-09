@@ -26,6 +26,7 @@ type Row = {
   edited_summary: string | null;
   raw_content: string | null;
   status: string;
+  category: string | null;
   fact_score: number | null;
   versions: unknown | null;
 };
@@ -75,7 +76,7 @@ Deno.serve(async (request) => {
   // safety-net cron retry it every day with no progress.
   const { data, error } = await supabase
     .from("articles")
-    .select("id,title,edited_title,summary,edited_summary,raw_content,status,fact_score,versions")
+    .select("id,title,edited_title,summary,edited_summary,raw_content,status,category,fact_score,versions")
     .is("fact_score", null)
     .in("status", ["summarized", "approved", "sent"])
     .not("summary", "is", null)
@@ -122,8 +123,9 @@ Deno.serve(async (request) => {
           patch.fact_notes = fact.fact_notes;
         }
 
-        // Versions only matter for content the website shows in full.
-        if (doVersions && !a.versions && (a.status === "approved" || a.status === "sent")) {
+        // Versions are GENERAL-category only (category null) and only for
+        // content the website shows in full (approved/sent).
+        if (doVersions && !a.versions && !a.category && (a.status === "approved" || a.status === "sent")) {
           const versions = await generateArticleVersions(openAiKey, {
             headline,
             body,

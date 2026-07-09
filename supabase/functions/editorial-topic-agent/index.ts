@@ -6,7 +6,6 @@ import { parseFeed } from "../_shared/rss.ts";
 import { EDITORIAL_TOPICS, getEditorialTopic, type EditorialSource, type EditorialTopic } from "../_shared/editorial-topics.ts";
 import { summarizeForBriefing, chatCompletionRaw } from "../_shared/summary-clean.ts";
 import { factCheckArticle } from "../_shared/fact-check.ts";
-import { generateArticleVersions, versionsEnabled } from "../_shared/versions.ts";
 
 type Candidate = {
   title: string;
@@ -319,39 +318,29 @@ function topicMeta(topic: EditorialTopic) {
   return { slug: topic.slug, name: topic.name, format: topic.format, cadence: topic.cadence, description: topic.description };
 }
 
-// Post-approval enrichment for a long read: fact score + alternate reader
-// versions, stored on the draft row for the website. The fact check grades
-// the published detail against the primary source refetched now (drafts don't
-// store source text). Every step is optional — whatever fails stays null.
+// Post-approval enrichment for a long read: fact score only. Alternate reader
+// versions (ELI5 / TL;DR / deep dive / key numbers) are GENERAL-category only,
+// so long reads (always a topic category) do not get them. The fact check
+// grades the published detail against the primary source refetched now (drafts
+// don't store source text). Optional — a failure just leaves the score null.
 async function enrichApprovedDraft(supabase: any, draft: any): Promise<void> {
   try {
+    if (draft.fact_score != null) return; // already scored on a prior approve
     const openAiKey = requiredEnv("OPENAI_API_KEY");
     const headline = String(draft.headline || "");
     const detail = String(draft.detail || draft.summary || "");
-    if (!headline || !detail) return;
+    if (!headline || !detail || !draft.primary_source_url) return;
 
-    const sourceText = draft.fact_score == null && draft.primary_source_url
-      ? await fetchPublicArticleText(String(draft.primary_source_url)).catch(() => "")
-      : "";
+    const sourceText = await fetchPublicArticleText(String(draft.primary_source_url)).catch(() => "");
+    if (!sourceText) return;
 
-    const [fact, versions] = await Promise.all([
-      draft.fact_score == null && sourceText
-        ? factCheckArticle(openAiKey, { title: headline, summary: detail, sourceText })
-        : Promise.resolve(null),
-      !draft.versions && versionsEnabled()
-        ? generateArticleVersions(openAiKey, { headline, body: detail, sourceText })
-        : Promise.resolve(null),
-    ]);
-
-    const patch: Record<string, unknown> = {};
+    const fact = await factCheckArticle(openAiKey, { title: headline, summary: detail, sourceText });
     if (fact) {
-      patch.fact_score = fact.fact_score;
-      patch.fact_label = fact.fact_label;
-      patch.fact_notes = fact.fact_notes;
-    }
-    if (versions) patch.versions = versions;
-    if (Object.keys(patch).length > 0) {
-      await supabase.from("editorial_drafts").update(patch).eq("id", draft.id);
+      await supabase.from("editorial_drafts").update({
+        fact_score: fact.fact_score,
+        fact_label: fact.fact_label,
+        fact_notes: fact.fact_notes,
+      }).eq("id", draft.id);
     }
   } catch {
     // Non-fatal by design.
