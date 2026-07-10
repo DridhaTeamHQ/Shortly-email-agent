@@ -48,7 +48,8 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
       { name: "Moneycontrol Real Estate", url: moneycontrolLatest, weight: 0.9, accepts: (url) => /moneycontrol\.com\/news\/(business\/real-estate|real-estate)/i.test(url) },
       { name: "Financial Express Real Estate", url: "https://www.financialexpress.com/money/real-estate/feed/", weight: 0.85 },
       { name: "Hindustan Times Real Estate", url: "https://www.hindustantimes.com/feeds/rss/real-estate/rssfeed.xml", weight: 0.8 },
-      { name: "Times of India Real Estate", url: "https://timesofindia.indiatimes.com/rssfeeds/54829575.cms", weight: 0.8 },
+      // NOTE: TOI feed 54829575 is TOI's CRICKET feed, not real estate — it was
+      // flooding this pool with sports. Removed; do not re-add unverified TOI ids.
       { name: "Business Standard Real Estate", url: "https://www.business-standard.com/rss/industry/real-estate-10303.rss", weight: 0.8 }
     ]
   },

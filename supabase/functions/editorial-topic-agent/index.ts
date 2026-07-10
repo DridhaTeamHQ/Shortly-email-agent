@@ -448,11 +448,26 @@ function isGoodSmallArticleCandidate(topic: EditorialTopic, candidate: Candidate
   const wordCount = String(summary || rawContent || "").split(/\s+/).filter(Boolean).length;
   if (wordCount < 45) return false;
   if (rawContent.length < 500 && candidate.excerpt.length < 350) return false;
-  if (topic.slug === "markets-startups") {
-    return /\b(money|tax|rbi|sebi|bank|mutual fund|insurance|loan|credit|debit|upi|invest|income|finance|market|stock|ipo|savings?|pension|fraud|scam|startup|funding|valuation|venture|unicorn|acquisition|merger|listing)\b/i.test(`${title} ${summary}`);
-  }
+  // Topic-relevance gate for EVERY topic: a polluted or misconfigured feed
+  // (e.g. a cricket feed mislabelled as real estate) must never push off-topic
+  // stories into a category pool. The candidate's title+summary has to carry at
+  // least one on-topic term.
+  const haystack = `${title} ${summary}`;
+  const relevance = TOPIC_RELEVANCE[topic.slug];
+  if (relevance && !relevance.test(haystack)) return false;
   return true;
 }
+
+// On-topic vocabularies per category — deliberately broad (any single hit
+// passes); their job is to reject obviously foreign stories (sports, cinema,
+// crime blotter) rather than to precisely classify.
+const TOPIC_RELEVANCE: Record<string, RegExp> = {
+  "real-estate": /\b(real estate|realty|property|properties|housing|home\s?buyers?|house prices?|apartment|flat|villa|builder|developer|rera|land|plot|township|residential|commercial|office space|mall|warehous|rent|rental|lease|tenant|landlord|sq ?ft|square feet|acre|home sales?|home loan|affordable housing|redevelopment|construction|infrastructur)\b/i,
+  "automobile": /\b(car|cars|suv|sedan|hatchback|bike|motorcycle|scooter|two-wheeler|vehicle|automobile|automotive|auto industry|ev|electric vehicle|hybrid|charging|battery|mileage|engine|launch(ed|es)?|facelift|recall|dealership|maruti|tata motors|mahindra|hyundai|kia|toyota|honda|bajaj|hero|ola electric|ather|royal enfield|mg motor|skoda|volkswagen|bmw|mercedes|audi|nexon|creta|swift|fame|pli|bharat ncap|gncap|emission|traffic|highway)\b/i,
+  "health-wellness": /\b(health|wellness|fitness|exercise|workout|yoga|diet|nutrition|food|protein|vitamin|sleep|insomnia|mental health|anxiety|depression|stress|burnout|therapy|doctor|hospital|disease|condition|diabetes|hypertension|obesity|heart|cancer|immunity|gut|hormone|study|research|screen time|habit|meditation|mindfulness|walking|running|gym|posture|hydration|alcohol|smoking|vaccin)\b/i,
+  "tech-ai": /\b(ai|artificial intelligence|machine learning|llm|chatgpt|openai|gemini|anthropic|model|algorithm|tech|technology|software|hardware|app|apps|smartphone|laptop|chip|semiconductor|gpu|data|cloud|cyber|hack|breach|privacy|dpdp|it rules|startup|platform|google|microsoft|apple|meta|amazon|nvidia|infosys|tcs|wipro|digital|internet|social media|whatsapp|instagram|coding|developer|robot|automation|5g|6g|satellite|spacex|isro)\b/i,
+  "markets-startups": /\b(money|tax|rbi|sebi|bank|mutual fund|insurance|loan|credit|debit|upi|invest|income|finance|market|stock|ipo|savings?|pension|fraud|scam|startup|funding|valuation|venture|unicorn|acquisition|merger|listing)\b/i,
+};
 
 function isEligibleSmallArticleSource(topic: EditorialTopic, candidate: Candidate): boolean {
   if (candidate.compassOnly) return false;
