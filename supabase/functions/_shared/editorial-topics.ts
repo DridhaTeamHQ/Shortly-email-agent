@@ -104,7 +104,9 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
     sources: [
       { name: "The Hindu Health", url: "https://www.thehindu.com/sci-tech/health/feeder/default.rss", weight: 1 },
       { name: "Indian Express Health", url: "https://indianexpress.com/section/lifestyle/health/feed/", weight: 0.95 },
-      { name: "Hindustan Times Lifestyle", url: "https://www.hindustantimes.com/feeds/rss/lifestyle/rssfeed.xml", weight: 0.9 },
+      // HT's generic lifestyle feed carries fashion/culture/entertainment —
+      // use the dedicated health feed instead (verified on-topic 2026-07-11).
+      { name: "Hindustan Times Health", url: "https://www.hindustantimes.com/feeds/rss/health/rssfeed.xml", weight: 0.9 },
       { name: "Times of India Health", url: "https://timesofindia.indiatimes.com/rssfeeds/3908999.cms", weight: 0.9 },
       { name: "The Guardian Wellness", url: "https://www.theguardian.com/lifeandstyle/health-and-wellbeing/rss", weight: 0.8 },
       { name: "Harvard Business Review", url: "https://feeds.hbr.org/harvardbusiness", weight: 0.75 },
