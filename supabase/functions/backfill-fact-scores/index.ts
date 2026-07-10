@@ -190,6 +190,37 @@ Deno.serve(async (request) => {
     }));
   }
 
+  // Pass A2: approved/sent GENERAL rows that are already scored but still have
+  // no reader versions (e.g. the approve-time background task died). Handled
+  // here so the safety-net cron heals them automatically.
+  let versionedA2 = 0;
+  if (doVersions) {
+    const { data: needVersions } = await supabase
+      .from("articles")
+      .select("id,title,edited_title,summary,edited_summary,raw_content,versions,category")
+      .is("versions", null)
+      .is("category", null)
+      .in("status", ["approved", "sent"])
+      .not("summary", "is", null)
+      .neq("summary", "")
+      .order("reviewed_at", { ascending: false })
+      .limit(Math.min(limit, 20));
+    for (const a of (needVersions ?? []) as Row[]) {
+      const headline = a.edited_title || a.title || "";
+      const body = a.edited_summary || a.summary || "";
+      if (!headline || !body) continue;
+      try {
+        const versions = await generateArticleVersions(openAiKey, {
+          headline, body, sourceText: a.raw_content || "",
+        });
+        if (versions) {
+          const { error: upErr } = await supabase.from("articles").update({ versions }).eq("id", a.id);
+          if (!upErr) versionedA2++;
+        }
+      } catch { /* skip; next run retries */ }
+    }
+  }
+
   // Pass B (COST-FREE, no OpenAI): fill the multi-source list onto rows that
   // were scored BEFORE corroboration existed (fact_notes has no source_count).
   // Pure DB lookups — findRelatedSources + the row's own source — so this is
@@ -236,7 +267,7 @@ Deno.serve(async (request) => {
   return json({
     sourced,
     scored,
-    versioned,
+    versioned: versioned + versionedA2,
     processed: rows.length,
     remaining,
     sources_remaining: Math.max(0, (sourcesRemaining ?? 0) - sourced),
