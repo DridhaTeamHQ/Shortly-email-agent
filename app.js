@@ -1397,7 +1397,8 @@ async function reload() {
 
 async function bootDashboard() {
   await reload();
-  maybeAutoRunPipeline();
+  // Scraping is MANUAL-ONLY (2026-07-10, cost control): no auto pipeline on
+  // boot. Use the "Scrape news" / "Run full pipeline" buttons.
 }
 
 function pipelineRecentlyRan() {
@@ -1408,14 +1409,6 @@ function pipelineRecentlyRan() {
 function pipelineLocked() {
   const lockedAt = Number(localStorage.getItem(AUTO_PIPELINE_LOCK_KEY) || 0);
   return lockedAt > 0 && Date.now() - lockedAt < 20 * 60 * 1000;
-}
-
-function maybeAutoRunPipeline() {
-  if (!cfg.scrape || !cfg.summarize) return;
-  if (pipelineRecentlyRan() || pipelineLocked()) return;
-  runAiPipeline({ force: false, showProgress: false }).catch((error) => {
-    console.warn("Auto pipeline failed", error);
-  });
 }
 
 async function runAiPipeline({ force = false, showProgress = true } = {}) {

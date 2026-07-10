@@ -156,6 +156,9 @@ async function handleRequest(request: Request): Promise<Response> {
   // cheapest capable model.
   const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini";
   const shortModel = Deno.env.get("SUMMARIZE_MODEL") ?? "gpt-4o-mini";
+  // Ranking just picks the best candidate URLs from a list — the cheapest
+  // capable model handles it fine ($0.10/$0.40 vs the case-writer's tier).
+  const rankModel = Deno.env.get("RANK_MODEL") ?? "gpt-4.1-nano";
 
   // Short-article generation into the articles table (category = topic name).
   const sourceArticleUrls = await upsertSourceCandidateArticles(supabase, topic, citedCandidates, openAiKey, shortModel);
@@ -174,7 +177,7 @@ async function handleRequest(request: Request): Promise<Response> {
   const selectionPool = freshCandidates.length > 0 ? freshCandidates : citedCandidates;
 
   // Rank/select the strongest candidates for this topic.
-  const ranked = await rankCandidates(openAiKey, model, topic, selectionPool);
+  const ranked = await rankCandidates(openAiKey, rankModel, topic, selectionPool);
   const candidatesByUrl = new Map(selectionPool.map((candidate) => [candidate.url, candidate]));
   const rankedUrls = ranked
     .map((item) => item.url)
