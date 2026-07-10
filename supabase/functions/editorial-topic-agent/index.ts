@@ -478,7 +478,8 @@ function isEligibleSmallArticleSource(topic: EditorialTopic, candidate: Candidat
   if (topic.slug === "markets-startups") {
     return new Set([
       "Mint Money", "Mint Markets", "Moneycontrol", "BusinessLine Markets", "BusinessLine Banking",
-      "ET Markets", "ET Wealth", "Inc42", "Entrackr", "YourStory"
+      "ET Markets", "ET Wealth", "Inc42", "Entrackr", "YourStory",
+      "ET Startups", "ET Economy", "BusinessLine Economy", "Mint Companies", "NDTV Profit"
     ]).has(candidate.source);
   }
   return true;

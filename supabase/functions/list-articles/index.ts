@@ -47,14 +47,15 @@ Deno.serve(async (request) => {
     article.category !== "Real Estate" || matchesCategoryContent("Real Estate", article.edited_title || article.title, article.edited_summary || article.summary || "")
   );
 
-  // BREAKING strip for the dashboard: prominence x cross-outlet velocity x
+  // BREAKING badges for the dashboard: prominence x cross-outlet velocity x
   // trust, freshness-decayed — computed by the breaking_news view (single
-  // source of truth in SQL). Unreviewed first so QA fast-tracks them.
+  // source of truth in SQL). Limit is generous (24, not 8) so category
+  // articles keep their badge even when General dominates the top scores.
   const { data: breaking } = await supabase
     .from("breaking_news")
     .select("id,title,edited_title,source,category,status,prominence,source_count,fact_score,breaking_score,scraped_at")
     .order("breaking_score", { ascending: false })
-    .limit(8);
+    .limit(24);
 
   // Also include counts per status for the dashboard
   const [summarizedCount, approvedCount, rejectedCount, sentCount] = await Promise.all([

@@ -50,7 +50,11 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
       { name: "Hindustan Times Real Estate", url: "https://www.hindustantimes.com/feeds/rss/real-estate/rssfeed.xml", weight: 0.8 },
       // NOTE: TOI feed 54829575 is TOI's CRICKET feed, not real estate — it was
       // flooding this pool with sports. Removed; do not re-add unverified TOI ids.
-      { name: "Business Standard Real Estate", url: "https://www.business-standard.com/rss/industry/real-estate-10303.rss", weight: 0.8 }
+      { name: "Business Standard Real Estate", url: "https://www.business-standard.com/rss/industry/real-estate-10303.rss", weight: 0.8 },
+      // Verified 2026-07-10: regulation + infrastructure angles widen coverage
+      // beyond launches, and more outlets = more cross-source corroboration.
+      { name: "ET Realty Regulatory", url: "https://realty.economictimes.indiatimes.com/rss/regulatory", weight: 0.85 },
+      { name: "ET Realty Infrastructure", url: "https://realty.economictimes.indiatimes.com/rss/infrastructure", weight: 0.8 }
     ]
   },
   "automobile": {
@@ -80,6 +84,10 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
       { name: "Autocar Professional", url: "https://www.autocarpro.in/rss/news", weight: 0.85 },
       { name: "Times of India Auto", url: "https://timesofindia.indiatimes.com/rssfeeds/74317216.cms", weight: 0.8 },
       { name: "Business Standard Auto", url: "https://www.business-standard.com/rss/industry/auto-21601.rss", weight: 0.75 },
+      // Verified 2026-07-10: dedicated Indian auto outlets, fresh feeds.
+      // (ET Auto two-wheelers feed sampled stale 2023 items — do not add it.)
+      { name: "RushLane", url: "https://www.rushlane.com/feed", weight: 0.7 },
+      { name: "GaadiWaadi", url: "https://gaadiwaadi.com/feed", weight: 0.65 },
       { name: "CarWale Reddit", url: "https://www.reddit.com/r/CarsIndia/new.json?limit=20", weight: 0.35, kind: "reddit" }
     ]
   },
@@ -110,6 +118,10 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
       { name: "Times of India Health", url: "https://timesofindia.indiatimes.com/rssfeeds/3908999.cms", weight: 0.9 },
       { name: "The Guardian Wellness", url: "https://www.theguardian.com/lifeandstyle/health-and-wellbeing/rss", weight: 0.8 },
       { name: "Harvard Business Review", url: "https://feeds.hbr.org/harvardbusiness", weight: 0.75 },
+      // Verified 2026-07-10: industry + evidence-led sources (fresh feeds).
+      { name: "ET HealthWorld", url: "https://health.economictimes.indiatimes.com/rss/topstories", weight: 0.9 },
+      { name: "WHO News", url: "https://www.who.int/rss-feeds/news-english.xml", weight: 0.8 },
+      { name: "ScienceDaily Health", url: "https://www.sciencedaily.com/rss/health_medicine.xml", weight: 0.75 },
       { name: "IndianWorkplace Reddit", url: "https://www.reddit.com/r/IndianWorkplace/new.json?limit=20", weight: 0.45, kind: "reddit" },
       { name: "AskDocs Reddit", url: "https://www.reddit.com/r/AskDocs/new.json?limit=20", weight: 0.35, kind: "reddit" },
       { name: "Fitness Reddit", url: "https://www.reddit.com/r/Fitness/new.json?limit=20", weight: 0.3, kind: "reddit" },
@@ -143,6 +155,12 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
       { name: "TechCrunch", url: "https://techcrunch.com/feed/", weight: 0.85 },
       { name: "The Verge", url: "https://www.theverge.com/rss/index.xml", weight: 0.8 },
       { name: "Times of India Tech", url: "https://timesofindia.indiatimes.com/rssfeeds/66949542.cms", weight: 0.75 },
+      // Verified 2026-07-10: widen Indian + global tech coverage for
+      // corroboration. Ars is all-content (science/culture mixed in) so it
+      // rides at a lower weight; the topic relevance gate filters the rest.
+      { name: "The Hindu Technology", url: "https://www.thehindu.com/sci-tech/technology/feeder/default.rss", weight: 0.85 },
+      { name: "Mint Technology", url: "https://www.livemint.com/rss/technology", weight: 0.85 },
+      { name: "Ars Technica", url: "https://feeds.arstechnica.com/arstechnica/index", weight: 0.6 },
       { name: "Artificial Reddit", url: "https://www.reddit.com/r/artificial/new.json?limit=20", weight: 0.35, kind: "reddit" },
       { name: "DevelopersIndia Reddit", url: "https://www.reddit.com/r/developersIndia/new.json?limit=20", weight: 0.35, kind: "reddit" }
     ]
@@ -177,6 +195,13 @@ export const EDITORIAL_TOPICS: Record<string, EditorialTopic> = {
       { name: "YourStory", url: "https://yourstory.com/feed", weight: 0.8 },
       { name: "ET Wealth", url: "https://economictimes.indiatimes.com/wealth/rssfeeds/837555174.cms", weight: 0.85 },
       { name: "Capitalmind", url: "https://premium.capitalmind.in/feed", weight: 0.85 },
+      // Verified 2026-07-10: startup + economy + companies angles for
+      // corroboration across independent outlets.
+      { name: "ET Startups", url: "https://economictimes.indiatimes.com/tech/startups/rssfeeds/78570530.cms", weight: 0.9 },
+      { name: "ET Economy", url: "https://economictimes.indiatimes.com/news/economy/rssfeeds/1373380680.cms", weight: 0.85 },
+      { name: "BusinessLine Economy", url: "https://www.thehindubusinessline.com/economy/feeder/default.rss", weight: 0.85 },
+      { name: "Mint Companies", url: "https://www.livemint.com/rss/companies", weight: 0.8 },
+      { name: "NDTV Profit", url: "https://feeds.feedburner.com/ndtvprofit-latest", weight: 0.75 },
       { name: "RBI", url: "https://www.rbi.org.in/scripts/RSS.aspx?Id=2000", weight: 1 },
       { name: "SEBI", url: "https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=6&ssid=25&smid=0", weight: 1, kind: "html", accepts: (url) => /sebi\.gov\.in\/(media-and-notifications|legal)/i.test(url) },
       { name: "IndiaInvestments Reddit", url: "https://www.reddit.com/r/IndiaInvestments/new.json?limit=20", weight: 0.45, kind: "reddit" },
