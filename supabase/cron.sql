@@ -172,15 +172,9 @@ select cron.schedule('shortly-editorial-tech-ai', '56 1 * * *',
 select cron.schedule('shortly-editorial-markets-startups', '8 2 * * *',
   $job$ select public.invoke_edge('editorial-topic-agent', '{"topic":"markets-startups"}'::jsonb, 300000); $job$);
 
--- 3b) Safety net: after all content is created (agents finish ~02:08 UTC),
--- score any article the inline fact check missed (e.g. an OpenAI 429 during
--- summarize left fact_score null). The main pipeline scores everything inline;
--- this only ever sweeps up rare stragglers, so a small cap is plenty. Runs
--- BEFORE the 03:30 send so shipped articles carry their score. invoke_edge
--- authenticates with the service-role key, which the backfill's admin gate
--- accepts; the public anon key cannot trigger it.
-select cron.schedule('shortly-backfill-fact-scores', '30 2 * * *',
-  $job$ select public.invoke_edge('backfill-fact-scores', '{"limit":40}'::jsonb, 300000); $job$);
+-- Fact-score backfill intentionally disabled. New articles are fact-checked
+-- inline by the scrape/summarize pipelines; the old daily sweep consumed
+-- unnecessary OpenAI credits.
 
 -- 4) Send every subscribed product at 09:00 IST (03:30 UTC). General and
 -- case-study products are daily; category short-article products are sent on
