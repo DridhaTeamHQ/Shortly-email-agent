@@ -3,6 +3,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
+import { matchesCategoryContent } from "../_shared/category-quality.ts";
 
 function istDayWindow() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -30,20 +31,25 @@ Deno.serve(async (request) => {
   let query = supabase
     .from("articles")
     .select("id,title,url,summary,edited_title,edited_summary,source,topic,category,section,status,rank_score,fact_score,fact_label,fact_notes,scraped_at,summarized_at,reviewed_at,sent_at")
-    .order("scraped_at", { ascending: false })
+    .order("summarized_at", { ascending: false, nullsFirst: false })
+    .order("reviewed_at", { ascending: false, nullsFirst: false })
+    .order("scraped_at", { ascending: false, nullsFirst: false })
     .order("rank_score", { ascending: false })
     .limit(limit);
 
   if (status !== "all") query = query.eq("status", status);
-  if (status === "summarized") query = query.gte("scraped_at", istStart).lt("scraped_at", istEnd);
+  if (status === "summarized") query = query.gte("summarized_at", istStart).lt("summarized_at", istEnd);
   if (status === "approved" || status === "rejected") query = query.gte("reviewed_at", istStart).lt("reviewed_at", istEnd);
 
-  const { data, error } = await query;
+  const { data: rawArticles, error } = await query;
   if (error) return json({ error: error.message }, 500);
+  const data = (rawArticles ?? []).filter((article: any) =>
+    article.category !== "Real Estate" || matchesCategoryContent("Real Estate", article.edited_title || article.title, article.edited_summary || article.summary || "")
+  );
 
   // Also include counts per status for the dashboard
   const [summarizedCount, approvedCount, rejectedCount, sentCount] = await Promise.all([
-    supabase.from("articles").select("id", { count: "exact", head: true }).eq("status", "summarized").gte("scraped_at", istStart).lt("scraped_at", istEnd),
+    supabase.from("articles").select("id", { count: "exact", head: true }).eq("status", "summarized").gte("summarized_at", istStart).lt("summarized_at", istEnd),
     supabase.from("articles").select("id", { count: "exact", head: true }).eq("status", "approved").gte("reviewed_at", istStart).lt("reviewed_at", istEnd),
     supabase.from("articles").select("id", { count: "exact", head: true }).eq("status", "rejected").gte("reviewed_at", istStart).lt("reviewed_at", istEnd),
     supabase.from("articles").select("id", { count: "exact", head: true }).eq("status", "sent"),

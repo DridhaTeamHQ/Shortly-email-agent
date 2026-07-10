@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
+import { matchesCategoryContent } from "../_shared/category-quality.ts";
 
 type Subscriber = { id: string; email: string; full_name: string | null };
 type DailyArticle = {
@@ -199,7 +200,8 @@ async function resolveSelectedArticles(supabase: any, articleIds: string[], limi
     .filter((article) => isFresh(article.reviewed_at ?? article.scraped_at))
     .filter((article) => normalizedCategory === "daily-wrap"
       ? article.category == null
-      : !category || normalizeTopicSlug(article.category ?? "") === normalizedCategory)
+      : !category || (normalizeTopicSlug(article.category ?? "") === normalizedCategory
+        && matchesCategoryContent(category, article.edited_title || article.title, article.edited_summary || article.summary || "")))
     .slice(0, limit);
 }
 

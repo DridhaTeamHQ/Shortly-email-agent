@@ -5,6 +5,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { parseFeed } from "../_shared/rss.ts";
 import { EDITORIAL_TOPICS, getEditorialTopic, type EditorialSource, type EditorialTopic } from "../_shared/editorial-topics.ts";
 import { summarizeForBriefing, chatCompletionRaw } from "../_shared/summary-clean.ts";
+import { matchesCategoryContent } from "../_shared/category-quality.ts";
 import { factCheckArticle } from "../_shared/fact-check.ts";
 import { findRelatedSources } from "../_shared/related-sources.ts";
 
@@ -139,7 +140,9 @@ async function handleRequest(request: Request): Promise<Response> {
   const sourceErrors: Array<{ source: string; error: string }> = [];
   const candidates = await collectCandidates(topic, sourceErrors);
   // Cited candidates only (Reddit is compass-only and never a case-study source).
-  const citedCandidates = candidates.filter((item) => !item.compassOnly);
+  const citedCandidates = candidates
+    .filter((item) => !item.compassOnly)
+    .filter((item) => topic.slug !== "real-estate" || matchesCategoryContent(topic.name, item.title, item.excerpt));
   if (citedCandidates.length === 0) {
     return json({ error: "No usable cited candidates were found for this topic.", sourceErrors }, 422);
   }
@@ -455,6 +458,7 @@ function isGoodSmallArticleCandidate(topic: EditorialTopic, candidate: Candidate
   const haystack = `${title} ${summary}`;
   const relevance = TOPIC_RELEVANCE[topic.slug];
   if (relevance && !relevance.test(haystack)) return false;
+  if (topic.slug === "real-estate" && !matchesCategoryContent(topic.name, title, `${summary} ${rawContent}`)) return false;
   return true;
 }
 
