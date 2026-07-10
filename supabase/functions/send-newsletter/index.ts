@@ -179,9 +179,18 @@ Deno.serve(async (request) => {
   // ---- 2. Create the digest (shared by the account + legacy sends) ----
   const { data: digest, error: digestError } = await supabase
     .from("digests")
-    .insert({ article_ids: [], recipients: 0 })
+    .insert({
+      article_ids: [],
+      recipients: 0,
+      scheduled_key: isScheduled && !forceSend
+        ? `newsletter:${new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date())}`
+        : null,
+    })
     .select("id")
     .single();
+  if (digestError?.code === "23505") {
+    return json({ skipped: true, reason: "Newsletter already started for the current IST day." });
+  }
   if (digestError) return json({ error: digestError.message }, 500);
   const digestId = digest!.id as string;
 
@@ -222,7 +231,7 @@ Deno.serve(async (request) => {
         if (p.email) profMap[p.id] = { email: p.email, full_name: p.full_name ?? null };
       }
     }
-    for (const p of Object.values(profMap)) accountEmails.add(p.email);
+    for (const p of Object.values(profMap)) accountEmails.add(normalizeEmail(p.email));
     const today = istWeekday();
     const jobs = subsList.filter((s) => profMap[s.user_id as string]);
     for (let i = 0; i < jobs.length; i += 5) {
@@ -262,7 +271,7 @@ Deno.serve(async (request) => {
   const { data: subs, error: subError } = await subQuery;
   if (subError) return json({ error: subError.message }, 500);
   const subscribers = ((subs ?? []) as Subscriber[])
-    .filter((s) => subscriberIds.length > 0 || !accountEmails.has(s.email));
+    .filter((s) => subscriberIds.length > 0 || !accountEmails.has(normalizeEmail(s.email)));
 
   const batchSize = 5;
   for (let i = 0; i < subscribers.length; i += batchSize) {
@@ -290,7 +299,9 @@ Deno.serve(async (request) => {
   }
 
   // ---- 3. Mark used content as sent (skip when this was a test) ----
-  if (!testEmail) {
+  // If even one recipient failed, leave the approved content available for a
+  // controlled retry instead of consuming it globally.
+  if (!testEmail && failed === 0) {
     if (usedArticleIds.size > 0) {
       await supabase.from("articles")
         .update({ status: "sent", sent_at: new Date().toISOString() })
@@ -314,6 +325,10 @@ function istWeekday(): string {
   return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", weekday: "long" })
     .format(new Date())
     .toLowerCase();
+}
+
+function normalizeEmail(email: string): string {
+  return String(email ?? "").trim().toLowerCase();
 }
 
 const SLUG_TO_CATEGORY: Record<string, string> = {

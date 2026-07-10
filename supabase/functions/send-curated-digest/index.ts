@@ -93,7 +93,7 @@ Deno.serve(async (request) => {
 
   // Send EXACTLY what QA selected. No auto-fill, no auto-approve.
   const dailyArticles = config.dailyLimit > 0
-    ? await resolveSelectedArticles(supabase, articleIds, config.dailyLimit)
+    ? await resolveSelectedArticles(supabase, articleIds, config.dailyLimit, category)
     : [];
   if (format === "daily-wrap-10" && dailyArticles.some((article) => article.category)) {
     return json({ error: "General sends can include only General articles, not category-specific articles." }, 400);
@@ -157,11 +157,19 @@ Deno.serve(async (request) => {
     failed += results.length - results.filter(Boolean).length;
   }
 
-  if (dailyArticles.length > 0) {
+  // Keep content available when any recipient failed so it can be retried.
+  if (dailyArticles.length > 0 && failed === 0) {
     await supabase
       .from("articles")
       .update({ status: "sent", sent_at: new Date().toISOString() })
       .in("id", dailyArticles.map((article) => article.id));
+  }
+
+  if (corporateCases.length > 0 && failed === 0) {
+    await supabase
+      .from("editorial_drafts")
+      .update({ status: "published", updated_at: new Date().toISOString() })
+      .in("id", corporateCases.map((item) => item.id));
   }
 
   await supabase.from("digests").update({ sent, failed }).eq("id", digestId);
@@ -175,7 +183,7 @@ function normalizeFormat(value: unknown): DigestFormat | null {
 }
 
 // Exactly the QA-selected approved articles, in selection order. No padding.
-async function resolveSelectedArticles(supabase: any, articleIds: string[], limit: number): Promise<DailyArticle[]> {
+async function resolveSelectedArticles(supabase: any, articleIds: string[], limit: number, category = ""): Promise<DailyArticle[]> {
   if (articleIds.length === 0) return [];
   const { data, error } = await supabase
     .from("articles")
@@ -184,10 +192,14 @@ async function resolveSelectedArticles(supabase: any, articleIds: string[], limi
     .eq("status", "approved");
   if (error) throw new Error(error.message);
   const byId = new Map(((data ?? []) as DailyArticle[]).map((article) => [article.id, article]));
+  const normalizedCategory = normalizeTopicSlug(category);
   return articleIds
     .map((id) => byId.get(id))
     .filter((article): article is DailyArticle => Boolean(article))
     .filter((article) => isFresh(article.reviewed_at ?? article.scraped_at))
+    .filter((article) => normalizedCategory === "daily-wrap"
+      ? article.category == null
+      : !category || normalizeTopicSlug(article.category ?? "") === normalizedCategory)
     .slice(0, limit);
 }
 
@@ -206,19 +218,10 @@ function mapDraftToCase(d: Record<string, any>): CorporateCase {
 const DRAFT_SELECT = "id,topic_slug,topic_name,headline,summary,detail,primary_source_url,primary_source_title,generated_at";
 
 async function resolveCorporateCases(supabase: any, input: { limit: number; corporateCaseId: string }): Promise<CorporateCase[]> {
-  const selected = input.corporateCaseId ? await fetchSelectedCorporateCase(supabase, input.corporateCaseId) : [];
-  if (selected.length >= input.limit) return selected.slice(0, input.limit);
-
-  const usedIds = new Set(selected.map((item) => item.id));
-  const { data, error } = await supabase
-    .from("editorial_drafts")
-    .select(DRAFT_SELECT)
-    .eq("status", "approved")
-    .order("generated_at", { ascending: false })
-    .limit(input.limit + 4);
-  if (error) throw new Error(error.message);
-  const extras = (data ?? []).map(mapDraftToCase).filter((item: CorporateCase) => !usedIds.has(item.id));
-  return [...selected, ...extras].slice(0, input.limit);
+  // Never silently replace a missing QA selection with another case study.
+  if (!input.corporateCaseId) return [];
+  const selected = await fetchSelectedCorporateCase(supabase, input.corporateCaseId);
+  return selected.slice(0, input.limit);
 }
 
 async function fetchSelectedCorporateCase(supabase: any, id: string): Promise<CorporateCase[]> {

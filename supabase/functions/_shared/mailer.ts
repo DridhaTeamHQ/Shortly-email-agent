@@ -53,11 +53,9 @@ export async function sendEmail(opts: SendOpts) {
         error: null,
       };
     } catch (error) {
-      return {
-        ok: false,
-        messageId: null,
-        error: error instanceof Error ? error.message : "SES send failed",
-      };
+      // Keep Brevo as an emergency fallback while SES is being configured or
+      // temporarily rejects a message.
+      console.error("SES send failed; falling back to Brevo", error);
     }
   }
 

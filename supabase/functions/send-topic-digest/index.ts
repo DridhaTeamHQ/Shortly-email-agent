@@ -15,6 +15,7 @@ type DailyArticle = {
   url: string;
   source: string | null;
   topic: string | null;
+  scraped_at: string;
 };
 type EditorialDraft = {
   id: string;
@@ -148,6 +149,21 @@ Deno.serve(async (request) => {
 
   await supabase.from("digests").update({ sent, failed }).eq("id", digestId);
 
+  // Consume content only after every recipient succeeds. A partial send stays
+  // approved so the operator can retry failed deliveries.
+  if (failed === 0) {
+    const articleIds = items.filter((item) => item.topic === "daily-wrap").map((item) => item.id);
+    if (articleIds.length > 0) {
+      await supabase.from("articles").update({ status: "sent", sent_at: new Date().toISOString() }).in("id", articleIds);
+    }
+    const draftIds = [...new Set(items
+      .filter((item) => item.topic !== "daily-wrap")
+      .map((item) => item.id.split(":", 1)[0]))];
+    if (draftIds.length > 0) {
+      await supabase.from("editorial_drafts").update({ status: "published", updated_at: new Date().toISOString() }).in("id", draftIds);
+    }
+  }
+
   return json({ digestId, topic, items: items.length, recipients: subscribers.length, sent, failed });
 });
 
@@ -166,6 +182,15 @@ function normalizeTopic(value: unknown): string {
 
 function topicLabel(topic: string): string {
   return TOPIC_LABELS[topic] ?? topic;
+}
+
+function istDayWindow() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(new Date());
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const start = Date.UTC(value("year"), value("month") - 1, value("day")) - 5.5 * 60 * 60 * 1000;
+  return { start: new Date(start).toISOString(), end: new Date(start + 24 * 60 * 60 * 1000).toISOString() };
 }
 
 async function loadSubscribers(supabase: any, topic: string, subscriberIds: string[]): Promise<Subscriber[]> {
@@ -200,11 +225,14 @@ async function loadDigestItems(supabase: any, topic: string): Promise<DigestItem
 }
 
 async function loadDailyItems(supabase: any): Promise<DigestItem[]> {
+  const { start, end } = istDayWindow();
   const { data, error } = await supabase
     .from("articles")
-    .select("id,title,edited_title,summary,edited_summary,url,source,topic")
+    .select("id,title,edited_title,summary,edited_summary,url,source,topic,scraped_at")
     .eq("status", "approved")
     .is("category", null)
+    .gte("scraped_at", start)
+    .lt("scraped_at", end)
     .order("rank_score", { ascending: false })
     .order("scraped_at", { ascending: false })
     .limit(5);
@@ -222,10 +250,13 @@ async function loadDailyItems(supabase: any): Promise<DigestItem[]> {
 }
 
 async function loadEditorialItems(supabase: any, topic: string): Promise<DigestItem[]> {
+  const { start, end } = istDayWindow();
   let query = supabase
     .from("editorial_drafts")
     .select("id,topic_slug,topic_name,format,headline,summary,detail,content,source_links,primary_source_url,status,generated_at")
     .eq("status", "approved")
+    .gte("generated_at", start)
+    .lt("generated_at", end)
     .order("generated_at", { ascending: false });
   if (topic !== "all-topics") {
     query = query.eq("topic_slug", topic).limit(1);
