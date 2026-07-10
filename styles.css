@@ -491,6 +491,20 @@ a:hover { text-decoration-color: var(--ink); }
   color: var(--muted);
   border: 1px dashed var(--line-strong);
 }
+/* BREAKING badge on hot cards (breaking_news view: velocity x prominence x
+   fact, freshness-decayed). Red pill with a pulsing dot; hover explains. */
+.breaking-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #c2221e; color: #fff;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.06em;
+  padding: 3px 10px; border-radius: 999px;
+  cursor: help;
+}
+.breaking-dot {
+  width: 6px; height: 6px; border-radius: 999px; background: #fff;
+  animation: brkpulse 1.4s infinite;
+}
+@keyframes brkpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
 /* AI fact-check score chip. Bands mirror _shared/fact-check.ts labels:
    high >= 85 (verified), good >= 65 (mostly-factual), mixed >= 40, low < 40.
    Bordered pills with tinted text so they sit quietly in the monochrome chip

@@ -368,8 +368,10 @@ function sectionCounts() {
   };
 }
 
+// statusFilter: a status string, or null to match ANY status (used while
+// searching — an article must always be findable, wherever it moved).
 function filteredArticles(statusFilter) {
-  let items = state.articles.filter((a) => a.status === statusFilter);
+  let items = statusFilter ? state.articles.filter((a) => a.status === statusFilter) : [...state.articles];
   const q = state.search.toLowerCase().trim();
   if (q) {
     items = items.filter(
@@ -764,6 +766,7 @@ function cardHtml(a, mode) {
   const source = a.source ? `<span class="source-pill">${esc(a.source)}</span>` : "";
   const topic = a.topic ? `<span class="topic-chip">${esc(a.topic)}</span>` : "";
   const factChip = factChipHtml(a);
+  const breakingChip = breakingChipHtml(a);
   const category = articleCategory(a);
   const categoryChip = category ? `<span class="topic-chip cat-chip">${esc(category)}</span>` : "";
   const isReviewSelected = state.selected.has(a.id);
@@ -812,7 +815,7 @@ function cardHtml(a, mode) {
       <header>
         ${checkbox}
           <div class="card-head">
-            <div class="chips">${sendChip}${factChip}${categoryChip}${source}${topic}<span class="tag ${a.status}">${a.status}</span></div>
+            <div class="chips">${breakingChip}${sendChip}${factChip}${categoryChip}${source}${topic}<span class="tag ${a.status}">${a.status}</span></div>
             <input class="headline-input" data-role="headline" type="text" value="${esc(headline)}" ${headlineReadonly} />
             <div class="meta">
               ${date} &middot; ${time}
@@ -826,52 +829,44 @@ function cardHtml(a, mode) {
     </article>`;
 }
 
-// The BREAKING strip above the review queue: the day's highest-velocity,
-// best-verified stories (breaking_news SQL view: prominence x cross-outlet
-// velocity x fact score, freshness-decayed) so QA fast-tracks them.
-function breakingStripHtml() {
-  const items = (state.breaking || []).slice(0, 5);
-  if (!items.length) return "";
-  const rows = items.map((b) => {
-    const title = esc(b.edited_title || b.title || "");
-    const pending = b.status === "summarized";
-    const meta = [
-      b.source ? esc(b.source) : null,
-      Number(b.source_count) > 1 ? `${b.source_count} outlets` : null,
-      b.fact_score != null ? `Fact ${Math.round(b.fact_score)}` : null,
-    ].filter(Boolean).join(" · ");
-    return `<div style="display:flex;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid rgba(0,0,0,.08)">
-      <span style="font-size:11px;font-weight:700;min-width:34px;color:${pending ? "#c22" : "#666"}">${Math.round(b.breaking_score)}</span>
-      <span style="flex:1;font-weight:600">${title}</span>
-      <span style="font-size:12px;color:#888;white-space:nowrap">${meta}${pending ? "" : " · approved"}</span>
-    </div>`;
-  }).join("");
-  return `<div style="border:2px solid #111;border-radius:12px;padding:14px 16px;margin:0 0 18px;background:#fff">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-      <span style="display:inline-flex;align-items:center;gap:6px;background:#c22;color:#fff;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.04em">
-        <span style="width:7px;height:7px;border-radius:99px;background:#fff;animation:brkpulse 1.4s infinite"></span>BREAKING
-      </span>
-      <span style="font-size:12px;color:#888">velocity × prominence × fact, freshness-decayed</span>
-    </div>${rows}
-    <style>@keyframes brkpulse{0%,100%{opacity:1}50%{opacity:.2}}</style>
-  </div>`;
+// BREAKING badge on the article card itself (breaking_news SQL view:
+// prominence x cross-outlet velocity x fact score, freshness-decayed) so QA
+// spots hot stories right in the queue — no separate banner.
+function breakingChipHtml(a) {
+  const hit = (state.breaking || []).find((b) => b.id === a.id);
+  if (!hit) return "";
+  const tipParts = [
+    `Breaking score ${Math.round(hit.breaking_score)}`,
+    Number(hit.source_count) > 1 ? `${hit.source_count} outlets` : null,
+    "velocity × prominence × fact, freshness-decayed",
+  ].filter(Boolean).join(" · ");
+  return `<span class="breaking-chip" title="${esc(tipParts)}"><span class="breaking-dot"></span>BREAKING ${Math.round(hit.breaking_score)}</span>`;
 }
 
 function renderReview() {
-  const items = filteredArticles("summarized");
+  // While searching, look across EVERY status — an approved/sent/rejected
+  // article must still be findable (it just renders with the right actions
+  // for where it lives now). Without a search, Review shows the usual
+  // awaiting-review queue.
+  const searching = Boolean(state.search.trim());
+  const items = searching ? filteredArticles(null) : filteredArticles("summarized");
   const node = $("#reviewList");
   const approvedHere = state.shortCategory
     ? approvedTodayInShortCategory(state.shortCategory)
     : 0;
-  const emptyMessage = state.shortCategory && approvedHere > 0
-    ? `All available ${esc(state.shortCategory)} articles are approved. Open Approved to review or send them.`
-    : `No articles to review${state.search ? " matching your search" : ""}.`;
+  const emptyMessage = searching
+    ? "No articles match your search in any status."
+    : state.shortCategory && approvedHere > 0
+      ? `All available ${esc(state.shortCategory)} articles are approved. Open Approved to review or send them.`
+      : "No articles to review.";
+  const modeFor = (a) =>
+    a.status === "summarized" ? "review"
+    : (a.status === "approved" || a.status === "sent") ? "approved"
+    : "rejected";
   const list = items.length
-    ? items.map((a) => cardHtml(a, "review")).join("")
+    ? items.map((a) => cardHtml(a, searching ? modeFor(a) : "review")).join("")
     : `<p class="muted">${emptyMessage}</p>`;
-  // Breaking strip only on the General view (it spans all general sources).
-  const strip = (!state.shortCategory || state.shortCategory === "General") ? breakingStripHtml() : "";
-  node.innerHTML = strip + list;
+  node.innerHTML = list;
 }
 
 // Approved = the QA's selected short articles, shown per category section.
@@ -1340,8 +1335,9 @@ async function loadArticles() {
     (res.articles || []).forEach((a) => map.set(a.id, a));
   });
   state.articles = [...map.values()];
-  // BREAKING strip: prominence x cross-outlet velocity x trust, freshness-
-  // decayed — computed server-side by the breaking_news SQL view.
+  // BREAKING badges: prominence x cross-outlet velocity x trust, freshness-
+  // decayed — computed server-side by the breaking_news SQL view; rendered
+  // as a red chip on the matching article cards.
   state.breaking = review.breaking || [];
 }
 
