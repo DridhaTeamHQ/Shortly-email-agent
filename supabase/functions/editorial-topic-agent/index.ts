@@ -148,9 +148,13 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 
   const openAiKey = requiredEnv("OPENAI_API_KEY");
-  // Pricey model for the flagship case-study drafts + ranking; cheap model for
-  // the high-volume short-article summaries.
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o";
+  // Flagship case-study drafts + ranking. Moved off gpt-4o -> gpt-4.1-mini
+  // (2026-07-10): ~6x cheaper ($0.40/$1.60 vs $2.50/$10 per 1M) and strong
+  // enough at this constrained, structured writing task, with the repair pass
+  // as a safety net. gpt-4o was the top tier when built, before 4.1-mini
+  // existed. Override with the OPENAI_MODEL secret. Short summaries stay on the
+  // cheapest capable model.
+  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini";
   const shortModel = Deno.env.get("SUMMARIZE_MODEL") ?? "gpt-4o-mini";
 
   // Short-article generation into the articles table (category = topic name).
