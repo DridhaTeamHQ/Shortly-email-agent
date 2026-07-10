@@ -187,12 +187,22 @@ async function handleRequest(request: Request): Promise<Response> {
     ? [...new Set(rankedUrls)]
     : selectionPool.map((candidate) => candidate.url);
 
-  const rows: Array<Record<string, unknown>> = [];
+  const drafts: Array<Record<string, unknown>> = [];
   const failures: Array<{ url: string; error: string }> = [];
+
+  // Persist each draft AS SOON AS it is written. With up to
+  // MAX_CASE_DRAFTS_PER_RUN drafts a run can push several minutes; a batch
+  // insert at the end would lose EVERY finished draft (after paying for the
+  // model calls) if the run hits the edge time budget mid-way.
+  const insertDraft = async (row: Record<string, unknown>) => {
+    const { data, error } = await supabase.from("editorial_drafts").insert(row).select("*").single();
+    if (error) throw new Error(error.message);
+    drafts.push(data);
+  };
 
   // Write UP TO MAX_CASE_DRAFTS_PER_RUN single case studies under the full bar.
   for (const candidateUrl of orderedUrls) {
-    if (rows.length >= MAX_CASE_DRAFTS_PER_RUN) break;
+    if (drafts.length >= MAX_CASE_DRAFTS_PER_RUN) break;
     const candidate = candidatesByUrl.get(candidateUrl);
     if (!candidate) continue;
     const articleText = await fetchPublicArticleText(candidate.url).catch((error) => {
@@ -207,7 +217,7 @@ async function handleRequest(request: Request): Promise<Response> {
     const selectionMeta = ranked.find((item) => item.url === candidateUrl) ?? { url: candidateUrl };
     try {
       const row = await buildCaseRow(openAiKey, model, topic, candidate, usableText, selectionMeta);
-      rows.push(row);
+      await insertDraft(row);
     } catch (error) {
       failures.push({ url: candidate.url, error: error instanceof Error ? error.message : String(error) });
     }
@@ -216,7 +226,7 @@ async function handleRequest(request: Request): Promise<Response> {
   // NEVER EMPTY: if nothing cleared the full bar, write at least one case study
   // from the best available candidate under a relaxed (but still strictly
   // source-bound) structure bar, so every run produces something.
-  if (rows.length === 0) {
+  if (drafts.length === 0) {
     const fallbackPool = selectionPool.length > 0 ? selectionPool : citedCandidates;
     for (const candidate of fallbackPool.slice(0, 5)) {
       const articleText = await fetchPublicArticleText(candidate.url).catch(() => "");
@@ -224,7 +234,7 @@ async function handleRequest(request: Request): Promise<Response> {
       if (usableText.length < 300) continue;
       const selectionMeta = ranked.find((item) => item.url === candidate.url) ?? { url: candidate.url };
       try {
-        rows.push(await buildCaseRow(openAiKey, model, topic, candidate, usableText, selectionMeta, true));
+        await insertDraft(await buildCaseRow(openAiKey, model, topic, candidate, usableText, selectionMeta, true));
         break;
       } catch (error) {
         failures.push({ url: candidate.url, error: "fallback: " + (error instanceof Error ? error.message : String(error)) });
@@ -232,7 +242,7 @@ async function handleRequest(request: Request): Promise<Response> {
     }
   }
 
-  if (rows.length === 0) {
+  if (drafts.length === 0) {
     return json({
       error: "Candidates were found, but none exposed enough public source text for a source-bound case study.",
       scanned: selectionPool.length,
@@ -242,15 +252,9 @@ async function handleRequest(request: Request): Promise<Response> {
     }, 422);
   }
 
-  const { data, error } = await supabase
-    .from("editorial_drafts")
-    .insert(rows)
-    .select("*");
-  if (error) return json({ error: error.message }, 500);
-
   return json({
-    drafts: data ?? [],
-    inserted: data?.length ?? 0,
+    drafts,
+    inserted: drafts.length,
     shortArticlesInserted,
     scanned: candidates.length,
     freshCandidates: freshCandidates.length,
