@@ -47,6 +47,15 @@ Deno.serve(async (request) => {
     article.category !== "Real Estate" || matchesCategoryContent("Real Estate", article.edited_title || article.title, article.edited_summary || article.summary || "")
   );
 
+  // BREAKING strip for the dashboard: prominence x cross-outlet velocity x
+  // trust, freshness-decayed — computed by the breaking_news view (single
+  // source of truth in SQL). Unreviewed first so QA fast-tracks them.
+  const { data: breaking } = await supabase
+    .from("breaking_news")
+    .select("id,title,edited_title,source,category,status,prominence,source_count,fact_score,breaking_score,scraped_at")
+    .order("breaking_score", { ascending: false })
+    .limit(8);
+
   // Also include counts per status for the dashboard
   const [summarizedCount, approvedCount, rejectedCount, sentCount] = await Promise.all([
     supabase.from("articles").select("id", { count: "exact", head: true }).eq("status", "summarized").gte("summarized_at", istStart).lt("summarized_at", istEnd),
@@ -62,5 +71,5 @@ Deno.serve(async (request) => {
     sent: sentCount.count ?? 0,
   };
 
-  return json({ articles: data ?? [], counts: tally });
+  return json({ articles: data ?? [], counts: tally, breaking: breaking ?? [] });
 });

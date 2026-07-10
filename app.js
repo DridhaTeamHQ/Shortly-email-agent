@@ -826,6 +826,37 @@ function cardHtml(a, mode) {
     </article>`;
 }
 
+// The BREAKING strip above the review queue: the day's highest-velocity,
+// best-verified stories (breaking_news SQL view: prominence x cross-outlet
+// velocity x fact score, freshness-decayed) so QA fast-tracks them.
+function breakingStripHtml() {
+  const items = (state.breaking || []).slice(0, 5);
+  if (!items.length) return "";
+  const rows = items.map((b) => {
+    const title = esc(b.edited_title || b.title || "");
+    const pending = b.status === "summarized";
+    const meta = [
+      b.source ? esc(b.source) : null,
+      Number(b.source_count) > 1 ? `${b.source_count} outlets` : null,
+      b.fact_score != null ? `Fact ${Math.round(b.fact_score)}` : null,
+    ].filter(Boolean).join(" · ");
+    return `<div style="display:flex;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid rgba(0,0,0,.08)">
+      <span style="font-size:11px;font-weight:700;min-width:34px;color:${pending ? "#c22" : "#666"}">${Math.round(b.breaking_score)}</span>
+      <span style="flex:1;font-weight:600">${title}</span>
+      <span style="font-size:12px;color:#888;white-space:nowrap">${meta}${pending ? "" : " · approved"}</span>
+    </div>`;
+  }).join("");
+  return `<div style="border:2px solid #111;border-radius:12px;padding:14px 16px;margin:0 0 18px;background:#fff">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <span style="display:inline-flex;align-items:center;gap:6px;background:#c22;color:#fff;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.04em">
+        <span style="width:7px;height:7px;border-radius:99px;background:#fff;animation:brkpulse 1.4s infinite"></span>BREAKING
+      </span>
+      <span style="font-size:12px;color:#888">velocity × prominence × fact, freshness-decayed</span>
+    </div>${rows}
+    <style>@keyframes brkpulse{0%,100%{opacity:1}50%{opacity:.2}}</style>
+  </div>`;
+}
+
 function renderReview() {
   const items = filteredArticles("summarized");
   const node = $("#reviewList");
@@ -835,9 +866,12 @@ function renderReview() {
   const emptyMessage = state.shortCategory && approvedHere > 0
     ? `All available ${esc(state.shortCategory)} articles are approved. Open Approved to review or send them.`
     : `No articles to review${state.search ? " matching your search" : ""}.`;
-  node.innerHTML = items.length
+  const list = items.length
     ? items.map((a) => cardHtml(a, "review")).join("")
     : `<p class="muted">${emptyMessage}</p>`;
+  // Breaking strip only on the General view (it spans all general sources).
+  const strip = (!state.shortCategory || state.shortCategory === "General") ? breakingStripHtml() : "";
+  node.innerHTML = strip + list;
 }
 
 // Approved = the QA's selected short articles, shown per category section.
@@ -1306,6 +1340,9 @@ async function loadArticles() {
     (res.articles || []).forEach((a) => map.set(a.id, a));
   });
   state.articles = [...map.values()];
+  // BREAKING strip: prominence x cross-outlet velocity x trust, freshness-
+  // decayed — computed server-side by the breaking_news SQL view.
+  state.breaking = review.breaking || [];
 }
 
 async function loadSubscribers() {
