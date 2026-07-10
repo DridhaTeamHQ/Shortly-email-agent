@@ -10,6 +10,7 @@ import { cleanArticleText, fetchReadableArticleText, needsFullArticleFetch } fro
 import { summarizeForBriefing } from "../_shared/summary-clean.ts";
 import { factCheckArticle, type FactCheckResult } from "../_shared/fact-check.ts";
 import { findRelatedSources } from "../_shared/related-sources.ts";
+import { embedTexts } from "../_shared/embeddings.ts";
 
 type Article = {
   id: string;
@@ -57,6 +58,12 @@ Deno.serve(async (request) => {
   const articles = (pending ?? []) as Article[];
   if (articles.length === 0) return json({ summarized: 0, message: "No pending articles" });
 
+  // Title embeddings for the whole batch in ONE call (effectively free) —
+  // powers semantic same-story clustering for corroboration + breaking velocity.
+  const vectors = await embedTexts(openAiKey, articles.map((a) => a.title));
+  const embeddingById = new Map<string, number[]>();
+  if (vectors) articles.forEach((a, i) => { if (vectors[i]) embeddingById.set(a.id, vectors[i]); });
+
   // Summarize in parallel (capped) to keep within edge time budget
   const CONCURRENCY = 4;
   const results: Array<{ id: string; summary: string | null; section: string; prominence: number; fact: FactCheckResult | null; error?: string }> = [];
@@ -66,7 +73,7 @@ Deno.serve(async (request) => {
     const settled = await Promise.all(
       batch.map(async (a) => {
         try {
-          const result = await summarize(supabase, openAiKey, model, a);
+          const result = await summarize(supabase, openAiKey, model, a, embeddingById.get(a.id) ?? null);
           return { id: a.id, summary: result.summary, section: result.section, prominence: result.prominence, fact: result.fact };
         } catch (e) {
           return { id: a.id, summary: null, section: "wrapped", prominence: 2, fact: null, error: String(e) };
@@ -107,6 +114,7 @@ Deno.serve(async (request) => {
 
   // Update in chunks
   for (const row of updates) {
+    const embedding = embeddingById.get(row.id);
     await supabase.from("articles").update({
       summary: row.summary,
       section: row.section,
@@ -116,7 +124,8 @@ Deno.serve(async (request) => {
       fact_label: row.fact_label,
       fact_notes: row.fact_notes,
       status: row.status,
-      summarized_at: row.summarized_at
+      summarized_at: row.summarized_at,
+      ...(embedding ? { title_embedding: embedding } : {})
     }).eq("id", row.id);
   }
 
@@ -135,7 +144,7 @@ Deno.serve(async (request) => {
   });
 });
 
-async function summarize(supabase: any, apiKey: string, model: string, article: Article): Promise<{ summary: string; section: string; prominence: number; fact: FactCheckResult | null }> {
+async function summarize(supabase: any, apiKey: string, model: string, article: Article, embedding: number[] | null = null): Promise<{ summary: string; section: string; prominence: number; fact: FactCheckResult | null }> {
   let fullText = cleanArticleText(article.raw_content || "");
 
   // Fetch the readable article body when the RSS excerpt is thin. Raised the
@@ -168,7 +177,7 @@ async function summarize(supabase: any, apiKey: string, model: string, article: 
   // the fact check can confirm claims across independent sources and record how
   // many. Never throws — falls back to single-source on any issue.
   const relatedSources = await findRelatedSources(supabase, {
-    id: article.id, title: article.title, source: article.source, url: article.url
+    id: article.id, title: article.title, source: article.source, url: article.url, embedding
   });
 
   // Second cheap-model call: fact score. Grade against the FULLEST text we have

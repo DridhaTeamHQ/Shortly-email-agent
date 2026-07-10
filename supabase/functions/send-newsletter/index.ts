@@ -33,6 +33,9 @@ type Article = {
   fact_notes: { source_count?: number; sources?: Array<{ source: string; url: string }> } | null;
   scraped_at: string;
   reviewed_at: string | null;
+  // Flagged from the breaking_news view: prominence x cross-outlet velocity x
+  // fact trust, freshness-decayed. Breaking stories lead the daily wrap.
+  is_breaking?: boolean;
 };
 
 type CaseStudy = {
@@ -140,13 +143,33 @@ Deno.serve(async (request) => {
     .limit(500);
   if (articlesError) return json({ error: articlesError.message }, 500);
 
-  const wrapPool: Article[] = [];
+  let wrapPool: Article[] = [];
   const categoryPool: Record<string, Article[]> = {};
   for (const cat of CATEGORIES) categoryPool[cat] = [];
   for (const a of (approvedArticles ?? []) as Article[]) {
     if (a.category && categoryPool[a.category]) categoryPool[a.category].push(a);
     else if (!a.category) wrapPool.push(a);
   }
+
+  // BREAKING leads the wrap: fetch the day's qualifying stories from the
+  // breaking_news view (prominence x cross-outlet velocity x fact trust,
+  // freshness-decayed), flag + front-load them by score; everything else keeps
+  // its normal order. Non-fatal — a view error just means no breaking section.
+  try {
+    const { data: brk } = await supabase
+      .from("breaking_news")
+      .select("id,breaking_score")
+      .in("status", ["approved", "sent"])
+      .order("breaking_score", { ascending: false });
+    const brkScore = new Map((brk ?? []).map((r: any) => [r.id as string, Number(r.breaking_score)]));
+    if (brkScore.size > 0) {
+      const hot = wrapPool.filter((a) => brkScore.has(a.id))
+        .sort((a, b) => (brkScore.get(b.id) ?? 0) - (brkScore.get(a.id) ?? 0))
+        .map((a) => ({ ...a, is_breaking: true }));
+      const rest = wrapPool.filter((a) => !brkScore.has(a.id));
+      wrapPool = [...hot, ...rest];
+    }
+  } catch { /* breaking is optional */ }
 
   const caseStudies = await loadCaseStudies(supabase, istStart, istEnd);
 
@@ -372,9 +395,11 @@ function buildAccountEmails(
     if (wrap.length === 0) return [];
     const selection: Selection = { wrap, shorts: [], caseStudy: null, shortsCategory: null };
     return [{
-      subject: `${subjectDate} - Shortly Daily Headlines`,
+      subject: wrap[0]?.is_breaking
+        ? `${subjectDate} - Breaking: ${(wrap[0].edited_title || wrap[0].title || "").slice(0, 70)}`
+        : `${subjectDate} - Shortly Daily Headlines`,
       intro: `Here are today's ${wrap.length} biggest stories, minus the noise. You'll be caught up SHORTLY!`,
-      sections: renderSection("Quick Hits. Daily Wrap", "#6d28d9", wrap),
+      sections: renderWrapSections(wrap),
       selection,
       tally: "daily-headlines",
     }];
@@ -553,6 +578,16 @@ function renderSection(label: string, bg: string, articles: Article[]): string {
     </div>`;
 }
 
+// Daily-wrap renderer: breaking stories (flagged from the breaking_news view,
+// already front-loaded in the pool) get their own red BREAKING section on top;
+// the rest render as the usual Quick Hits.
+function renderWrapSections(wrap: Article[]): string {
+  const hot = wrap.filter((a) => a.is_breaking);
+  const rest = wrap.filter((a) => !a.is_breaking);
+  if (hot.length === 0) return renderSection("Quick Hits. Daily Wrap", "#6d28d9", wrap);
+  return renderSection("Breaking", "#c2221e", hot) + renderSection("Quick Hits. Daily Wrap", "#6d28d9", rest);
+}
+
 function renderCaseStudy(cs: CaseStudy): string {
   const paragraphs = (cs.detail || cs.summary || "")
     .split(/\n{2,}/)
@@ -578,7 +613,7 @@ function renderCaseStudy(cs: CaseStudy): string {
 function renderEmail(sub: Subscriber, plan: string, selection: Selection): string {
   let sections = "";
   if (plan === "wrap-category") {
-    sections += renderSection("Quick Hits. Daily Wrap", "#6d28d9", selection.wrap);
+    sections += renderWrapSections(selection.wrap);
     sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts);
   } else if (plan === "category-case") {
     sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts);
@@ -586,7 +621,7 @@ function renderEmail(sub: Subscriber, plan: string, selection: Selection): strin
   } else if (plan === "case-only") {
     if (selection.caseStudy) sections += renderCaseStudy(selection.caseStudy);
   } else {
-    sections += renderSection("Quick Hits. Daily Wrap", "#6d28d9", selection.wrap);
+    sections += renderWrapSections(selection.wrap);
   }
   return renderShell(sub.full_name, introFor(plan, selection), sections);
 }

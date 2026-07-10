@@ -61,9 +61,69 @@ const MIN_SHARED_TOKENS = 3;     // need 3 shared significant tokens...
 const MIN_JACCARD = 0.28;        // ...or a strong overall overlap
 const MAX_RELATED = 4;           // cap corroborating outlets we record/prompt
 
+// Semantic sibling matching via title embeddings (pgvector RPC
+// match_related_articles). Cosine distance under MAX_EMBED_DISTANCE means
+// "same story even when worded completely differently" — far better recall
+// than token overlap. Returns null when no embedding is available so the
+// caller falls back to token matching.
+const MAX_EMBED_DISTANCE = 0.4;
+
+async function findByEmbedding(
+  supabase: any,
+  article: { id?: string; source?: string | null; url?: string | null; embedding?: number[] | null },
+  since: string,
+  until: string
+): Promise<RelatedSource[] | null> {
+  try {
+    let embedding: number[] | null = article.embedding ?? null;
+    if (!embedding && article.id) {
+      const { data } = await supabase.from("articles").select("title_embedding").eq("id", article.id).maybeSingle();
+      const raw = data?.title_embedding;
+      if (typeof raw === "string") { try { embedding = JSON.parse(raw); } catch { embedding = null; } }
+      else if (Array.isArray(raw)) embedding = raw;
+    }
+    if (!embedding || embedding.length === 0) return null;
+
+    const { data: rows, error } = await supabase.rpc("match_related_articles", {
+      p_embedding: embedding,
+      p_since: since,
+      p_until: until,
+      p_exclude_id: article.id ?? null,
+      p_exclude_source: article.source ?? null,
+      p_max_distance: MAX_EMBED_DISTANCE,
+      p_limit: 10,
+    });
+    if (error || !rows) return null;
+
+    const selfUrl = String(article.url || "");
+    const perSource = new Set<string>();
+    const out: RelatedSource[] = [];
+    for (const row of rows) {
+      if (!row?.title || !row?.url || row.url === selfUrl) continue;
+      const key = String(row.source || row.url).toLowerCase();
+      if (perSource.has(key)) continue;
+      perSource.add(key);
+      out.push({
+        source: String(row.source || "").trim() || "Other outlet",
+        url: String(row.url),
+        title: String(row.title).trim().slice(0, 300),
+        excerpt: String(row.summary || "").trim().slice(0, 240),
+      });
+      if (out.length >= MAX_RELATED) break;
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 // Returns up to MAX_RELATED sibling articles from DIFFERENT sources covering the
 // same story. Never throws — on any error it returns [] so scoring proceeds
 // single-source.
+//
+// Matching order: EMBEDDING similarity first (semantic — catches the same story
+// under completely different headlines), token overlap as the fallback when the
+// row has no embedding yet.
 //
 // The sibling window is anchored on the article's OWN scrape time (±48h) when
 // `scrapedAt` is provided — essential for backfills and approval-time scoring,
@@ -71,9 +131,20 @@ const MAX_RELATED = 4;           // cap corroborating outlets we record/prompt
 // Without an anchor it falls back to now (scrape-time behaviour, unchanged).
 export async function findRelatedSources(
   supabase: any,
-  article: { id?: string; title: string; source?: string | null; url?: string | null; scrapedAt?: string | null }
+  article: { id?: string; title: string; source?: string | null; url?: string | null; scrapedAt?: string | null; embedding?: number[] | null }
 ): Promise<RelatedSource[]> {
   try {
+    {
+      const anchorMs0 = article.scrapedAt ? new Date(article.scrapedAt).getTime() : Date.now();
+      const anchor0 = Number.isFinite(anchorMs0) ? anchorMs0 : Date.now();
+      const viaEmbedding = await findByEmbedding(
+        supabase,
+        article,
+        new Date(anchor0 - RELATED_WINDOW_MS).toISOString(),
+        new Date(anchor0 + RELATED_WINDOW_MS).toISOString()
+      );
+      if (viaEmbedding) return viaEmbedding;
+    }
     const tokens = significantTokens(article.title);
     if (tokens.length < 2) return [];
     const tokenSet = new Set(tokens);

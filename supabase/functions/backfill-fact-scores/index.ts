@@ -22,6 +22,7 @@ import { factCheckArticle } from "../_shared/fact-check.ts";
 import { generateArticleVersions, versionsEnabled } from "../_shared/versions.ts";
 import { findRelatedSources } from "../_shared/related-sources.ts";
 import { fetchReadableArticleText } from "../_shared/article-text.ts";
+import { embedTexts } from "../_shared/embeddings.ts";
 
 type Row = {
   id: string;
@@ -223,6 +224,32 @@ Deno.serve(async (request) => {
     }
   }
 
+  // Pass E: title embeddings for recent rows that lack one (rows inserted by
+  // the editorial agents, or before embeddings existed). One batched call —
+  // effectively free — and it upgrades corroboration + breaking velocity to
+  // semantic matching for the whole recent pool.
+  let embedded = 0;
+  try {
+    const { data: needEmbed } = await supabase
+      .from("articles")
+      .select("id,title")
+      .is("title_embedding", null)
+      .gte("scraped_at", new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString())
+      .neq("status", "rejected")
+      .limit(100);
+    const rowsToEmbed = (needEmbed ?? []).filter((r: any) => r.title);
+    if (rowsToEmbed.length > 0) {
+      const vecs = await embedTexts(openAiKey, rowsToEmbed.map((r: any) => r.title));
+      if (vecs) {
+        for (let i = 0; i < rowsToEmbed.length; i++) {
+          if (!vecs[i]) continue;
+          const { error: upErr } = await supabase.from("articles").update({ title_embedding: vecs[i] }).eq("id", rowsToEmbed[i].id);
+          if (!upErr) embedded++;
+        }
+      }
+    }
+  } catch { /* non-fatal; next sweep retries */ }
+
   // Pass B (COST-FREE, no OpenAI): fill the multi-source list onto rows that
   // were scored BEFORE corroboration existed (fact_notes has no source_count).
   // Pure DB lookups — findRelatedSources + the row's own source — so this is
@@ -269,6 +296,7 @@ Deno.serve(async (request) => {
   return json({
     sourced,
     scored,
+    embedded,
     versioned: versioned + versionedA2,
     processed: rows.length,
     remaining,
