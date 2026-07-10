@@ -21,6 +21,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { factCheckArticle } from "../_shared/fact-check.ts";
 import { generateArticleVersions, versionsEnabled } from "../_shared/versions.ts";
 import { findRelatedSources } from "../_shared/related-sources.ts";
+import { fetchReadableArticleText } from "../_shared/article-text.ts";
 
 type Row = {
   id: string;
@@ -135,13 +136,27 @@ Deno.serve(async (request) => {
       try {
         const patch: Record<string, unknown> = {};
 
+        // Rows scraped from description-only feeds have little or no stored
+        // article text — grading against a bare headline wrongly tanks real
+        // stories. Refetch the article body from the URL (same readable-text
+        // helper scrape-news uses) so the scorer has actual evidence, and
+        // persist it so future passes (versions, re-scores) get it for free.
+        let sourceText = a.raw_content || "";
+        if (sourceText.trim().length < 300 && a.url) {
+          const fetched = await fetchReadableArticleText(a.url).catch(() => "");
+          if (fetched.trim().length > sourceText.trim().length) {
+            sourceText = fetched;
+            if (fetched.trim().length >= 300) patch.raw_content = fetched;
+          }
+        }
+
         const relatedSources = await findRelatedSources(supabase, {
           id: a.id, title: headline, source: a.source, url: a.url,
         });
         const fact = await factCheckArticle(openAiKey, {
           title: headline,
           summary: body,
-          sourceText: a.raw_content || "",
+          sourceText,
           primarySource: a.url ? { source: a.source || "Source", url: a.url } : null,
           relatedSources,
         });
