@@ -119,14 +119,31 @@ const CATEGORY_TO_SLUG = {
   "Markets & Startups": "markets-startups",
 };
 
+// Summarize until the pending pool is drained. The edge function caps each
+// invocation at ~40 articles (edge time budget), so a full manual scrape
+// (~200 new articles) needs several passes — loop instead of making the
+// operator click five times. Stops when a pass yields nothing new.
+async function drainSummaries(onProgress, maxPasses = 6) {
+  let total = 0;
+  let failed = 0;
+  for (let pass = 0; pass < maxPasses; pass++) {
+    const res = await api("POST", cfg.summarize, {});
+    total += res.summarized ?? 0;
+    failed = res.failed ?? 0;
+    if (onProgress) onProgress(total);
+    if ((res.summarized ?? 0) === 0) break; // drained (or nothing pending)
+  }
+  return { summarized: total, failed };
+}
+
 // Scrape fresh content for one category/topic on demand.
-//  - "" / General     -> general scrape-news + summarize
+//  - "" / General     -> general scrape-news + summarize (drained fully)
 //  - editorial topics -> editorial-topic-agent { topic }
 async function scrapeForCategory(category) {
   if (!category || category === "General") {
     const scrapeRes = await api("POST", cfg.scrape, {});
-    const sumRes = await api("POST", cfg.summarize, {});
-    return `General: scraped ${scrapeRes.inserted ?? scrapeRes.scraped ?? 0} new, summarized ${sumRes.summarized ?? 0}.`;
+    const sumRes = await drainSummaries();
+    return `General: scraped ${scrapeRes.inserted ?? scrapeRes.scraped ?? 0} new, summarized ${sumRes.summarized}.`;
   }
   const slug = CATEGORY_TO_SLUG[category] || category;
   if (!cfg.editorialTopics) throw new Error("Missing editorial topics endpoint");
@@ -1437,14 +1454,8 @@ async function runAiPipeline({ force = false, showProgress = true } = {}) {
     lines.push(`General: scraped ${scrapeRes.scraped ?? 0} articles, ${scrapeRes.inserted ?? 0} new.`);
 
     setProgress("Summarizing...");
-    const sumRes = await api("POST", cfg.summarize, {});
-    lines.push(`General: summarized ${sumRes.summarized ?? 0}, failed ${sumRes.failed ?? 0}.`);
-
-    if (sumRes.failed > 0) {
-      setProgress(`Retry (${sumRes.failed} remaining)...`);
-      const retryRes = await api("POST", cfg.summarize, {});
-      lines.push(`General retry: ${retryRes.summarized ?? 0} more summarized.`);
-    }
+    const sumRes = await drainSummaries((done) => setProgress(`Summarizing... ${done} done`));
+    lines.push(`General: summarized ${sumRes.summarized}${sumRes.failed ? `, ${sumRes.failed} failed (run again to retry)` : ""}.`);
 
     if (cfg.editorialTopics) {
       for (const topic of AI_PIPELINE_TOPICS) {
