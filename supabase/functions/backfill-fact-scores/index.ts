@@ -34,6 +34,7 @@ type Row = {
   category: string | null;
   source: string | null;
   url: string | null;
+  scraped_at: string | null;
   fact_score: number | null;
   versions: unknown | null;
 };
@@ -100,7 +101,7 @@ Deno.serve(async (request) => {
   // safety-net cron retry it every day with no progress.
   const { data, error } = await supabase
     .from("articles")
-    .select("id,title,edited_title,summary,edited_summary,raw_content,status,category,source,url,fact_score,versions")
+    .select("id,title,edited_title,summary,edited_summary,raw_content,status,category,source,url,scraped_at,fact_score,versions")
     .is("fact_score", null)
     .in("status", ["summarized", "approved", "sent"])
     .not("summary", "is", null)
@@ -151,7 +152,7 @@ Deno.serve(async (request) => {
         }
 
         const relatedSources = await findRelatedSources(supabase, {
-          id: a.id, title: headline, source: a.source, url: a.url,
+          id: a.id, title: headline, source: a.source, url: a.url, scrapedAt: a.scraped_at,
         });
         const fact = await factCheckArticle(openAiKey, {
           title: headline,
@@ -199,16 +200,16 @@ Deno.serve(async (request) => {
   // filter is ignored, so already-sourced rows are never re-processed.
   const { data: needSources } = await supabase
     .from("articles")
-    .select("id,title,source,url,fact_notes")
+    .select("id,title,source,url,scraped_at,fact_notes")
     .not("fact_score", "is", null)
     .in("status", ["summarized", "approved", "sent"])
     .is("fact_notes->>source_count", null)
     .order("scraped_at", { ascending: false })
     .limit(limit);
-  for (const a of (needSources ?? []) as Array<{ id: string; title: string; source: string | null; url: string | null; fact_notes: Record<string, unknown> | null }>) {
+  for (const a of (needSources ?? []) as Array<{ id: string; title: string; source: string | null; url: string | null; scraped_at: string | null; fact_notes: Record<string, unknown> | null }>) {
     if (a.fact_notes && (a.fact_notes as Record<string, unknown>).source_count != null) continue; // already done
     try {
-      const related = await findRelatedSources(supabase, { id: a.id, title: a.title, source: a.source, url: a.url });
+      const related = await findRelatedSources(supabase, { id: a.id, title: a.title, source: a.source, url: a.url, scrapedAt: a.scraped_at });
       const list: Array<{ source: string; url: string }> = [];
       if (a.url) list.push({ source: (a.source || "Source").trim(), url: a.url });
       for (const r of related) if (r.url && !list.some((s) => s.url === r.url)) list.push({ source: r.source, url: r.url });

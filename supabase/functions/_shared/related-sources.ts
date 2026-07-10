@@ -64,9 +64,14 @@ const MAX_RELATED = 4;           // cap corroborating outlets we record/prompt
 // Returns up to MAX_RELATED sibling articles from DIFFERENT sources covering the
 // same story. Never throws — on any error it returns [] so scoring proceeds
 // single-source.
+//
+// The sibling window is anchored on the article's OWN scrape time (±48h) when
+// `scrapedAt` is provided — essential for backfills and approval-time scoring,
+// where "last 48h from now" would miss the story's real contemporaries entirely.
+// Without an anchor it falls back to now (scrape-time behaviour, unchanged).
 export async function findRelatedSources(
   supabase: any,
-  article: { id?: string; title: string; source?: string | null; url?: string | null }
+  article: { id?: string; title: string; source?: string | null; url?: string | null; scrapedAt?: string | null }
 ): Promise<RelatedSource[]> {
   try {
     const tokens = significantTokens(article.title);
@@ -75,12 +80,16 @@ export async function findRelatedSources(
     // Query on the few most distinctive tokens (longest first — proper nouns and
     // numbers tend to be longer/rarer) to keep the candidate set small.
     const probes = [...tokens].sort((a, b) => b.length - a.length).slice(0, 5);
-    const since = new Date(Date.now() - RELATED_WINDOW_MS).toISOString();
+    const anchorMs = article.scrapedAt ? new Date(article.scrapedAt).getTime() : Date.now();
+    const anchor = Number.isFinite(anchorMs) ? anchorMs : Date.now();
+    const since = new Date(anchor - RELATED_WINDOW_MS).toISOString();
+    const until = new Date(anchor + RELATED_WINDOW_MS).toISOString();
 
     let query = supabase
       .from("articles")
       .select("id,title,url,source,summary")
       .gte("scraped_at", since)
+      .lte("scraped_at", until)
       .neq("status", "rejected")
       .or(probes.map((t) => `title.ilike.%${t}%`).join(","))
       .limit(60);
