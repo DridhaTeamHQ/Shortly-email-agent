@@ -121,7 +121,9 @@ Deno.serve(async (request) => {
     .not("summary", "is", null)
     .neq("summary", "");
 
-  if (rows.length === 0) return json({ scored: 0, versioned: 0, processed: 0, remaining: 0, failures: [] });
+  // NO early return when nothing is unscored — the versions (Pass A2) and
+  // source-list (Pass B) sweeps below must still run, or the safety-net cron
+  // silently stops healing once scores are complete (the common steady state).
 
   let scored = 0;
   let versioned = 0;
