@@ -31,6 +31,8 @@ window.SHORTLY = {
   scrape:      "${functionsBase}/scrape-news",
   summarize:   "${functionsBase}/summarize-articles",
   editorialTopics: "${functionsBase}/editorial-topic-agent",
+  trending:    "${functionsBase}/trending-topics",
+  generateFromUrl: "${functionsBase}/generate-from-url",
   verifyToken: "${functionsBase}/verify-agent-token",
   siteUrl:     "${siteUrl}",
   twitterUrl:  "${twitterUrl}",
