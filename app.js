@@ -825,7 +825,13 @@ function cardHtml(a, mode) {
         <button class="btn-reject" data-action="reject">Remove</button>
       </div>`;
   } else if (mode === "email") {
-    actions = "";
+    // Remove pulls the article out of the approved pool (same as Approved's
+    // Remove), so it drops out of the email being composed too. Lets the QA
+    // drop even an auto-selected item that has no checkbox.
+    actions = `
+      <div class="actions">
+        <button class="btn-reject" data-action="reject">Remove</button>
+      </div>`;
   }
 
   const readonly = mode === "rejected" ? "readonly" : "";
