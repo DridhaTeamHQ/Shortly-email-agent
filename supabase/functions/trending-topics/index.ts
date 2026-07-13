@@ -363,7 +363,25 @@ async function handleReviewAction(supabase: any, action: string, body: any): Pro
       .select("*")
       .single();
     if (error) return json({ error: error.message }, 500);
-    return json({ ok: true, topic: data });
+
+    // Publish the timeline: approving a topic also approves its member articles
+    // that are still awaiting review, so they become publicly readable on the
+    // website (which only shows approved/sent). Already-sent/approved members
+    // are left as-is; rejected members are NOT resurrected. Reader versions for
+    // General members are filled in by the safety-net cron shortly after.
+    let publishedMembers = 0;
+    const { data: links } = await supabase.from("topic_articles").select("article_id").eq("topic_id", id);
+    const memberIds = (links ?? []).map((l: any) => l.article_id);
+    if (memberIds.length > 0) {
+      const { data: promoted } = await supabase
+        .from("articles")
+        .update({ status: "approved", reviewed_at: nowIso, reviewed_by: reviewedBy })
+        .in("id", memberIds)
+        .eq("status", "summarized")
+        .select("id");
+      publishedMembers = (promoted ?? []).length;
+    }
+    return json({ ok: true, topic: data, publishedMembers });
   }
 
   if (action === "reject") {
