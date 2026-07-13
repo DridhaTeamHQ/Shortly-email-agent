@@ -197,12 +197,13 @@ Deno.serve(async (request) => {
         failed += 1;
         continue;
       }
-      const subject = buildSubject(plan, caseCategory ?? shortsCategory, sd);
+      const requestedSubject = String((r as Record<string, unknown>).subject ?? "").trim();
+      const subject = requestedSubject || buildSubject(plan, caseCategory ?? shortsCategory, sd);
       const html = renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection);
       const result = await sendEmail({ to: email, subject, html, provider });
       if (result.ok) sent += 1; else failed += 1;
       out.push({
-        email, plan, ok: result.ok, error: result.error ?? null,
+        email, plan, ok: result.ok, messageId: result.messageId ?? null, error: result.error ?? null,
         wrap: selection.wrap.length, shorts: selection.shorts.length, caseStudy: Boolean(selection.caseStudy)
       });
     }
