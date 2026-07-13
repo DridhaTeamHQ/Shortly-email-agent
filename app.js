@@ -143,6 +143,12 @@ async function scrapeForCategory(category) {
   if (!category || category === "General") {
     const scrapeRes = await api("POST", cfg.scrape, {});
     const sumRes = await drainSummaries();
+    // Non-blocking: re-cluster trending topics from the fresh general pool.
+    if (cfg.trending) {
+      api("POST", cfg.trending, { action: "cluster" }).then((r) => {
+        if (r && r.suggested) toast(`${r.suggested} trending topics suggested`);
+      }).catch(() => {});
+    }
     return `General: scraped ${scrapeRes.inserted ?? scrapeRes.scraped ?? 0} new, summarized ${sumRes.summarized}.`;
   }
   const slug = CATEGORY_TO_SLUG[category] || category;
@@ -332,6 +338,7 @@ const state = {
   subscribers: [],
   digests: [],
   editorialDrafts: [],
+  trending: { topics: [], filter: "suggested" },
   workspace: "short",
   section: "review",
   activeTopicDraft: "real-estate",
@@ -685,6 +692,7 @@ function refreshChrome() {
     : `${approved} approved | ${pending} pending across all buckets`;
   const titles = {
     review: ["Review queue", reviewSub],
+    trending: ["Trending Topics", `${state.trending.topics.filter((t) => (t.status || "suggested") === state.trending.filter).length} ${state.trending.filter} topic${state.trending.topics.filter((t) => (t.status || "suggested") === state.trending.filter).length === 1 ? "" : "s"}`],
     approved: ["Approved Pool", `${approvedHere} website-ready approved item${approvedHere === 1 ? "" : "s"}`],
     "email-builder": ["Email Builder", `${digestPlan.dailyArticles.length} selected for today's email`],
     topics: ["Case Drafts", `${topicLabel(state.activeTopicDraft)} drafts in article-card format`],
@@ -1084,6 +1092,95 @@ function renderTopicDrafts() {
     : `<p class="muted">No ${esc(label)} drafts yet. Use "Scrape" to create one.</p>`;
 }
 
+// ---------- Trending topics (clustered) ----------
+function trendingMemberRowHtml(topicId, member) {
+  const status = member.status || "";
+  return `
+    <div class="topic-member-row" data-article-id="${esc(member.article_id)}">
+      <span class="source-pill">${esc(member.source || "Source")}</span>
+      <span class="topic-member-title">${esc(member.title || "")}</span>
+      ${status ? `<span class="tag ${esc(status)}">${esc(status)}</span>` : ""}
+      <button class="topic-member-remove" data-trend-action="remove_article" data-topic-id="${esc(topicId)}" data-article-id="${esc(member.article_id)}" title="Remove from topic">&times;</button>
+    </div>`;
+}
+
+function trendingTopicCardHtml(topic) {
+  const status = topic.status || "";
+  const memberCount = Array.isArray(topic.members) ? topic.members.length : (topic.member_count ?? 0);
+  const members = Array.isArray(topic.members) ? topic.members : [];
+  const membersHtml = members.length
+    ? members.map((member) => trendingMemberRowHtml(topic.id, member)).join("")
+    : `<p class="muted" style="margin:2px 0 6px;font-size:12px">No articles attached yet.</p>`;
+  const actions = status === "approved"
+    ? `
+        <button class="btn-save" data-trend-action="update">Save</button>
+        <button class="btn-reject" data-trend-action="reject">Reject</button>
+        <button class="btn-reject" data-trend-action="archive">Archive</button>`
+    : `
+        <button class="btn-save" data-trend-action="update">Save</button>
+        <button class="btn-reject" data-trend-action="reject">Reject</button>
+        <button class="btn-approve" data-trend-action="approve">Approve</button>`;
+  return `
+    <article class="card" data-topic-id="${esc(topic.id)}">
+      <header>
+        <div class="card-head">
+          <div class="chips">
+            <span class="tag summarized">score ${esc(Math.round(Number(topic.score ?? 0)))}</span>
+            <span class="topic-chip">${esc(memberCount)} article${Number(memberCount) === 1 ? "" : "s"}</span>
+            ${status ? `<span class="tag ${esc(status)}">${esc(status)}</span>` : ""}
+          </div>
+          <input class="headline-input" data-role="topic-title" type="text" value="${esc(topic.title || "")}" />
+        </div>
+      </header>
+      <textarea data-role="topic-desc" rows="3" placeholder="Topic description">${esc(topic.description || "")}</textarea>
+      <div class="topic-members">${membersHtml}</div>
+      <div class="topic-add">
+        <input type="search" data-role="topic-add-search" data-topic-id="${esc(topic.id)}" placeholder="Add an article by headline&hellip;" autocomplete="off" />
+        <div class="topic-add-menu" data-topic-id="${esc(topic.id)}"></div>
+      </div>
+      <div class="actions">
+        ${actions}
+      </div>
+    </article>`;
+}
+
+function renderTrending() {
+  const tabs = $("#trendingStatusTabs");
+  if (tabs) {
+    tabs.querySelectorAll(".topic-tab").forEach((tab) => {
+      tab.classList.toggle("active", tab.dataset.trendStatus === state.trending.filter);
+    });
+  }
+  const node = $("#trendingList");
+  if (!node) return;
+  const items = state.trending.topics.filter((topic) => (topic.status || "suggested") === state.trending.filter);
+  node.innerHTML = items.length
+    ? items.map(trendingTopicCardHtml).join("")
+    : `<p class="muted">No ${esc(state.trending.filter)} topics yet — run a scrape to generate them.</p>`;
+}
+
+function renderTrendingAddMenu(input) {
+  const topicId = input.dataset.topicId;
+  const menu = input.parentElement?.querySelector(`.topic-add-menu`);
+  if (!menu) return;
+  const query = input.value.toLowerCase().trim();
+  if (!query) {
+    menu.innerHTML = "";
+    menu.classList.remove("show");
+    return;
+  }
+  const topic = state.trending.topics.find((t) => String(t.id) === String(topicId));
+  const memberIds = new Set((topic?.members || []).map((m) => String(m.article_id)));
+  const matches = state.articles
+    .filter((a) => !memberIds.has(String(a.id)))
+    .filter((a) => (a.edited_title || a.title || "").toLowerCase().includes(query))
+    .slice(0, 8);
+  menu.innerHTML = matches.length
+    ? matches.map((a) => `<button type="button" class="topic-add-option" data-trend-action="add_article" data-topic-id="${esc(topicId)}" data-article-id="${esc(a.id)}">${esc(a.edited_title || a.title || "")}</button>`).join("")
+    : `<div class="topic-add-empty muted">No matching articles.</div>`;
+  menu.classList.add("show");
+}
+
 // ---------- Case Studies workspace: approved review + send ----------
 function renderCasesApproved() {
   const topic = state.casesApprovedTopic;
@@ -1326,6 +1423,7 @@ function renderAll() {
   renderReview();
   renderApproved();
   renderEmailBuilder();
+  renderTrending();
   renderTopicDrafts();
   renderCasesApproved();
   renderCasesSendControls();
@@ -1403,9 +1501,27 @@ async function loadTopicDrafts() {
   state.editorialDrafts = editorial.status === "fulfilled" ? editorial.value.drafts || [] : [];
 }
 
+async function loadTrending() {
+  if (!cfg.trending) {
+    state.trending.topics = [];
+    return;
+  }
+  try {
+    const res = await api("GET", cfg.trending);
+    state.trending.topics = res.topics || [];
+  } catch (e) {
+    console.warn("Could not load trending topics:", e);
+    state.trending.topics = [];
+  }
+  const badge = $("#badgeTrending");
+  if (badge) {
+    badge.textContent = state.trending.topics.filter((t) => (t.status || "suggested") === "suggested").length;
+  }
+}
+
 async function reload() {
   try {
-    await Promise.all([loadArticles(), loadSubscribers(), loadDigests(), loadTopicDrafts()]);
+    await Promise.all([loadArticles(), loadSubscribers(), loadDigests(), loadTopicDrafts(), loadTrending()]);
     renderAll();
   } catch (e) {
     toast(`Load failed: ${e.message}`);
@@ -1456,6 +1572,13 @@ async function runAiPipeline({ force = false, showProgress = true } = {}) {
     setProgress("Summarizing...");
     const sumRes = await drainSummaries((done) => setProgress(`Summarizing... ${done} done`));
     lines.push(`General: summarized ${sumRes.summarized}${sumRes.failed ? `, ${sumRes.failed} failed (run again to retry)` : ""}.`);
+
+    // Non-blocking: re-cluster trending topics from the fresh general pool.
+    if (cfg.trending) {
+      api("POST", cfg.trending, { action: "cluster" }).then((r) => {
+        if (r && r.suggested) toast(`${r.suggested} trending topics suggested`);
+      }).catch(() => {});
+    }
 
     if (cfg.editorialTopics) {
       for (const topic of AI_PIPELINE_TOPICS) {
@@ -1570,6 +1693,39 @@ async function handleTopicDraftAction(card, action) {
     await api("POST", endpoint, payload);
     await reload();
     toast(action === "update" ? "Topic draft saved." : `Topic draft ${action}d.`);
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  }
+}
+
+async function handleTrendingAction(el, action) {
+  if (!cfg.trending) return toast("Missing trending endpoint");
+  const card = el.closest(".card[data-topic-id]");
+  const id = el.dataset.topicId || card?.dataset.topicId;
+  if (!id) return;
+  const payload = { action, id };
+  if (action === "update") {
+    payload.title = card?.querySelector('[data-role="topic-title"]')?.value.trim() || "";
+    payload.description = card?.querySelector('[data-role="topic-desc"]')?.value.trim() || "";
+  } else if (action === "approve" || action === "reject" || action === "archive") {
+    payload.reviewed_by = cfg.reviewer;
+  } else if (action === "add_article" || action === "remove_article") {
+    payload.article_id = el.dataset.articleId;
+    if (!payload.article_id) return;
+  }
+  try {
+    await api("POST", cfg.trending, payload);
+    await loadTrending();
+    renderTrending();
+    const messages = {
+      update: "Topic saved.",
+      approve: "Topic approved.",
+      reject: "Topic rejected.",
+      archive: "Topic archived.",
+      add_article: "Article added to topic.",
+      remove_article: "Article removed from topic."
+    };
+    toast(messages[action] || "Done.");
   } catch (e) {
     toast(`Failed: ${e.message}`);
   }
@@ -1951,6 +2107,10 @@ function showSection(name) {
   $$(".section").forEach((s) => s.classList.toggle("active", s.dataset.section === name));
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.section === name));
   refreshChrome();
+  if (name === "trending") {
+    renderTrending();
+    loadTrending().then(renderTrending).catch(() => {});
+  }
 }
 
 function setWorkspace(ws) {
@@ -2137,6 +2297,48 @@ $("#topicDraftList").addEventListener("click", (e) => {
   handleTopicDraftAction(card, btn.dataset.action);
 });
 
+// Trending: status tab switching
+$("#trendingStatusTabs")?.addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-trend-status]");
+  if (!tab) return;
+  state.trending.filter = tab.dataset.trendStatus;
+  renderTrending();
+});
+
+// Trending: action buttons + add-article dropdown option clicks
+$("#trendingList")?.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-trend-action]");
+  if (!el) return;
+  handleTrendingAction(el, el.dataset.trendAction);
+});
+
+// Trending: live add-article search dropdown
+$("#trendingList")?.addEventListener("input", (e) => {
+  const input = e.target.closest('[data-role="topic-add-search"]');
+  if (!input) return;
+  renderTrendingAddMenu(input);
+});
+
+// Re-cluster now
+$("#reclusterBtn")?.addEventListener("click", async () => {
+  if (!cfg.trending) { toast("Missing trending endpoint"); return; }
+  const btn = $("#reclusterBtn");
+  const restore = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> Clustering&hellip;`;
+  try {
+    const res = await api("POST", cfg.trending, { action: "cluster" });
+    toast(`${res.suggested ?? 0} new / ${res.attached ?? 0} attached / ${res.merged ?? 0} merged`);
+    await loadTrending();
+    renderTrending();
+  } catch (e) {
+    toast(`Re-cluster failed: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = restore;
+  }
+});
+
 // Case Studies workspace: approved review + send
 $("#casesApprovedTabs")?.addEventListener("click", (e) => {
   const tab = e.target.closest(".topic-tab");
@@ -2262,6 +2464,72 @@ $("#buildActiveTopic").addEventListener("click", async () => {
   } finally {
     btn.disabled = false;
     btnText.textContent = "Scrape";
+  }
+});
+
+// Generate a short article from a pasted URL (Review section).
+$("#genUrlBtn")?.addEventListener("click", async () => {
+  const btn = $("#genUrlBtn");
+  if (btn.dataset.busy === "1") return; // single-flight
+  const input = $("#genUrlInput");
+  const url = input.value.trim();
+  if (!url) { toast("Paste an article URL first."); return; }
+  const category = $("#genUrlCategory").value;
+  const restore = btn.textContent;
+  btn.dataset.busy = "1";
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> Generating&hellip;`;
+  try {
+    if (!cfg.generateFromUrl) throw new Error("Missing generate endpoint");
+    const res = await api("POST", cfg.generateFromUrl, { url, mode: "short", category });
+    if (res && res.ok) {
+      toast("Article generated — check Review");
+      input.value = "";
+      await reload();
+      showSection("review");
+    } else {
+      toast(res?.detail || res?.error || "Generation failed.");
+    }
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  } finally {
+    btn.dataset.busy = "";
+    btn.disabled = false;
+    btn.textContent = restore;
+  }
+});
+
+// Generate a case study from a pasted URL (Case Drafts section).
+// Topic comes from the active #topicTabs tab. Can take 30-60s.
+$("#genCaseUrlBtn")?.addEventListener("click", async () => {
+  const btn = $("#genCaseUrlBtn");
+  if (btn.dataset.busy === "1") return; // single-flight
+  const input = $("#genCaseUrlInput");
+  const url = input.value.trim();
+  if (!url) { toast("Paste an article URL first."); return; }
+  const topic = $("#topicTabs .topic-tab.active")?.dataset.topic || state.activeTopicDraft;
+  const restore = btn.textContent;
+  btn.dataset.busy = "1";
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> Generating case&hellip;`;
+  try {
+    if (!cfg.generateFromUrl) throw new Error("Missing generate endpoint");
+    const res = await api("POST", cfg.generateFromUrl, { url, mode: "case", topic });
+    if (res && res.ok) {
+      toast("Case study generated — check Case Drafts");
+      input.value = "";
+      await loadTopicDrafts();
+      renderTopicDrafts();
+      refreshChrome();
+    } else {
+      toast(res?.detail || res?.error || "Generation failed.");
+    }
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  } finally {
+    btn.dataset.busy = "";
+    btn.disabled = false;
+    btn.textContent = restore;
   }
 });
 

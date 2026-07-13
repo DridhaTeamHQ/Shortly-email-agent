@@ -35,6 +35,9 @@
           <button class="nav-item active" data-section="review" data-workspace="short">
             <span>Review</span><span class="badge" id="badgeReview">0</span>
           </button>
+          <button class="nav-item" data-section="trending" data-workspace="short">
+            <span>Trending</span><span class="badge" id="badgeTrending">0</span>
+          </button>
           <button class="nav-item" data-section="approved" data-workspace="short">
             <span>Approved Pool</span><span class="badge accent" id="badgeApproved">0</span>
           </button>
@@ -104,6 +107,26 @@
               <span id="scrapeReviewText">Scrape news</span>
             </button>
           </div>
+          <div class="digest-composer-card gen-url-card">
+            <div class="digest-composer-row">
+              <label class="digest-field">
+                <span>Generate from URL</span>
+                <input type="url" id="genUrlInput" placeholder="Paste an article URL&hellip;" />
+              </label>
+              <label class="digest-field" id="genUrlCategoryWrap">
+                <span>Category</span>
+                <select id="genUrlCategory">
+                  <option value="General">General</option>
+                  <option value="Real Estate">Real Estate</option>
+                  <option value="Automobile">Automobile</option>
+                  <option value="Health &amp; Wellness">Health &amp; Wellness</option>
+                  <option value="Tech &amp; AI">Tech &amp; AI</option>
+                  <option value="Markets &amp; Startups">Markets &amp; Startups</option>
+                </select>
+              </label>
+              <button class="btn-primary" id="genUrlBtn" type="button">Generate</button>
+            </div>
+          </div>
           <div class="bulk-bar" id="bulkBar">
             <span id="bulkCount">0 selected</span>
             <button id="bulkApprove">Approve all</button>
@@ -125,6 +148,22 @@
           </div>
           <p class="muted" style="margin:0 0 12px;font-size:13px">Website-ready approved pool. Use Email Builder to pick what goes into today's email.</p>
           <div class="list" id="approvedList"><div class="skeleton skeleton-card"></div></div>
+        </section>
+
+        <!-- TRENDING TOPICS (clustered) -->
+        <section class="section" data-section="trending" data-workspace="short">
+          <div class="topic-workbench">
+            <div class="topic-tabs" id="trendingStatusTabs">
+              <button class="topic-tab active" data-trend-status="suggested">Suggested</button>
+              <button class="topic-tab" data-trend-status="approved">Approved</button>
+              <button class="topic-tab" data-trend-status="rejected">Rejected</button>
+            </div>
+            <button class="btn-ghost" id="reclusterBtn" type="button">Re-cluster now</button>
+          </div>
+          <p class="muted" style="margin:0 0 12px;font-size:13px">
+            Trending topics are clustered from scraped articles. Edit, curate members, then approve to feed case studies.
+          </p>
+          <div class="list" id="trendingList"><div class="skeleton skeleton-card"></div></div>
         </section>
 
         <!-- EMAIL BUILDER -->
@@ -171,6 +210,15 @@
             <button class="btn-primary" id="buildActiveTopic">
               <span id="buildActiveTopicText">Scrape</span>
             </button>
+          </div>
+          <div class="digest-composer-card gen-url-card">
+            <div class="digest-composer-row">
+              <label class="digest-field">
+                <span>Generate case study from URL</span>
+                <input type="url" id="genCaseUrlInput" placeholder="Paste an article URL&hellip;" />
+              </label>
+              <button class="btn-primary" id="genCaseUrlBtn" type="button">Generate case study</button>
+            </div>
           </div>
           <p class="muted" id="topicDraftHint" style="margin:0 0 12px;font-size:13px">
             Hybrid topics are split into individual article-style cards, so each brief can be reviewed like a normal article.

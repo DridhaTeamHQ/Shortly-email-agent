@@ -101,16 +101,47 @@ export function needsFullArticleFetch(text: string): boolean {
   return noisySignals.some((pattern) => pattern.test(text));
 }
 
-export async function fetchReadableArticleText(url: string): Promise<string> {
+// Shared fetch used by both the text-only and title+text readers below.
+async function fetchArticleHtml(url: string): Promise<string> {
   const response = await fetch(url, {
     redirect: "follow",
     headers: { "User-Agent": "Mozilla/5.0 (compatible; ShortlyScraper/1.0)" }
   });
   if (!response.ok) throw new Error(`Article HTTP ${response.status}`);
+  return await response.text();
+}
 
-  const html = await response.text();
+// Same article/body extraction + cleanArticleText pipeline, shared so the
+// text-only and title+text readers stay identical. Capped at 12000 chars.
+function extractReadableText(html: string): string {
   const articleMatch = html.match(/<article[\s\S]*?>([\s\S]*?)<\/article>/i);
   const bodyMatch = html.match(/<body[\s\S]*?>([\s\S]*?)<\/body>/i);
   const primary = articleMatch?.[1] || bodyMatch?.[1] || html;
   return cleanArticleText(primary).slice(0, 12000);
+}
+
+// Prefer og:title, fall back to <title>. Decode entities, collapse whitespace,
+// trim; null when neither tag yields anything usable.
+function extractPageTitle(html: string): string | null {
+  const og =
+    html.match(/<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']*)["'][^>]*>/i) ??
+    html.match(/<meta[^>]+content=["']([^"']*)["'][^>]*property=["']og:title["'][^>]*>/i);
+  let title = og?.[1] ?? "";
+  if (!title) {
+    const t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    title = t?.[1] ?? "";
+  }
+  title = decodeEntities(title).replace(/\s+/g, " ").trim();
+  return title || null;
+}
+
+export async function fetchReadableArticleText(url: string): Promise<string> {
+  return extractReadableText(await fetchArticleHtml(url));
+}
+
+// Like fetchReadableArticleText, but also extracts the page title. Reuses the
+// exact same fetch + extraction + cleanArticleText pipeline.
+export async function fetchReadablePage(url: string): Promise<{ title: string | null; text: string }> {
+  const html = await fetchArticleHtml(url);
+  return { title: extractPageTitle(html), text: extractReadableText(html) };
 }

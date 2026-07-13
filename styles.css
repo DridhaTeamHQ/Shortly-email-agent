@@ -395,6 +395,51 @@ a:hover { text-decoration-color: var(--ink); }
   transition: background var(--t-med) var(--ease);
 }
 
+/* ── Generate-from-URL composer + Trending topics ── */
+.gen-url-card { margin-bottom: 16px; }
+.gen-url-card .digest-composer-row { margin-bottom: 0; }
+.tag.suggested { background: var(--soft); color: var(--ink-2); }
+.topic-members { display: grid; gap: 6px; }
+.topic-member-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--ink-2);
+  padding: 6px 10px; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); background: var(--softer);
+}
+.topic-member-title {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.topic-member-remove {
+  border: none; background: transparent; color: var(--muted);
+  cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px;
+  transition: color var(--t-fast) var(--ease);
+}
+.topic-member-remove:hover { color: var(--ink); }
+.topic-add { position: relative; }
+.topic-add input[type="search"] { height: 40px; border-radius: var(--radius-sm); font-size: 13px; }
+.topic-add-menu {
+  display: none; position: absolute; left: 0; right: 0; top: calc(100% + 4px);
+  z-index: 20; background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); overflow-y: auto; max-height: 260px;
+}
+.topic-add-menu.show { display: block; }
+.topic-add-option {
+  display: block; width: 100%; text-align: left; border: none;
+  background: transparent; color: var(--ink); cursor: pointer;
+  padding: 9px 14px; font-size: 13px;
+  transition: background var(--t-fast) var(--ease);
+}
+.topic-add-option:hover { background: var(--soft); }
+.topic-add-empty { padding: 9px 14px; font-size: 13px; }
+.btn-primary .spinner, .btn-ghost .spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: middle; margin-right: 6px; opacity: 0.85;
+}
+
 /* ── Article Card ── */
 .card {
   background: var(--surface);
