@@ -188,6 +188,12 @@ ${fenced}`;
 
 async function handleCluster(supabase: any): Promise<Response> {
   const now = Date.now();
+  // Tunables are env-overridable so sensitivity can be dialed WITHOUT a redeploy
+  // (a young/sparse pool wants a lower member bar; a busy one wants a higher
+  // one). Defaults come from _shared/trending.ts.
+  const clusterMaxDist = Number(Deno.env.get("TREND_CLUSTER_DIST") ?? CLUSTER_MAX_DIST);
+  const minMembers = Number(Deno.env.get("TREND_MIN_MEMBERS") ?? MIN_MEMBERS);
+  const minSources = Number(Deno.env.get("TREND_MIN_SOURCES") ?? MIN_SOURCES);
   const since = new Date(now - WINDOW_HOURS * 60 * 60 * 1000).toISOString();
 
   // 1. Candidate articles, newest-first.
@@ -259,11 +265,11 @@ async function handleCluster(supabase: any): Promise<Response> {
 
   // 4. GREEDY CLUSTER the still-unassigned candidates.
   const unassigned = candidates.filter((c) => !assigned.has(c.id) && c.vec.length > 0);
-  const clusters = greedyCluster(unassigned, CLUSTER_MAX_DIST);
+  const clusters = greedyCluster(unassigned, clusterMaxDist);
   const surviving = clusters.filter((c) => {
-    if (c.members.length < MIN_MEMBERS) return false;
+    if (c.members.length < minMembers) return false;
     const sources = new Set(c.members.map((m) => (m.source || "").toLowerCase()).filter(Boolean));
-    return sources.size >= MIN_SOURCES;
+    return sources.size >= minSources;
   });
 
   // 5. DEDUPE surviving clusters vs existing topics.
