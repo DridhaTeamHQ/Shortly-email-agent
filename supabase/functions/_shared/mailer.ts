@@ -9,6 +9,7 @@ type SendOpts = {
   to: string;
   subject: string;
   html: string;
+  provider?: "ses" | "brevo";
 };
 
 export async function sendEmail(opts: SendOpts) {
@@ -22,7 +23,7 @@ export async function sendEmail(opts: SendOpts) {
   const awsSecret = Deno.env.get("AWS_SECRET_ACCESS_KEY");
   const awsRegion = Deno.env.get("AWS_REGION");
 
-  if (awsKey && awsSecret && awsRegion) {
+  if (opts.provider !== "brevo" && awsKey && awsSecret && awsRegion) {
     try {
       const client = new SESv2Client({
         region: awsRegion,

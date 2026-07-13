@@ -101,6 +101,7 @@ Deno.serve(async (request) => {
   let isScheduled = false;
   let forceSend = false;
   let testEmail: string | null = null;
+  let provider: "ses" | "brevo" | undefined;
   let recipients: Array<Record<string, unknown>> = [];
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
@@ -110,6 +111,7 @@ Deno.serve(async (request) => {
     isScheduled = body?.scheduled === true;
     forceSend = body?.force === true;
     testEmail = typeof body?.test_email === "string" && body.test_email.includes("@") ? body.test_email : null;
+    provider = body?.provider === "brevo" ? "brevo" : body?.provider === "ses" ? "ses" : undefined;
     recipients = Array.isArray(body?.recipients) ? body.recipients : [];
   }
 
@@ -171,7 +173,9 @@ Deno.serve(async (request) => {
     }
   } catch { /* breaking is optional */ }
 
-  const caseStudies = await loadCaseStudies(supabase, istStart, istEnd);
+  // Explicit one-recipient tests may intentionally use an approved case from
+  // the active pool even when it was approved before today's scrape window.
+  const caseStudies = await loadCaseStudies(supabase, istStart, istEnd, recipients.length > 0);
 
   // ---- Test/recipients override: explicit recipients with independent shorts/case
   // categories. Sends real emails, logs nothing, and never marks content as sent. ----
@@ -187,9 +191,15 @@ Deno.serve(async (request) => {
       const shortsCategory = (r as Record<string, unknown>).shorts_category as string | null ?? null;
       const caseCategory = (r as Record<string, unknown>).case_category as string | null ?? null;
       const selection = selectFor(plan, shortsCategory, caseCategory, wrapPool, categoryPool, caseStudies);
+      if ((plan === "case-only" && !selection.caseStudy) ||
+        (plan !== "case-only" && selection.wrap.length === 0 && selection.shorts.length === 0 && !selection.caseStudy)) {
+        out.push({ email, plan, ok: false, error: "No matching approved content available" });
+        failed += 1;
+        continue;
+      }
       const subject = buildSubject(plan, caseCategory ?? shortsCategory, sd);
       const html = renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection);
-      const result = await sendEmail({ to: email, subject, html });
+      const result = await sendEmail({ to: email, subject, html, provider });
       if (result.ok) sent += 1; else failed += 1;
       out.push({
         email, plan, ok: result.ok, error: result.error ?? null,
@@ -448,17 +458,19 @@ function buildAccountEmails(
 
 // Every topic's daily case study now comes from editorial_drafts (the
 // corporate_cases pipeline is retired along with the Corporate Cases category).
-async function loadCaseStudies(supabase: ReturnType<typeof createClient>, istStart: string, istEnd: string): Promise<Record<string, CaseStudy>> {
+async function loadCaseStudies(supabase: ReturnType<typeof createClient>, istStart: string, istEnd: string, includeActivePool = false): Promise<Record<string, CaseStudy>> {
   const map: Record<string, CaseStudy> = {};
 
-  const { data: drafts } = await supabase
+  let query = supabase
     .from("editorial_drafts")
     .select("id,topic_slug,topic_name,headline,summary,detail,primary_source_url,primary_source_title,generated_at,updated_at")
     .eq("status", "approved")
-    .gte("updated_at", istStart)
-    .lt("updated_at", istEnd)
     .order("generated_at", { ascending: false })
     .limit(50);
+  if (!includeActivePool) {
+    query = query.gte("updated_at", istStart).lt("updated_at", istEnd);
+  }
+  const { data: drafts } = await query;
   for (const d of drafts ?? []) {
     const category = Object.keys(CATEGORY_TO_SLUG).find((cat) => CATEGORY_TO_SLUG[cat] === d.topic_slug);
     if (!category || map[category]) continue; // keep the most recent per category
