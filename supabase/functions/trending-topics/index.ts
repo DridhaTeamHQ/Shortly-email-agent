@@ -111,7 +111,7 @@ async function handleGet(supabase: any): Promise<Response> {
     if (articleIds.length > 0) {
       const { data: arts } = await supabase
         .from("articles")
-        .select("id,title,edited_title,source,status,url,scraped_at")
+        .select("id,title,edited_title,summary,edited_summary,source,status,url,scraped_at")
         .in("id", articleIds);
       for (const a of (arts ?? [])) articleById.set(a.id, a);
     }
@@ -122,6 +122,9 @@ async function handleGet(supabase: any): Promise<Response> {
       list.push({
         article_id: a.id,
         title: a.edited_title || a.title,
+        // Trimmed summary so the QA sees each story's context in the card, not
+        // just a headline. Kept short to keep the GET payload light.
+        summary: String(a.edited_summary || a.summary || "").slice(0, 500),
         source: a.source,
         status: a.status,
         url: a.url,

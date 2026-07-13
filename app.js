@@ -1095,12 +1095,21 @@ function renderTopicDrafts() {
 // ---------- Trending topics (clustered) ----------
 function trendingMemberRowHtml(topicId, member) {
   const status = member.status || "";
+  const summary = member.summary || "";
+  const when = member.scraped_at
+    ? new Date(member.scraped_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    : "";
   return `
     <div class="topic-member-row" data-article-id="${esc(member.article_id)}">
-      <span class="source-pill">${esc(member.source || "Source")}</span>
-      <span class="topic-member-title">${esc(member.title || "")}</span>
-      ${status ? `<span class="tag ${esc(status)}">${esc(status)}</span>` : ""}
-      <button class="topic-member-remove" data-trend-action="remove_article" data-topic-id="${esc(topicId)}" data-article-id="${esc(member.article_id)}" title="Remove from topic">&times;</button>
+      <div class="topic-member-head">
+        <span class="source-pill">${esc(member.source || "Source")}</span>
+        ${when ? `<span class="topic-member-date">${esc(when)}</span>` : ""}
+        ${status ? `<span class="tag ${esc(status)}">${esc(status)}</span>` : ""}
+        ${member.url ? `<a class="topic-member-src" href="${esc(member.url)}" target="_blank" rel="noreferrer">Source &#8599;</a>` : ""}
+        <button class="topic-member-remove" data-trend-action="remove_article" data-topic-id="${esc(topicId)}" data-article-id="${esc(member.article_id)}" title="Remove from topic">&times;</button>
+      </div>
+      <p class="topic-member-title">${esc(member.title || "")}</p>
+      ${summary ? `<p class="topic-member-summary">${esc(summary)}</p>` : ""}
     </div>`;
 }
 
@@ -1135,8 +1144,12 @@ function trendingTopicCardHtml(topic) {
       <textarea data-role="topic-desc" rows="3" placeholder="Topic description">${esc(topic.description || "")}</textarea>
       <div class="topic-members">${membersHtml}</div>
       <div class="topic-add">
-        <input type="search" data-role="topic-add-search" data-topic-id="${esc(topic.id)}" placeholder="Add an article by headline&hellip;" autocomplete="off" />
+        <input type="search" data-role="topic-add-search" data-topic-id="${esc(topic.id)}" placeholder="Add an existing article by headline&hellip;" autocomplete="off" />
         <div class="topic-add-menu" data-topic-id="${esc(topic.id)}"></div>
+      </div>
+      <div class="topic-add-url">
+        <input type="url" data-role="topic-add-url" data-topic-id="${esc(topic.id)}" placeholder="&hellip;or paste an article link to scrape & add" autocomplete="off" />
+        <button class="btn-ghost" data-trend-action="add_from_url" data-topic-id="${esc(topic.id)}">Add story</button>
       </div>
       <div class="actions">
         ${actions}
@@ -1698,7 +1711,49 @@ async function handleTopicDraftAction(card, action) {
   }
 }
 
+// Add a story to a topic by pasting a link: scrape + summarize it (via
+// generate-from-url), then attach the resulting article to the topic. Reuses
+// the existing endpoints — dedupe means an already-scraped URL just attaches
+// its existing article instead of re-spending.
+async function handleTrendingAddFromUrl(el) {
+  if (!cfg.trending) return toast("Missing trending endpoint");
+  if (!cfg.generateFromUrl) return toast("Missing generate endpoint");
+  const card = el.closest(".card[data-topic-id]");
+  const topicId = el.dataset.topicId || card?.dataset.topicId;
+  const input = card?.querySelector('[data-role="topic-add-url"]');
+  const url = input?.value.trim();
+  if (!topicId || !url) return toast("Paste an article link first.");
+  if (el.dataset.busy === "1") return; // single-flight — scrape can take ~20s
+  el.dataset.busy = "1";
+  const original = el.textContent;
+  el.disabled = true;
+  el.innerHTML = '<span class="spinner"></span> Scraping&hellip;';
+  try {
+    // 1. Scrape + summarize (General; it also lands in the Review queue).
+    const gen = await api("POST", cfg.generateFromUrl, { url, mode: "short", category: "General" });
+    // Success OR already_exists both give us an article id to attach.
+    const articleId = gen.id || (gen.error === "already_exists" ? gen.id : null);
+    if (!articleId) {
+      toast(gen.detail || gen.error || "Could not generate from that link.");
+      return;
+    }
+    // 2. Attach it to the topic.
+    await api("POST", cfg.trending, { action: "add_article", id: topicId, article_id: articleId });
+    if (input) input.value = "";
+    await Promise.all([loadTrending(), loadArticles()]);
+    renderTrending();
+    toast(gen.error === "already_exists" ? "Existing story added to topic." : "Story scraped and added to topic.");
+  } catch (e) {
+    toast(`Failed: ${e.message}`);
+  } finally {
+    el.dataset.busy = "";
+    el.disabled = false;
+    el.textContent = original;
+  }
+}
+
 async function handleTrendingAction(el, action) {
+  if (action === "add_from_url") return handleTrendingAddFromUrl(el);
   if (!cfg.trending) return toast("Missing trending endpoint");
   const card = el.closest(".card[data-topic-id]");
   const id = el.dataset.topicId || card?.dataset.topicId;

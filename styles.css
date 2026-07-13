@@ -399,24 +399,35 @@ a:hover { text-decoration-color: var(--ink); }
 .gen-url-card { margin-bottom: 16px; }
 .gen-url-card .digest-composer-row { margin-bottom: 0; }
 .tag.suggested { background: var(--soft); color: var(--ink-2); }
-.topic-members { display: grid; gap: 6px; }
+.topic-members { display: grid; gap: 8px; }
 .topic-member-row {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12px; color: var(--ink-2);
-  padding: 6px 10px; border: 1px solid var(--line);
+  color: var(--ink-2);
+  padding: 10px 12px; border: 1px solid var(--line);
   border-radius: var(--radius-sm); background: var(--softer);
 }
+.topic-member-head { display: flex; align-items: center; gap: 8px; }
+.topic-member-date { font-size: 11px; color: var(--muted); }
+.topic-member-src { font-size: 11px; margin-left: auto; white-space: nowrap; }
 .topic-member-title {
-  flex: 1; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  margin: 6px 0 0; font-size: 13.5px; font-weight: 600; color: var(--ink);
+  line-height: 1.4;
+}
+.topic-member-summary {
+  margin: 4px 0 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.55;
 }
 .topic-member-remove {
   border: none; background: transparent; color: var(--muted);
-  cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px;
+  cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px;
   transition: color var(--t-fast) var(--ease);
 }
+.topic-member-head .topic-member-src + .topic-member-remove { margin-left: 4px; }
 .topic-member-remove:hover { color: var(--ink); }
-.topic-add { position: relative; }
+.topic-add { position: relative; margin-top: 10px; }
+.topic-add-url {
+  display: flex; gap: 8px; align-items: center; margin-top: 8px;
+}
+.topic-add-url input[type="url"] { height: 40px; border-radius: var(--radius-sm); font-size: 13px; }
+.topic-add-url .btn-ghost { white-space: nowrap; height: 40px; }
 .topic-add input[type="search"] { height: 40px; border-radius: var(--radius-sm); font-size: 13px; }
 .topic-add-menu {
   display: none; position: absolute; left: 0; right: 0; top: calc(100% + 4px);
