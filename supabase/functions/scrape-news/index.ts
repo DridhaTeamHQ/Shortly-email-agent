@@ -19,10 +19,16 @@ Deno.serve(async (request) => {
   const errors: Array<{ source: string; error: string }> = [];
   let dropped = 0;
 
-  await Promise.all(
-    SOURCES.map(async (src) => {
+  // One retry (after a short pause) turns a transient network blip or momentary
+  // 5xx into a non-event instead of losing that outlet for the whole day.
+  // Permanent 403s (Cloudflare-fronted feeds) fail both attempts and are simply
+  // reported in `errors` as before.
+  const fetchFeed = async (url: string): Promise<string> => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 2500));
       try {
-        const response = await fetch(src.url, {
+        const response = await fetch(url, {
           signal: AbortSignal.timeout(15_000),
           // Browser-like UA + Accept: several Indian outlets (Business Standard,
           // Moneycontrol, News18, Firstpost) 403 a bot UA on their RSS. This is a
@@ -33,7 +39,18 @@ Deno.serve(async (request) => {
           },
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const xml = await response.text();
+        return await response.text();
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  };
+
+  await Promise.all(
+    SOURCES.map(async (src) => {
+      try {
+        const xml = await fetchFeed(src.url);
         const items = parseFeed(xml);
         for (const item of items) {
           // Quality gate: skip sports/celebrity/horoscope/listicle/viral filler.
