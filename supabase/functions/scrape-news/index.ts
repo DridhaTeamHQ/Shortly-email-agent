@@ -24,7 +24,13 @@ Deno.serve(async (request) => {
       try {
         const response = await fetch(src.url, {
           signal: AbortSignal.timeout(15_000),
-          headers: { "User-Agent": "ShortlyDigestBot/1.0 (+https://shortly.example)" }
+          // Browser-like UA + Accept: several Indian outlets (Business Standard,
+          // Moneycontrol, News18, Firstpost) 403 a bot UA on their RSS. This is a
+          // plain public-feed fetch, just presented the way a feed reader would.
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+          },
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const xml = await response.text();
@@ -95,10 +101,38 @@ Deno.serve(async (request) => {
     const v = Number(Deno.env.get("SCRAPE_LIMIT"));
     return Number.isFinite(v) && v > 0 ? Math.floor(v) : 120;
   })();
-  const ranked = fresh
+  // Per-source diversity cap: a single prolific feed (e.g. the Explained feed
+  // publishing 30 items) must NOT eat the whole run, or the pool — and every
+  // downstream feed/topic — ends up dominated by one masthead. Take at most this
+  // many of each source's top-ranked items first; only if that leaves the run
+  // under SCRAPE_LIMIT do we backfill with the next-best regardless of source.
+  const PER_SOURCE_CAP = (() => {
+    const v = Number(Deno.env.get("SCRAPE_PER_SOURCE_CAP"));
+    return Number.isFinite(v) && v > 0 ? Math.floor(v) : 10;
+  })();
+  const sorted = fresh
     .slice()
-    .sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0))
-    .slice(0, SCRAPE_LIMIT);
+    .sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0));
+  const perSource = new Map<string, number>();
+  const ranked: Array<Record<string, unknown>> = [];
+  const takenUrls = new Set<string>();
+  for (const item of sorted) {
+    if (ranked.length >= SCRAPE_LIMIT) break;
+    const src = String(item.source ?? "unknown");
+    const used = perSource.get(src) ?? 0;
+    if (used >= PER_SOURCE_CAP) continue;
+    perSource.set(src, used + 1);
+    ranked.push(item);
+    takenUrls.add(item.url as string);
+  }
+  // Backfill only when diversity caps left the run short (few feeds responded).
+  if (ranked.length < SCRAPE_LIMIT) {
+    for (const item of sorted) {
+      if (ranked.length >= SCRAPE_LIMIT) break;
+      if (takenUrls.has(item.url as string)) continue;
+      ranked.push(item);
+    }
+  }
 
   let inserted = 0;
   if (ranked.length > 0) {

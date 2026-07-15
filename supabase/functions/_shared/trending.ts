@@ -95,9 +95,16 @@ export function greedyCluster(items: ClusterItem[], maxDist: number): Cluster[] 
   return clusters;
 }
 
-// Cluster hotness: recency-weighted mass (each member decays with a 36h
-// half-life-ish exponential) PLUS the number of distinct sources, so a story
-// carried by many outlets outranks one outlet spamming the same headline.
+// How strongly cross-outlet coverage dominates the ranking. Each additional
+// distinct source is worth this much, which is deliberately larger than the
+// maximum recency mass a cluster can accumulate — so ANY multi-outlet story
+// outranks EVERY single-outlet one. This is what "push a topic covered by
+// several sources to the front of trending" means in practice.
+export const SOURCE_WEIGHT = 8;
+
+// Cluster hotness: distinct-source count (dominant term) + recency-weighted mass
+// (each member decays with a ~36h half-life exponential). A story carried by
+// many outlets always outranks one outlet spamming variations of a headline.
 export function scoreCluster(members: ClusterItem[], now: number): number {
   let mass = 0;
   const sources = new Set<string>();
@@ -107,5 +114,5 @@ export function scoreCluster(members: ClusterItem[], now: number): number {
     mass += Math.exp(-ageHours / 36);
     if (m.source) sources.add(m.source.toLowerCase());
   }
-  return mass + sources.size;
+  return sources.size * SOURCE_WEIGHT + mass;
 }
