@@ -85,9 +85,16 @@ Deno.serve(async (request) => {
   }
   const fresh = unique.filter((r) => !existing.has(r.url as string));
 
-  // Cap each run to the 50 highest-ranked NEW items so we keep a useful QA pool
-  // (the downstream summarizer is rate-limited and must finish in the edge budget).
-  const SCRAPE_LIMIT = 50;
+  // Cap each run to the highest-ranked NEW items. Kept deliberately generous so
+  // that when a big story is covered by several outlets, ALL of that coverage
+  // lands in the pool — trending clustering needs same-story DEPTH (3+ members
+  // from 2+ sources), not just breadth. The downstream summarizer drains this in
+  // batches of 40/invocation (auto cron runs 3 passes), so ~120 fits the budget.
+  // Env-overridable so volume can be tuned without a redeploy.
+  const SCRAPE_LIMIT = (() => {
+    const v = Number(Deno.env.get("SCRAPE_LIMIT"));
+    return Number.isFinite(v) && v > 0 ? Math.floor(v) : 120;
+  })();
   const ranked = fresh
     .slice()
     .sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0))
