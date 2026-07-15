@@ -127,10 +127,18 @@ Deno.serve(async (request) => {
     const v = Number(Deno.env.get("SCRAPE_PER_SOURCE_CAP"));
     return Number.isFinite(v) && v > 0 ? Math.floor(v) : 10;
   })();
+  // India-first balance: international coverage must complement the briefing,
+  // not dominate it. With 7 World feeds the per-source cap alone still lets
+  // World take 70 slots, so cap the World TOPIC as a whole (~20% of the run).
+  const WORLD_CAP = (() => {
+    const v = Number(Deno.env.get("SCRAPE_WORLD_CAP"));
+    return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 25;
+  })();
   const sorted = fresh
     .slice()
     .sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0));
   const perSource = new Map<string, number>();
+  let worldUsed = 0;
   const ranked: Array<Record<string, unknown>> = [];
   const takenUrls = new Set<string>();
   for (const item of sorted) {
@@ -138,7 +146,10 @@ Deno.serve(async (request) => {
     const src = String(item.source ?? "unknown");
     const used = perSource.get(src) ?? 0;
     if (used >= PER_SOURCE_CAP) continue;
+    const isWorld = String(item.topic ?? "") === "World";
+    if (isWorld && worldUsed >= WORLD_CAP) continue;
     perSource.set(src, used + 1);
+    if (isWorld) worldUsed++;
     ranked.push(item);
     takenUrls.add(item.url as string);
   }

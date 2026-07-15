@@ -28,7 +28,7 @@ const JUNK_URL_PATTERNS: RegExp[] = [
 
 // High-signal sections get a small rank bump so analysis floats above wire copy.
 const SIGNAL_URL_PATTERNS: RegExp[] = [
-  /\/(explained|analysis|opinion|editorial|business|economy|policy|world|international|science|technology|sport|sports)\//i,
+  /\/(explained|analysis|opinion|editorial|business|economy|policy|world|international|science|technology|sport|sports|politics|political-pulse|elections)\//i,
 ];
 
 export function looksLikeJunk(title: string, url: string): boolean {

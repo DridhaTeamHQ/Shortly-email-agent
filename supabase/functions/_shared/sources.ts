@@ -15,16 +15,23 @@ export type Source = {
 // capped at scrape time (SCRAPE_PER_SOURCE_CAP) so no single prolific feed — e.g.
 // the Indian Express Explained analysis feed — can monopolise a run.
 export const SOURCES: Source[] = [
-  // ---- National / India (multiple mastheads on the same beat) ----
+  // ---- National / India (multiple mastheads on the same beat; highest weights
+  // — the briefing is India-first, world coverage is the complement) ----
   { name: "The Hindu", url: "https://www.thehindu.com/news/national/feeder/default.rss", weight: 1.0, topic: "India" },
-  { name: "Indian Express", url: "https://indianexpress.com/section/india/feed/", weight: 0.95, topic: "India" },
-  { name: "Times of India", url: "https://timesofindia.indiatimes.com/rssfeedstopstories.cms", weight: 0.9, topic: "India" },
-  { name: "NDTV India", url: "https://feeds.feedburner.com/ndtvnews-india-news", weight: 0.9, topic: "India" },
-  { name: "NDTV Top Stories", url: "https://feeds.feedburner.com/ndtvnews-top-stories", weight: 0.9, topic: "India" },
-  { name: "Hindustan Times India", url: "https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml", weight: 0.9, topic: "India" },
-  { name: "Scroll.in", url: "https://scroll.in/feed", weight: 0.8, topic: "India" },
-  { name: "Firstpost India", url: "https://www.firstpost.com/rss/india.xml", weight: 0.75, topic: "India" },
-  { name: "News18 India", url: "https://www.news18.com/rss/india.xml", weight: 0.75, topic: "India" },
+  { name: "Indian Express", url: "https://indianexpress.com/section/india/feed/", weight: 1.0, topic: "India" },
+  { name: "Times of India", url: "https://timesofindia.indiatimes.com/rssfeedstopstories.cms", weight: 0.95, topic: "India" },
+  { name: "Times of India India", url: "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms", weight: 0.95, topic: "India" },
+  { name: "NDTV India", url: "https://feeds.feedburner.com/ndtvnews-india-news", weight: 0.95, topic: "India" },
+  { name: "NDTV Top Stories", url: "https://feeds.feedburner.com/ndtvnews-top-stories", weight: 0.95, topic: "India" },
+  { name: "Hindustan Times India", url: "https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml", weight: 0.95, topic: "India" },
+  { name: "Scroll.in", url: "https://scroll.in/feed", weight: 0.85, topic: "India" },
+  { name: "Firstpost India", url: "https://www.firstpost.com/rss/india.xml", weight: 0.8, topic: "India" },
+  { name: "News18 India", url: "https://www.news18.com/rss/india.xml", weight: 0.8, topic: "India" },
+
+  // ---- Politics (dedicated Indian political coverage) ----
+  { name: "IE Political Pulse", url: "https://indianexpress.com/section/political-pulse/feed/", weight: 0.95, topic: "Politics" },
+  { name: "The Hindu Elections", url: "https://www.thehindu.com/elections/feeder/default.rss", weight: 0.9, topic: "Politics" },
+  { name: "HT India Politics", url: "https://www.hindustantimes.com/feeds/rss/india-news/politics/rssfeed.xml", weight: 0.9, topic: "Politics" },
 
   // ---- Explained / analysis (high signal, but weighted DOWN + volume-capped
   // so it complements the news feeds instead of drowning them) ----
@@ -42,14 +49,16 @@ export const SOURCES: Source[] = [
   { name: "Indian Express Business", url: "https://indianexpress.com/section/business/feed/", weight: 0.85, topic: "Business" },
   { name: "BBC Business", url: "https://feeds.bbci.co.uk/news/business/rss.xml", weight: 0.85, topic: "Business" },
 
-  // ---- World ----
-  { name: "The Hindu World", url: "https://www.thehindu.com/news/international/feeder/default.rss", weight: 0.9, topic: "World" },
-  { name: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml", weight: 0.9, topic: "World" },
-  { name: "Indian Express World", url: "https://indianexpress.com/section/world/feed/", weight: 0.9, topic: "World" },
-  { name: "Hindustan Times World", url: "https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml", weight: 0.85, topic: "World" },
-  { name: "NDTV World", url: "https://feeds.feedburner.com/ndtvnews-world-news", weight: 0.85, topic: "World" },
-  { name: "Al Jazeera", url: "https://www.aljazeera.com/xml/rss/all.xml", weight: 0.8, topic: "World" },
-  { name: "The Guardian World", url: "https://www.theguardian.com/world/rss", weight: 0.8, topic: "World" },
+  // ---- World (deliberately LOWER weights than national/politics — the scrape
+  // also hard-caps World volume per run via SCRAPE_WORLD_CAP so international
+  // coverage complements the India-first briefing instead of dominating it) ----
+  { name: "The Hindu World", url: "https://www.thehindu.com/news/international/feeder/default.rss", weight: 0.8, topic: "World" },
+  { name: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml", weight: 0.75, topic: "World" },
+  { name: "Indian Express World", url: "https://indianexpress.com/section/world/feed/", weight: 0.8, topic: "World" },
+  { name: "Hindustan Times World", url: "https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml", weight: 0.75, topic: "World" },
+  { name: "NDTV World", url: "https://feeds.feedburner.com/ndtvnews-world-news", weight: 0.75, topic: "World" },
+  { name: "Al Jazeera", url: "https://www.aljazeera.com/xml/rss/all.xml", weight: 0.7, topic: "World" },
+  { name: "The Guardian World", url: "https://www.theguardian.com/world/rss", weight: 0.7, topic: "World" },
 
   // ---- Sports ----
   { name: "The Hindu Sport", url: "https://www.thehindu.com/sport/feeder/default.rss", weight: 0.8, topic: "Sports" },
