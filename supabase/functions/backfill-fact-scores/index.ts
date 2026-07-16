@@ -21,7 +21,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { factCheckArticle } from "../_shared/fact-check.ts";
 import { generateArticleVersions, versionsEnabled } from "../_shared/versions.ts";
 import { findRelatedSources } from "../_shared/related-sources.ts";
-import { fetchReadableArticleText } from "../_shared/article-text.ts";
+import { fetchReadableArticleText, fetchPageOgImage } from "../_shared/article-text.ts";
 import { embedTexts } from "../_shared/embeddings.ts";
 
 type Row = {
@@ -250,6 +250,52 @@ Deno.serve(async (request) => {
     }
   } catch { /* non-fatal; next sweep retries */ }
 
+  // Pass F (COST-FREE, no OpenAI): lead image via og:image for stories whose
+  // feed carried none. Two pools, trending-topic members FIRST (their cards are
+  // the most visible surface on the site and have no age limit), then recent
+  // approved/sent General stories (48h window). Capped small per run; the
+  // half-hourly safety-net cron sweeps the rest through the day.
+  let imaged = 0;
+  try {
+    const pool: Array<{ id: string; url: string }> = [];
+    const seenIds = new Set<string>();
+
+    const { data: memberLinks } = await supabase
+      .from("topic_articles")
+      .select("article_id, articles!inner(id,url,image_url)")
+      .is("articles.image_url", null)
+      .limit(10);
+    for (const l of (memberLinks ?? []) as Array<{ articles: { id: string; url: string | null } }>) {
+      const a = l.articles;
+      if (a?.url && !seenIds.has(a.id)) { seenIds.add(a.id); pool.push({ id: a.id, url: a.url }); }
+    }
+
+    const { data: needImage } = await supabase
+      .from("articles")
+      .select("id,url")
+      .is("image_url", null)
+      .is("category", null)
+      .in("status", ["approved", "sent"])
+      .gte("scraped_at", new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
+      .not("url", "is", null)
+      .order("reviewed_at", { ascending: false })
+      .limit(10);
+    for (const a of (needImage ?? []) as Array<{ id: string; url: string }>) {
+      if (pool.length >= 12) break;
+      if (!seenIds.has(a.id)) { seenIds.add(a.id); pool.push(a); }
+    }
+
+    for (const a of pool) {
+      try {
+        const img = await fetchPageOgImage(a.url);
+        if (img) {
+          const { error: upErr } = await supabase.from("articles").update({ image_url: img }).eq("id", a.id);
+          if (!upErr) imaged++;
+        }
+      } catch { /* page unreachable — next sweep retries */ }
+    }
+  } catch { /* non-fatal */ }
+
   // Pass B (COST-FREE, no OpenAI): fill the multi-source list onto rows that
   // were scored BEFORE corroboration existed (fact_notes has no source_count).
   // Pure DB lookups — findRelatedSources + the row's own source — so this is
@@ -297,6 +343,7 @@ Deno.serve(async (request) => {
     sourced,
     scored,
     embedded,
+    imaged,
     versioned: versioned + versionedA2,
     processed: rows.length,
     remaining,

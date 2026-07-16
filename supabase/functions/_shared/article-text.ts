@@ -102,10 +102,15 @@ export function needsFullArticleFetch(text: string): boolean {
 }
 
 // Shared fetch used by both the text-only and title+text readers below.
+// Browser-like UA: several outlets (The Hindu, Mint, …) 403 an obvious bot UA,
+// which starved the og:image/fact-source fetches for those pages.
 async function fetchArticleHtml(url: string): Promise<string> {
   const response = await fetch(url, {
     redirect: "follow",
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; ShortlyScraper/1.0)" }
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
   });
   if (!response.ok) throw new Error(`Article HTTP ${response.status}`);
   return await response.text();
@@ -133,6 +138,26 @@ function extractPageTitle(html: string): string | null {
   }
   title = decodeEntities(title).replace(/\s+/g, " ").trim();
   return title || null;
+}
+
+// og:image (or twitter:image fallback) from a page — used to backfill a lead
+// image for approved stories whose feed carried none. Null when absent.
+export function extractOgImage(html: string): string | null {
+  const patterns = [
+    /<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image(?::secure_url)?["'][^>]*>/i,
+    /<meta[^>]+name=["']twitter:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+  ];
+  for (const p of patterns) {
+    const url = decodeEntities(html.match(p)?.[1] ?? "").trim();
+    if (/^https?:\/\//i.test(url)) return url;
+  }
+  return null;
+}
+
+// Fetch a page and return just its og:image — the safety-net's image backfill.
+export async function fetchPageOgImage(url: string): Promise<string | null> {
+  return extractOgImage(await fetchArticleHtml(url));
 }
 
 export async function fetchReadableArticleText(url: string): Promise<string> {

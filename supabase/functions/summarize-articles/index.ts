@@ -66,7 +66,7 @@ Deno.serve(async (request) => {
 
   // Summarize in parallel (capped) to keep within edge time budget
   const CONCURRENCY = 4;
-  const results: Array<{ id: string; summary: string | null; section: string; prominence: number; fact: FactCheckResult | null; error?: string }> = [];
+  const results: Array<{ id: string; summary: string | null; section: string; prominence: number; topic: string | null; fact: FactCheckResult | null; error?: string }> = [];
 
   for (let i = 0; i < articles.length; i += CONCURRENCY) {
     const batch = articles.slice(i, i + CONCURRENCY);
@@ -74,9 +74,9 @@ Deno.serve(async (request) => {
       batch.map(async (a) => {
         try {
           const result = await summarize(supabase, openAiKey, model, a, embeddingById.get(a.id) ?? null);
-          return { id: a.id, summary: result.summary, section: result.section, prominence: result.prominence, fact: result.fact };
+          return { id: a.id, summary: result.summary, section: result.section, prominence: result.prominence, topic: result.topic, fact: result.fact };
         } catch (e) {
-          return { id: a.id, summary: null, section: "wrapped", prominence: 2, fact: null, error: String(e) };
+          return { id: a.id, summary: null, section: "wrapped", prominence: 2, topic: null, fact: null, error: String(e) };
         }
       })
     );
@@ -115,10 +115,15 @@ Deno.serve(async (request) => {
   // Update in chunks
   for (const row of updates) {
     const embedding = embeddingById.get(row.id);
+    const classified = results.find((r) => r.id === row.id)?.topic ?? null;
     await supabase.from("articles").update({
       summary: row.summary,
       section: row.section,
       prominence: row.prominence,
+      // The classified SUBJECT topic (Sports/Business/…) replaces the feed tag —
+      // a Messi story from an Indian paper's top-stories feed must read Sports,
+      // not National. Feed tag stays when classification came back invalid.
+      ...(classified ? { topic: classified } : {}),
       rank_score: row.rank_score,
       fact_score: row.fact_score,
       fact_label: row.fact_label,

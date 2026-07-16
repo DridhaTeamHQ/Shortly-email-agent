@@ -65,6 +65,7 @@ Deno.serve(async (request) => {
             raw_content: cleanedDescription.slice(0, 4000),
             source: src.name,
             topic: src.topic ?? null,
+            image_url: item.image ?? null,
             rank_score: src.weight * qualityScore(item.title, item.url),
             status: "pending"
           });
@@ -173,5 +174,13 @@ Deno.serve(async (request) => {
     inserted = data?.length ?? 0;
   }
 
-  return json({ scraped: scraped.length, dropped, unique: unique.length, new: fresh.length, considered: ranked.length, inserted, errors });
+  const byTopic: Record<string, number> = {};
+  let withImage = 0;
+  for (const r of ranked) {
+    const t = String(r.topic ?? "none");
+    byTopic[t] = (byTopic[t] ?? 0) + 1;
+    if (r.image_url) withImage++;
+  }
+
+  return json({ scraped: scraped.length, dropped, unique: unique.length, new: fresh.length, considered: ranked.length, inserted, withImage, byTopic, errors });
 });

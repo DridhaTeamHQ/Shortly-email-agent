@@ -77,12 +77,29 @@ Rate the article's prominence on a scale of 1 to 5:
 2 = STANDARD: Regular news, routine single-event story.
 1 = LOW: Niche or soft feature.
 
+== TOPIC ==
+
+Classify the article's SUBJECT into exactly one of these topics (judge by what the story is ABOUT, never by which outlet published it):
+"India" — Indian national news: governance, courts, crime, infrastructure, society, states.
+"Politics" — party politics and elections (Indian or foreign): leaders, alliances, campaigns, cabinet moves.
+"World" — international news whose primary subject is outside India.
+"Business" — markets, economy, companies, deals, startups, RBI/SEBI, personal finance.
+"Sports" — any sport: cricket, football, the World Cup, tennis, athletes, matches, tournaments.
+"Science" — research, health, space, climate, environment.
+"Technology" — tech products, AI, internet platforms, telecom, gadgets.
+A sports story from an Indian newspaper is still "Sports". An Indian company story is "Business". An election story is "Politics" even when it is also Indian news.
+
 == OUTPUT ==
 
-Return a valid JSON object with exactly three keys:
-{"summary": "Your summary here.", "section": "wrapped", "prominence": 4}
+Return a valid JSON object with exactly four keys:
+{"summary": "Your summary here.", "section": "wrapped", "prominence": 4, "topic": "Sports"}
 
 No markdown fences, no extra text. Just the JSON object.`;
+
+// Allowed article topics — the summarizer classifies each story into one of
+// these; anything else from the model is discarded (feed tag stays).
+export const ARTICLE_TOPICS = ["India", "Politics", "World", "Business", "Sports", "Science", "Technology"] as const;
+export type ArticleTopic = (typeof ARTICLE_TOPICS)[number];
 
 // ---- Strip CMS / agency / promo artifacts from RAW source text (pre-GPT). ----
 
@@ -241,7 +258,7 @@ export async function summarizeForBriefing(
   apiKey: string,
   model: string,
   input: { title: string; source?: string | null; url: string; excerpt: string }
-): Promise<{ summary: string; section: "wrapped" | "ahead"; prominence: number }> {
+): Promise<{ summary: string; section: "wrapped" | "ahead"; prominence: number; topic: ArticleTopic | null }> {
   const cleanedExcerpt = stripSourceArtifacts(input.excerpt).slice(0, 2200);
   const userPrompt = [
     `TITLE: ${input.title}`,
@@ -250,7 +267,7 @@ export async function summarizeForBriefing(
     cleanedExcerpt ? `EXCERPT:\n${cleanedExcerpt}` : null,
   ].filter(Boolean).join("\n\n");
 
-  const raw = await chatCompletionRaw(apiKey, model, EDITOR_SYSTEM_PROMPT, userPrompt, 260, { jsonMode: true });
+  const raw = await chatCompletionRaw(apiKey, model, EDITOR_SYSTEM_PROMPT, userPrompt, 280, { jsonMode: true });
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw);
@@ -260,5 +277,9 @@ export async function summarizeForBriefing(
   const section = parsed.section === "ahead" ? "ahead" : "wrapped";
   const prominence = Math.min(5, Math.max(1, parseInt(String(parsed.prominence)) || 2));
   const summary = cleanSummaryText(String(parsed.summary ?? "").trim());
-  return { summary, section, prominence };
+  // Subject classification (what the story is ABOUT, not which feed carried it).
+  // Anything outside the allowed set is discarded — the caller keeps the feed tag.
+  const rawTopic = String(parsed.topic ?? "").trim();
+  const topic = (ARTICLE_TOPICS as readonly string[]).includes(rawTopic) ? (rawTopic as ArticleTopic) : null;
+  return { summary, section, prominence, topic };
 }
