@@ -262,6 +262,15 @@ async function handleCluster(supabase: any): Promise<Response> {
         attached++;
         assigned.add(cand.id);
         touched.add(best.id);
+        // The topic is APPROVED (that's the attach pool), so its timeline is
+        // live on the site — publish the newly attached story too, or it stays
+        // invisible (the site only shows approved/sent articles) and the
+        // timeline never grows between QA passes.
+        await supabase
+          .from("articles")
+          .update({ status: "approved", reviewed_at: new Date().toISOString(), reviewed_by: "ai-auto" })
+          .eq("id", cand.id)
+          .eq("status", "summarized");
       }
     }
   }

@@ -11,6 +11,9 @@
 //
 // Quotas are per-IST-day and idempotent: it counts what today already approved
 // and only tops up the remainder, so running it twice never double-approves.
+// General + topics quotas are PRO-RATED by 6-hour cycle (ceil(base*cycle/4)),
+// so with the 4-cycles/day crons each cycle publishes its share instead of the
+// morning run exhausting the whole day's quota.
 // No OpenAI spend — this is pure selection/approval over already-generated
 // content. Reader versions for auto-approved General articles are filled in by
 // the fact safety-net cron shortly after (same as any approval).
@@ -48,6 +51,22 @@ function istDayStart(): string {
   return new Date(startMs).toISOString();
 }
 
+// Which 6-hour cycle of the IST day we're in (1..4). Quotas for General and
+// topics are pro-rated by cycle (ceil(base * cycle/4)) so the morning run
+// can't exhaust the whole day's quota — every cycle gets to publish its share
+// and the site refreshes through the day.
+function istCycle(): number {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", hour12: false })
+      .formatToParts(new Date()).find((p) => p.type === "hour")?.value
+  );
+  return Math.min(4, Math.floor((Number.isFinite(hour) ? hour : 0) / 6) + 1);
+}
+
+function proRata(base: number, cycle: number): number {
+  return Math.ceil((base * cycle) / 4);
+}
+
 async function countApprovedToday(supabase: any, dayStart: string, filter: (q: any) => any): Promise<number> {
   let q = supabase.from("articles").select("id", { count: "exact", head: true })
     .eq("status", "approved").gte("reviewed_at", dayStart);
@@ -65,16 +84,21 @@ async function handle(supabase: any): Promise<Response> {
     staleDays: intEnv("AUTO_STALE_DRAFT_DAYS", 3),
   };
   const dayStart = istDayStart();
+  const cycle = istCycle();
   const nowIso = new Date().toISOString();
-  const result: Record<string, unknown> = {};
+  const result: Record<string, unknown> = { cycle };
 
   // ---- 1. TRENDING TOPICS: approve the top suggested topics by score. ----
   // Approving a topic also promotes its still-summarized member articles to
   // approved (mirrors trending-topics' approve), so the timeline publishes.
   let topicsApproved = 0;
+  const { count: topicsApprovedToday } = await supabase
+    .from("topics").select("id", { count: "exact", head: true })
+    .eq("status", "approved").eq("reviewed_by", REVIEWER).gte("approved_at", dayStart);
+  const topicNeed = Math.max(0, proRata(quotas.topics, cycle) - (topicsApprovedToday ?? 0));
   const { data: suggestedTopics } = await supabase
     .from("topics").select("id").eq("status", "suggested")
-    .order("score", { ascending: false }).limit(quotas.topics);
+    .order("score", { ascending: false }).limit(topicNeed);
   for (const t of (suggestedTopics ?? [])) {
     const { error } = await supabase.from("topics")
       .update({ status: "approved", approved_at: nowIso, reviewed_at: nowIso, reviewed_by: REVIEWER })
@@ -103,7 +127,7 @@ async function handle(supabase: any): Promise<Response> {
 
   // ---- 2. GENERAL: top up to AUTO_GENERAL, excluding topic members. ----
   const generalApprovedToday = await countApprovedToday(supabase, dayStart, (q) => q.is("category", null));
-  const generalNeed = Math.max(0, quotas.general - generalApprovedToday);
+  const generalNeed = Math.max(0, proRata(quotas.general, cycle) - generalApprovedToday);
   let generalApproved = 0;
   if (generalNeed > 0) {
     // Pull a generous candidate window (recent summarized General), then filter

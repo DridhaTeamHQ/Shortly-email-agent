@@ -25,8 +25,11 @@ export const SOURCES: Source[] = [
   { name: "NDTV Top Stories", url: "https://feeds.feedburner.com/ndtvnews-top-stories", weight: 0.95, topic: "India" },
   { name: "Hindustan Times India", url: "https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml", weight: 0.95, topic: "India" },
   { name: "Scroll.in", url: "https://scroll.in/feed", weight: 0.85, topic: "India" },
-  { name: "Firstpost India", url: "https://www.firstpost.com/rss/india.xml", weight: 0.8, topic: "India" },
-  { name: "News18 India", url: "https://www.news18.com/rss/india.xml", weight: 0.8, topic: "India" },
+  // Firstpost / News18 / The Print / Telegraph India / Outlook hard-403/404
+  // even with a browser UA (Cloudflare) — verified 2026-07-18, dropped.
+  { name: "Deccan Herald India", url: "https://www.deccanherald.com/stories.rss?type=india", weight: 0.85, topic: "India" },
+  { name: "India Today", url: "https://www.indiatoday.in/rss/1206578", weight: 0.9, topic: "India" },
+  { name: "ABP Live English", url: "https://news.abplive.com/news/india/feed", weight: 0.85, topic: "India" },
 
   // ---- Politics (dedicated Indian political coverage) ----
   { name: "IE Political Pulse", url: "https://indianexpress.com/section/political-pulse/feed/", weight: 0.95, topic: "Politics" },
@@ -45,8 +48,11 @@ export const SOURCES: Source[] = [
   { name: "Economic Times", url: "https://economictimes.indiatimes.com/rssfeedstopstories.cms", weight: 0.9, topic: "Business" },
   { name: "Economic Times Markets", url: "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", weight: 0.85, topic: "Business" },
   { name: "Moneycontrol", url: "https://www.moneycontrol.com/rss/latestnews.xml", weight: 0.85, topic: "Business" },
-  { name: "Business Standard", url: "https://www.business-standard.com/rss/latest.rss", weight: 0.85, topic: "Business" },
   { name: "Indian Express Business", url: "https://indianexpress.com/section/business/feed/", weight: 0.85, topic: "Business" },
+  { name: "Economic Times Industry", url: "https://economictimes.indiatimes.com/industry/rssfeeds/13352306.cms", weight: 0.85, topic: "Business" },
+  { name: "LiveMint Economy", url: "https://www.livemint.com/rss/economy", weight: 0.85, topic: "Business" },
+  { name: "LiveMint Politics", url: "https://www.livemint.com/rss/politics", weight: 0.85, topic: "Politics" },
+  { name: "NDTV Profit", url: "https://feeds.feedburner.com/ndtvprofit-latest", weight: 0.8, topic: "Business" },
   { name: "BBC Business", url: "https://feeds.bbci.co.uk/news/business/rss.xml", weight: 0.85, topic: "Business" },
 
   // ---- World (deliberately LOWER weights than national/politics — the scrape
