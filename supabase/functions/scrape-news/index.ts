@@ -1,12 +1,103 @@
-// scrape-news: pull RSS items from configured sources, dedupe by URL,
-// insert as `pending` articles. Idempotent — `url` is unique.
+// scrape-news: pull items from registered sources, dedupe by URL, insert as
+// `pending` articles. Idempotent — `url` is unique.
+//
+// Sources come from the `sources` DB table (registry: name/url/kind/topic/
+// weight/enabled + health columns), falling back to the static sources.ts list
+// if the table is empty/unreadable. Two source kinds:
+//   rss     — parse the feed (title/description/image from the XML)
+//   section — a category/breaking LANDING PAGE with no feed: extract article
+//             links from the HTML, then fetch each NEW article's NewsArticle
+//             JSON-LD / og: metadata for title, description, image, timestamp.
+// After every run each source's health is recorded (failure_count,
+// last_success_at, last_error); 10 consecutive failures auto-disable it, so a
+// dead feed drops out of rotation without a code deploy.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
-import { cleanArticleText } from "../_shared/article-text.ts";
-import { SOURCES } from "../_shared/sources.ts";
+import { cleanArticleText, extractArticleMeta } from "../_shared/article-text.ts";
+import { SOURCES as STATIC_SOURCES } from "../_shared/sources.ts";
 import { parseFeed } from "../_shared/rss.ts";
 import { looksLikeJunk, qualityScore } from "../_shared/quality.ts";
+
+type RegistrySource = {
+  name: string;
+  url: string;
+  kind: "rss" | "section";
+  topic: string | null;
+  weight: number;
+  failure_count?: number;
+};
+
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const DISABLE_AFTER_FAILURES = 10;
+const SECTION_LINK_CAP = 25; // candidate links per section page
+const SECTION_META_CAP = 10; // article-page metadata fetches per section source
+
+async function fetchWithRetry(url: string, accept: string): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 2500));
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(15_000),
+        redirect: "follow",
+        headers: { "User-Agent": BROWSER_UA, "Accept": accept },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.text();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+const decodeBasic = (s: string) =>
+  s
+    .replace(/&#(\d+);/g, (m, n) => { try { return String.fromCodePoint(Number(n)); } catch { return m; } })
+    .replace(/&#x([0-9a-fA-F]+);/g, (m, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return m; } })
+    .replaceAll("&amp;", "&").replaceAll("&quot;", '"').replaceAll("&#39;", "'").replaceAll("&nbsp;", " ");
+
+// Does this look like an ARTICLE url (vs a nav/tag/video/live page)? Generic
+// heuristics that hold across Indian + international publishers: a numeric CMS
+// id, an /articles/ path, or a long hyphenated slug.
+const NON_ARTICLE_PATH =
+  /\/(live|liveblog|videos?|video-show|photos?|photostory|photogallery|web-stories|gallery|topic|topics|tags?|author|about|contact|subscribe|newsletters?|podcasts?|events?)\//i;
+
+function looksLikeArticleUrl(u: URL): boolean {
+  const path = u.pathname;
+  if (NON_ARTICLE_PATH.test(path)) return false;
+  if (/\d{6,}/.test(path)) return true; // TOI/ET .cms ids, HT/NDTV numeric ids
+  if (/\/articles?\//i.test(path)) return true; // BBC /news/articles/<id>
+  const last = path.split("/").filter(Boolean).pop() ?? "";
+  return (last.match(/-/g) ?? []).length >= 3; // long hyphenated slug
+}
+
+// Pull candidate article links out of a section/landing page. Same-host only,
+// anchor text kept as a provisional title (longest wins per URL).
+function extractSectionLinks(html: string, baseUrl: string): Array<{ url: string; title: string }> {
+  const base = new URL(baseUrl);
+  const baseHost = base.hostname.replace(/^www\./, "");
+  const byUrl = new Map<string, string>();
+  for (const m of html.matchAll(/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    let resolved: URL;
+    try {
+      resolved = new URL(m[1], base);
+    } catch {
+      continue;
+    }
+    if (!/^https?:$/.test(resolved.protocol)) continue;
+    if (resolved.hostname.replace(/^www\./, "") !== baseHost) continue;
+    if (!looksLikeArticleUrl(resolved)) continue;
+    resolved.hash = "";
+    const url = resolved.toString();
+    const title = decodeBasic(m[2].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+    const prev = byUrl.get(url) ?? "";
+    if (title.length > prev.length) byUrl.set(url, title);
+  }
+  return [...byUrl.entries()].map(([url, title]) => ({ url, title }));
+}
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -15,68 +106,77 @@ Deno.serve(async (request) => {
   const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+  // ---- Source registry (DB first, static fallback) ----
+  let sources: RegistrySource[] = [];
+  let registry = false;
+  const { data: dbSources } = await supabase
+    .from("sources")
+    .select("name,url,kind,topic,weight,failure_count")
+    .eq("enabled", true);
+  if (dbSources && dbSources.length > 0) {
+    sources = dbSources as RegistrySource[];
+    registry = true;
+  } else {
+    sources = STATIC_SOURCES.map((s) => ({ name: s.name, url: s.url, kind: "rss" as const, topic: s.topic ?? null, weight: s.weight }));
+  }
+
   const scraped: Array<Record<string, unknown>> = [];
   const errors: Array<{ source: string; error: string }> = [];
+  const health = new Map<string, { ok: boolean; error?: string }>();
   let dropped = 0;
 
-  // One retry (after a short pause) turns a transient network blip or momentary
-  // 5xx into a non-event instead of losing that outlet for the whole day.
-  // Permanent 403s (Cloudflare-fronted feeds) fail both attempts and are simply
-  // reported in `errors` as before.
-  const fetchFeed = async (url: string): Promise<string> => {
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 2500));
-      try {
-        const response = await fetch(url, {
-          signal: AbortSignal.timeout(15_000),
-          // Browser-like UA + Accept: several Indian outlets (Business Standard,
-          // Moneycontrol, News18, Firstpost) 403 a bot UA on their RSS. This is a
-          // plain public-feed fetch, just presented the way a feed reader would.
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-            "Accept": "application/rss+xml, application/xml, text/xml, */*",
-          },
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.text();
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    throw lastError;
-  };
-
   await Promise.all(
-    SOURCES.map(async (src) => {
+    sources.map(async (src) => {
       try {
-        const xml = await fetchFeed(src.url);
-        const items = parseFeed(xml);
-        for (const item of items) {
-          // Quality gate: skip sports/celebrity/horoscope/listicle/viral filler.
-          if (looksLikeJunk(item.title, item.url)) {
-            dropped += 1;
-            continue;
+        if (src.kind === "section") {
+          const html = await fetchWithRetry(src.url, "text/html,application/xhtml+xml,*/*;q=0.8");
+          const links = extractSectionLinks(html, src.url).slice(0, SECTION_LINK_CAP);
+          for (const link of links) {
+            if (link.title && looksLikeJunk(link.title, link.url)) {
+              dropped += 1;
+              continue;
+            }
+            scraped.push({
+              title: link.title.slice(0, 500), // provisional; replaced by page metadata below
+              url: link.url,
+              raw_content: "",
+              source: src.name,
+              topic: src.topic ?? null,
+              image_url: null,
+              rank_score: Number(src.weight) * qualityScore(link.title, link.url),
+              status: "pending",
+              _section: true,
+            });
           }
-          const cleanedDescription = cleanArticleText(item.description ?? "");
-          scraped.push({
-            title: item.title.slice(0, 500),
-            url: item.url,
-            raw_content: cleanedDescription.slice(0, 4000),
-            source: src.name,
-            topic: src.topic ?? null,
-            image_url: item.image ?? null,
-            rank_score: src.weight * qualityScore(item.title, item.url),
-            status: "pending"
-          });
+        } else {
+          const xml = await fetchWithRetry(src.url, "application/rss+xml, application/xml, text/xml, */*");
+          const items = parseFeed(xml);
+          for (const item of items) {
+            if (looksLikeJunk(item.title, item.url)) {
+              dropped += 1;
+              continue;
+            }
+            const cleanedDescription = cleanArticleText(item.description ?? "");
+            scraped.push({
+              title: item.title.slice(0, 500),
+              url: item.url,
+              raw_content: cleanedDescription.slice(0, 4000),
+              source: src.name,
+              topic: src.topic ?? null,
+              image_url: item.image ?? null,
+              rank_score: Number(src.weight) * qualityScore(item.title, item.url),
+              status: "pending",
+            });
+          }
         }
+        health.set(src.name, { ok: true });
       } catch (error) {
         errors.push({ source: `${src.name} ${src.url}`, error: String(error) });
+        health.set(src.name, { ok: false, error: String(error).slice(0, 300) });
       }
     })
   );
 
-  // Dedupe within batch by url
   const seen = new Set<string>();
   const unique = scraped.filter((row) => {
     const u = row.url as string;
@@ -85,14 +185,6 @@ Deno.serve(async (request) => {
     return true;
   });
 
-  // Drop URLs we already have so the cap is spent on genuinely NEW stories.
-  // (Otherwise the top-ranked slots are always the same high-weight sources we
-  // already scraped, and nothing fresh ever gets inserted.)
-  // NOTE: build the existing-URL set by PAGINATING — PostgREST caps any single
-  // select at 1000 rows, and a chunked `.in(url, [...])` over hundreds of long
-  // URLs overflows the query string. Either silently misses existing URLs, so
-  // duplicates leak into the "new" set and waste the cap. RSS only carries recent
-  // items, so a 14-day window catches every realistic duplicate.
   const recentSince = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const existing = new Set<string>();
   const PAGE = 1000;
@@ -109,28 +201,14 @@ Deno.serve(async (request) => {
   }
   const fresh = unique.filter((r) => !existing.has(r.url as string));
 
-  // Cap each run to the highest-ranked NEW items. Kept deliberately generous so
-  // that when a big story is covered by several outlets, ALL of that coverage
-  // lands in the pool — trending clustering needs same-story DEPTH (3+ members
-  // from 2+ sources), not just breadth. The downstream summarizer drains this in
-  // batches of 40/invocation (auto cron runs 3 passes), so ~120 fits the budget.
-  // Env-overridable so volume can be tuned without a redeploy.
   const SCRAPE_LIMIT = (() => {
     const v = Number(Deno.env.get("SCRAPE_LIMIT"));
     return Number.isFinite(v) && v > 0 ? Math.floor(v) : 120;
   })();
-  // Per-source diversity cap: a single prolific feed (e.g. the Explained feed
-  // publishing 30 items) must NOT eat the whole run, or the pool — and every
-  // downstream feed/topic — ends up dominated by one masthead. Take at most this
-  // many of each source's top-ranked items first; only if that leaves the run
-  // under SCRAPE_LIMIT do we backfill with the next-best regardless of source.
   const PER_SOURCE_CAP = (() => {
     const v = Number(Deno.env.get("SCRAPE_PER_SOURCE_CAP"));
     return Number.isFinite(v) && v > 0 ? Math.floor(v) : 10;
   })();
-  // India-first balance: international coverage must complement the briefing,
-  // not dominate it. With 7 World feeds the per-source cap alone still lets
-  // World take 70 slots, so cap the World TOPIC as a whole (~20% of the run).
   const WORLD_CAP = (() => {
     const v = Number(Deno.env.get("SCRAPE_WORLD_CAP"));
     return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 25;
@@ -154,7 +232,6 @@ Deno.serve(async (request) => {
     ranked.push(item);
     takenUrls.add(item.url as string);
   }
-  // Backfill only when diversity caps left the run short (few feeds responded).
   if (ranked.length < SCRAPE_LIMIT) {
     for (const item of sorted) {
       if (ranked.length >= SCRAPE_LIMIT) break;
@@ -163,24 +240,86 @@ Deno.serve(async (request) => {
     }
   }
 
+  // ---- Section items: fetch article-page metadata (JSON-LD NewsArticle →
+  // og:) for the NEW urls that actually made the cut. Anchor text is often a
+  // truncated headline and section links carry no description/image at all.
+  let sectionEnriched = 0;
+  const perSourceMeta = new Map<string, number>();
+  const sectionRows = ranked.filter((r) => r._section);
+  await Promise.all(
+    sectionRows.map(async (row) => {
+      const src = String(row.source);
+      const used = perSourceMeta.get(src) ?? 0;
+      if (used >= SECTION_META_CAP) return;
+      perSourceMeta.set(src, used + 1);
+      try {
+        const html = await fetchWithRetry(String(row.url), "text/html,application/xhtml+xml,*/*;q=0.8");
+        const meta = extractArticleMeta(html);
+        if (meta.title && meta.title.length >= 20) row.title = meta.title.slice(0, 500);
+        if (meta.description) row.raw_content = cleanArticleText(meta.description).slice(0, 4000);
+        if (meta.image) row.image_url = meta.image;
+        sectionEnriched++;
+      } catch {
+        // keep the anchor-text version; the summarizer's full-article fallback
+        // and the og:image backfill pass can still fill the gaps
+      }
+    })
+  );
+  // Drop section rows whose title never became a usable headline.
+  const insertable = ranked.filter((r) => !r._section || String(r.title ?? "").trim().length >= 25);
+  for (const r of insertable) delete r._section;
+
   let inserted = 0;
-  if (ranked.length > 0) {
-    // upsert on url so a race with another run is still a no-op for existing articles
+  if (insertable.length > 0) {
     const { data, error } = await supabase
       .from("articles")
-      .upsert(ranked, { onConflict: "url", ignoreDuplicates: true })
+      .upsert(insertable, { onConflict: "url", ignoreDuplicates: true })
       .select("id");
     if (error) return json({ error: error.message, errors }, 500);
     inserted = data?.length ?? 0;
   }
 
+  // ---- Record source health in the registry ----
+  if (registry) {
+    const nowIso = new Date().toISOString();
+    await Promise.all(
+      sources.map(async (src) => {
+        const h = health.get(src.name);
+        if (!h) return;
+        if (h.ok) {
+          await supabase.from("sources")
+            .update({ failure_count: 0, last_success_at: nowIso, last_error: null })
+            .eq("name", src.name);
+        } else {
+          const failures = (src.failure_count ?? 0) + 1;
+          await supabase.from("sources")
+            .update({ failure_count: failures, last_error: h.error ?? "unknown", enabled: failures < DISABLE_AFTER_FAILURES })
+            .eq("name", src.name);
+        }
+      })
+    );
+  }
+
   const byTopic: Record<string, number> = {};
   let withImage = 0;
-  for (const r of ranked) {
+  for (const r of insertable) {
     const t = String(r.topic ?? "none");
     byTopic[t] = (byTopic[t] ?? 0) + 1;
     if (r.image_url) withImage++;
   }
 
-  return json({ scraped: scraped.length, dropped, unique: unique.length, new: fresh.length, considered: ranked.length, inserted, withImage, byTopic, errors });
+  return json({
+    registry,
+    sources: sources.length,
+    scraped: scraped.length,
+    dropped,
+    unique: unique.length,
+    new: fresh.length,
+    considered: ranked.length,
+    sectionEnriched,
+    inserted,
+    withImage,
+    byTopic,
+    errors,
+  });
 });

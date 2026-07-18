@@ -30,6 +30,7 @@ export const SOURCES: Source[] = [
   { name: "Deccan Herald India", url: "https://www.deccanherald.com/stories.rss?type=india", weight: 0.85, topic: "India" },
   { name: "India Today", url: "https://www.indiatoday.in/rss/1206578", weight: 0.9, topic: "India" },
   { name: "ABP Live English", url: "https://news.abplive.com/news/india/feed", weight: 0.85, topic: "India" },
+  { name: "BBC India", url: "https://feeds.bbci.co.uk/news/world/asia/india/rss.xml", weight: 0.8, topic: "India" },
 
   // ---- Politics (dedicated Indian political coverage) ----
   { name: "IE Political Pulse", url: "https://indianexpress.com/section/political-pulse/feed/", weight: 0.95, topic: "Politics" },
@@ -69,9 +70,12 @@ export const SOURCES: Source[] = [
   // ---- Sports ----
   { name: "The Hindu Sport", url: "https://www.thehindu.com/sport/feeder/default.rss", weight: 0.8, topic: "Sports" },
   { name: "Times of India Sports", url: "https://timesofindia.indiatimes.com/rssfeeds/4719148.cms", weight: 0.75, topic: "Sports" },
+  { name: "BBC Sport", url: "https://feeds.bbci.co.uk/sport/rss.xml", weight: 0.75, topic: "Sports" },
+  { name: "NDTV Sports", url: "https://feeds.feedburner.com/ndtvsports-latest", weight: 0.75, topic: "Sports" },
 
   // ---- Science / technology ----
   { name: "The Hindu Sci-Tech", url: "https://www.thehindu.com/sci-tech/feeder/default.rss", weight: 0.8, topic: "Science" },
+  { name: "BBC Science", url: "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", weight: 0.75, topic: "Science" },
   { name: "Times of India Tech", url: "https://timesofindia.indiatimes.com/rssfeeds/66949542.cms", weight: 0.75, topic: "Technology" },
   { name: "Economic Times Tech", url: "https://economictimes.indiatimes.com/tech/rssfeeds/13357270.cms", weight: 0.8, topic: "Technology" },
   { name: "Indian Express Technology", url: "https://indianexpress.com/section/technology/feed/", weight: 0.8, topic: "Technology" },

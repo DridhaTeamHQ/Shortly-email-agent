@@ -160,6 +160,77 @@ export async function fetchPageOgImage(url: string): Promise<string | null> {
   return extractOgImage(await fetchArticleHtml(url));
 }
 
+// ---- NewsArticle structured data ----
+// Publishers embed schema.org NewsArticle JSON-LD in article pages: headline,
+// description, image, datePublished. It's the most reliable metadata on the
+// page (it's what Google News reads), so prefer it over og:/meta tags. Used by
+// scrape-news for section-page sources whose links carry no feed metadata.
+export type ArticleMeta = {
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  publishedAt: string | null;
+};
+
+function jsonLdArticle(node: unknown): Record<string, unknown> | null {
+  if (!node || typeof node !== "object") return null;
+  if (Array.isArray(node)) {
+    for (const n of node) {
+      const hit = jsonLdArticle(n);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  const obj = node as Record<string, unknown>;
+  const type = obj["@type"];
+  const types = Array.isArray(type) ? type.map(String) : [String(type ?? "")];
+  if (types.some((t) => /Article$/i.test(t) || t === "Article")) return obj;
+  if (obj["@graph"]) return jsonLdArticle(obj["@graph"]);
+  return null;
+}
+
+function jsonLdImage(raw: unknown): string | null {
+  if (typeof raw === "string") return /^https?:\/\//i.test(raw) ? raw : null;
+  if (Array.isArray(raw)) return jsonLdImage(raw[0]);
+  if (raw && typeof raw === "object") return jsonLdImage((raw as Record<string, unknown>).url);
+  return null;
+}
+
+export function extractArticleMeta(html: string): ArticleMeta {
+  const meta: ArticleMeta = { title: null, description: null, image: null, publishedAt: null };
+  for (const m of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const article = jsonLdArticle(JSON.parse(m[1].trim()));
+      if (!article) continue;
+      meta.title = String(article.headline ?? "").trim() || null;
+      meta.description = String(article.description ?? "").trim() || null;
+      meta.image = jsonLdImage(article.image);
+      meta.publishedAt = String(article.datePublished ?? "").trim() || null;
+      if (meta.title) break;
+    } catch {
+      // malformed JSON-LD block — try the next one
+    }
+  }
+  if (!meta.title) meta.title = extractPageTitle(html);
+  if (!meta.description) {
+    const d =
+      html.match(/<meta[^>]+property=["']og:description["'][^>]*content=["']([^"']*)["']/i) ??
+      html.match(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']*)["']/i);
+    meta.description = decodeEntities(d?.[1] ?? "").replace(/\s+/g, " ").trim() || null;
+  }
+  if (!meta.image) meta.image = extractOgImage(html);
+  if (!meta.publishedAt) {
+    const p = html.match(/<meta[^>]+property=["']article:published_time["'][^>]*content=["']([^"']*)["']/i);
+    meta.publishedAt = p?.[1]?.trim() || null;
+  }
+  return meta;
+}
+
+// Fetch an article page and return its structured metadata.
+export async function fetchArticleMeta(url: string): Promise<ArticleMeta> {
+  return extractArticleMeta(await fetchArticleHtml(url));
+}
+
 export async function fetchReadableArticleText(url: string): Promise<string> {
   return extractReadableText(await fetchArticleHtml(url));
 }

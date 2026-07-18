@@ -16,6 +16,7 @@ const JUNK_TITLE_PATTERNS: RegExp[] = [
   /\b(top|best)\s+\d+\b/i,
   /\b(you (should|need to) know|here'?s (everything|all) you|things to know)\b/i,
   /\bquiz\b/i,
+  /\b(hindi translation|in hindi|hindi version)\b/i,
   // Live blogs / scores
   /\blive (updates|blog|score|coverage)\b/i,
   /\bhighlights?:/i,
@@ -31,9 +32,16 @@ const SIGNAL_URL_PATTERNS: RegExp[] = [
   /\/(explained|analysis|opinion|editorial|business|economy|policy|world|international|science|technology|sport|sports|politics|political-pulse|elections)\//i,
 ];
 
+// English-only feed: any Indic-script headline (Devanagari, Bengali, Tamil,
+// Telugu, Kannada, Malayalam, Gujarati, Gurmukhi, Odia) is dropped at scrape
+// time, along with "Hindi translation of…" editorial reposts.
+const INDIC_SCRIPT = /[ऀ-ൿ]/; // Devanagari .. Malayalam blocks
+
 export function looksLikeJunk(title: string, url: string): boolean {
   const t = title ?? "";
   const u = url ?? "";
+  if (INDIC_SCRIPT.test(t)) return true;
+  if (/\/\/(hindi|telugu|tamil|bangla|bengali|marathi|malayalam|kannada|gujarati|punjabi|urdu)\./i.test(u)) return true;
   if (JUNK_URL_PATTERNS.some((p) => p.test(u))) return true;
   if (JUNK_TITLE_PATTERNS.some((p) => p.test(t))) return true;
   // Drop near-empty or all-caps shouty headlines.

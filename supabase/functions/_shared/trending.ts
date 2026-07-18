@@ -102,17 +102,34 @@ export function greedyCluster(items: ClusterItem[], maxDist: number): Cluster[] 
 // several sources to the front of trending" means in practice.
 export const SOURCE_WEIGHT = 8;
 
-// Cluster hotness: distinct-source count (dominant term) + recency-weighted mass
-// (each member decays with a ~36h half-life exponential). A story carried by
-// many outlets always outranks one outlet spamming variations of a headline.
+// Media OWNERSHIP groups — TOI + ET + several section feeds are all the Times
+// Group, HT + Mint share HT Media, every NDTV feed is NDTV, etc. Counting
+// distinct GROUPS instead of feed names stops one media house's syndicated
+// copies from impersonating independent multi-outlet coverage (the research
+// doc's "excessive coverage from one media group" penalty).
+export function mediaGroupOf(source: string): string {
+  const s = String(source || "").toLowerCase();
+  if (s.includes("times of india") || s.includes("economic times") || s.startsWith("toi") || s.startsWith("et ")) return "times-group";
+  if (s.includes("hindustan times") || s.startsWith("ht ") || s === "mint" || s.includes("livemint")) return "ht-media";
+  if (s.includes("ndtv")) return "ndtv";
+  if (s.includes("indian express") || s.startsWith("ie ")) return "indian-express";
+  if (s.includes("the hindu")) return "the-hindu";
+  if (s.includes("bbc")) return "bbc";
+  return s || "unknown";
+}
+
+// Cluster hotness: distinct media-GROUP count (dominant term) + recency-weighted
+// mass (each member decays with a ~36h half-life exponential). A story carried
+// by several independent media houses always outranks one house spamming
+// variations of a headline across its own feeds.
 export function scoreCluster(members: ClusterItem[], now: number): number {
   let mass = 0;
-  const sources = new Set<string>();
+  const groups = new Set<string>();
   for (const m of members) {
     const t = new Date(m.scrapedAt).getTime();
     const ageHours = Number.isFinite(t) ? Math.max(0, (now - t) / 3_600_000) : 0;
     mass += Math.exp(-ageHours / 36);
-    if (m.source) sources.add(m.source.toLowerCase());
+    if (m.source) groups.add(mediaGroupOf(m.source));
   }
-  return sources.size * SOURCE_WEIGHT + mass;
+  return groups.size * SOURCE_WEIGHT + mass;
 }
