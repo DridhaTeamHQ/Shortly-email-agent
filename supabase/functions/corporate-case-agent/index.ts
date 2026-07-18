@@ -7,6 +7,7 @@ import { CORPORATE_CASE_SOURCES } from "../_shared/corporate-case-sources.ts";
 import { summarizeForBriefing, chatCompletionRaw } from "../_shared/summary-clean.ts";
 import { factCheckArticle } from "../_shared/fact-check.ts";
 import { findRelatedSources } from "../_shared/related-sources.ts";
+import { requireAgent } from "../_shared/agent-auth.ts";
 
 type Candidate = {
   title: string;
@@ -37,6 +38,10 @@ const EDITOR_CHECKLIST = [
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Server-side auth: service_role JWT (cron) or the dashboard's agent token.
+  const denied = await requireAgent(request);
+  if (denied) return denied;
+
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
 

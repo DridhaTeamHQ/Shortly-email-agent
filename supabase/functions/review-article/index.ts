@@ -7,6 +7,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { generateArticleVersions, versionsEnabled } from "../_shared/versions.ts";
+import { requireAgent } from "../_shared/agent-auth.ts";
 
 async function generateAndStoreVersions(supabase: ReturnType<typeof createClient>, id: string): Promise<void> {
   try {
@@ -35,6 +36,10 @@ type Action = "approve" | "reject" | "edit" | "reorder";
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Server-side auth: service_role JWT (cron) or the dashboard's agent token.
+  const denied = await requireAgent(request);
+  if (denied) return denied;
+
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   let body: {

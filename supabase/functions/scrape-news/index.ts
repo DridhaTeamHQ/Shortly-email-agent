@@ -18,6 +18,7 @@ import { cleanArticleText, extractArticleMeta } from "../_shared/article-text.ts
 import { SOURCES as STATIC_SOURCES } from "../_shared/sources.ts";
 import { parseFeed } from "../_shared/rss.ts";
 import { looksLikeJunk, qualityScore } from "../_shared/quality.ts";
+import { requireAgent } from "../_shared/agent-auth.ts";
 
 type RegistrySource = {
   name: string;
@@ -101,6 +102,10 @@ function extractSectionLinks(html: string, baseUrl: string): Array<{ url: string
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Server-side auth: service_role JWT (cron) or the dashboard's agent token.
+  const denied = await requireAgent(request);
+  if (denied) return denied;
+
 
   const supabaseUrl = requiredEnv("SUPABASE_URL");
   const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");

@@ -27,6 +27,7 @@ import {
   WINDOW_HOURS,
   MAX_ARTICLES,
 } from "../_shared/trending.ts";
+import { requireAgent } from "../_shared/agent-auth.ts";
 
 // The set of topics QA still cares about: live (suggested/approved) plus
 // recently-rejected (so a rejected topic isn't instantly re-suggested).
@@ -473,6 +474,10 @@ async function handleRemoveArticle(supabase: any, body: any): Promise<Response> 
 
 async function handleRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Server-side auth: service_role JWT (cron) or the dashboard's agent token.
+  const denied = await requireAgent(request);
+  if (denied) return denied;
+
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
 
   if (request.method === "GET") return await handleGet(supabase);

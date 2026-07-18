@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { matchesCategoryContent } from "../_shared/category-quality.ts";
+import { requireAgent } from "../_shared/agent-auth.ts";
 
 type Subscriber = { id: string; email: string; full_name: string | null };
 type DailyArticle = {
@@ -54,6 +55,10 @@ function isFresh(scrapedAt: string): boolean {
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Server-side auth: service_role JWT (cron) or the dashboard's agent token.
+  const denied = await requireAgent(request);
+  if (denied) return denied;
+
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const body = await request.json().catch(() => ({}));

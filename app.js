@@ -182,6 +182,10 @@ async function api(method, path, body) {
     headers["apikey"] = cfg.anonKey;
     headers["Authorization"] = `Bearer ${cfg.anonKey}`;
   }
+  // Edge functions verify this server-side (the anon key alone is public and
+  // proves nothing) — same token the login gate stored after verify-agent-token.
+  const agentToken = localStorage.getItem(AGENT_TOKEN_KEY);
+  if (agentToken) headers["x-agent-token"] = agentToken;
   const r = await fetch(path, {
     method,
     headers,
@@ -1649,20 +1653,10 @@ async function handleArticleAction(card, action) {
   const category = articleCategory(state.articles.find((article) => article.id === id) || {});
   if (category) body.category = category;
   try {
-    try {
-      await rpc("review_article_category_safe", {
-        p_id: id,
-        p_action: action,
-        p_reviewer: cfg.reviewer,
-        p_section: section,
-        p_category: category || null,
-        p_edited_title: body.edited_title || null,
-        p_edited_summary: body.edited_summary || null
-      });
-    } catch (rpcError) {
-      if (rpcError.message?.includes("review_article_category_safe")) throw rpcError;
-      await api("POST", cfg.review, body);
-    }
+    // Straight to the review-article edge fn: it is agent-token gated (the old
+    // anon-RPC path was revoked in the security hardening) and, unlike the RPC,
+    // kicks off reader-version generation on approve.
+    await api("POST", cfg.review, body);
     state.selected.delete(id);
     await reload();
     toast(action === "edit" ? "Summary saved." : `Article ${action}d.`);

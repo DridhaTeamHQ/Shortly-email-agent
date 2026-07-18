@@ -4,6 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { matchesCategoryContent } from "../_shared/category-quality.ts";
+import { requireAgent } from "../_shared/agent-auth.ts";
 
 function istDayWindow() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -20,6 +21,10 @@ function istDayWindow() {
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Server-side auth: service_role JWT (cron) or the dashboard's agent token.
+  const denied = await requireAgent(request);
+  if (denied) return denied;
+
   if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
 
   const url = new URL(request.url);

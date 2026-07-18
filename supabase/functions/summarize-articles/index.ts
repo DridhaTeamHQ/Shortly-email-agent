@@ -11,6 +11,7 @@ import { summarizeForBriefing } from "../_shared/summary-clean.ts";
 import { factCheckArticle, type FactCheckResult } from "../_shared/fact-check.ts";
 import { findRelatedSources } from "../_shared/related-sources.ts";
 import { embedTexts } from "../_shared/embeddings.ts";
+import { requireAgent } from "../_shared/agent-auth.ts";
 
 type Article = {
   id: string;
@@ -24,6 +25,10 @@ type Article = {
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Server-side auth: service_role JWT (cron) or the dashboard's agent token.
+  const denied = await requireAgent(request);
+  if (denied) return denied;
+
 
   const supabaseUrl = requiredEnv("SUPABASE_URL");
   const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");

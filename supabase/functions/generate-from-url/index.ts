@@ -17,6 +17,7 @@ import { findRelatedSources } from "../_shared/related-sources.ts";
 import { embedText } from "../_shared/embeddings.ts";
 import { buildCaseRow } from "../_shared/editorial-case.ts";
 import { getEditorialTopic, type EditorialTopic } from "../_shared/editorial-topics.ts";
+import { requireAgent } from "../_shared/agent-auth.ts";
 
 const SHORT_CATEGORIES = ["Real Estate", "Automobile", "Health & Wellness", "Tech & AI", "Markets & Startups"];
 
@@ -39,6 +40,10 @@ function hostnameSource(hostname: string): string {
 
 async function handleRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Server-side auth: service_role JWT (cron) or the dashboard's agent token.
+  const denied = await requireAgent(request);
+  if (denied) return denied;
+
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));

@@ -7,6 +7,7 @@ import {
   VALID_SOURCE_PREFERENCES,
   WEEKDAYS,
 } from "../_shared/news-categories.ts";
+import { requireAgent } from "../_shared/agent-auth.ts";
 
 // ---------- legacy plan model (kept for the old QA dashboard form) ----------
 const VALID_TOPICS = new Set([
@@ -132,6 +133,14 @@ function normalizeSourcePreference(value: unknown): string {
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  // The public site may ONLY submit the subscribe form. Everything else —
+  // listing subscribers (PII) and admin mutations — needs the dashboard's
+  // agent token or a service_role JWT.
+  if (request.method !== "POST" || (await request.clone().json().catch(() => ({})))?.action !== "subscribe") {
+    const denied = await requireAgent(request);
+    if (denied) return denied;
   }
 
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));

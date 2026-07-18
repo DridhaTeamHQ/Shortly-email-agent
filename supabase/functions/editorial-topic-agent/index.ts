@@ -9,6 +9,7 @@ import { matchesCategoryContent } from "../_shared/category-quality.ts";
 import { factCheckArticle } from "../_shared/fact-check.ts";
 import { findRelatedSources } from "../_shared/related-sources.ts";
 import { buildCaseRow, indiaDateLabel, openAiJson } from "../_shared/editorial-case.ts";
+import { requireAgent } from "../_shared/agent-auth.ts";
 
 type Candidate = {
   title: string;
@@ -37,6 +38,10 @@ const EDITORIAL_BACKLOG_LIMIT = Number(Deno.env.get("EDITORIAL_BACKLOG_LIMIT") ?
 
 async function handleRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Server-side auth: service_role JWT (cron) or the dashboard's agent token.
+  const denied = await requireAgent(request);
+  if (denied) return denied;
+
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
   const url = new URL(request.url);
 
