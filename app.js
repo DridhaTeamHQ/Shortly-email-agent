@@ -343,6 +343,14 @@ function logoutAgent() {
   window.location.href = agentAppUrl();
 }
 
+function authErrorMessage(error) {
+  const reason = error instanceof Error ? error.message : "Invalid shared token.";
+  if (reason === "invalid token signature") {
+    return "Token signature did not match. Set the same SHORTLY_AGENT_AUTH_SECRET in Shortly Agents and Supabase, then redeploy the Supabase functions.";
+  }
+  return reason;
+}
+
 async function unlockWithToken(token) {
   setAuthGate("Verifying access token...", true);
   const verification = await verifyAgentToken(token);
@@ -393,7 +401,7 @@ async function bootAuth() {
     }
   } catch (error) {
     clearAgentSession();
-    setAuthGate("Your Shortly Agents session is invalid or expired. Please open this dashboard again from Shortly Agents.", false);
+    setAuthGate(authErrorMessage(error), false);
     toast(error instanceof Error ? error.message : "Invalid shared token.");
   }
 }

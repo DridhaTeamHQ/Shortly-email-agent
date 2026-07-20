@@ -1,10 +1,20 @@
-import { json } from "../_shared/http.ts";
-
+const AUTH_VERSION = "2026-07-20-hmac-encodings";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-agent-token",
   "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS"
 };
+
+function authJson(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+      "x-shortly-auth-version": AUTH_VERSION
+    }
+  });
+}
 
 function readEnv(...names: string[]) {
   for (const name of names) {
@@ -170,29 +180,29 @@ Deno.serve(async (request) => {
   }
 
   if (request.method !== "POST") {
-    return json({ error: "Method not allowed" }, 405);
+    return authJson({ error: "Method not allowed" }, 405);
   }
 
   let body: { token?: string };
   try {
     body = await request.json();
   } catch {
-    return json({ error: "invalid JSON" }, 400);
+    return authJson({ error: "invalid JSON" }, 400);
   }
 
   const token = body.token?.trim();
   if (!token) {
-    return json({ error: "token is required" }, 400);
+    return authJson({ error: "token is required" }, 400);
   }
 
   const signedSecret = readEnv("SHORTLY_AGENT_AUTH_SECRET", "SHORTLY_AGENT_SHARED_TOKEN");
   if (!signedSecret) {
-    return json({ error: "Missing token verification secret." }, 500);
+    return authJson({ error: "Missing token verification secret." }, 500);
   }
 
   const signedVerification = await verifySignedToken(token, signedSecret);
   if (signedVerification.ok) {
-    return json({
+    return authJson({
       ok: true,
       app: "shortly-email-agent",
       session: signedVerification.payload
@@ -201,8 +211,11 @@ Deno.serve(async (request) => {
 
   const legacyToken = readEnv("SHORTLY_AGENT_SHARED_TOKEN");
   if (legacyToken && timingSafeEqualString(token, legacyToken)) {
-    return json({ ok: true, app: "shortly-email-agent", legacy: true });
+    return authJson({ ok: true, app: "shortly-email-agent", legacy: true });
   }
 
-  return json({ error: signedVerification.error || "invalid token" }, 401);
+  return authJson({
+    error: signedVerification.error || "invalid token",
+    authVersion: AUTH_VERSION
+  }, 401);
 });
