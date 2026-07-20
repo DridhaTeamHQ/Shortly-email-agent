@@ -59,19 +59,54 @@ async function hmacSignature(payload: string, secret: string): Promise<string> {
     .replace(/=+$/g, "");
 }
 
+function hasValidExpiry(payload: Record<string, unknown>): boolean {
+  const expiresAt = Number(payload.expiresAt || 0);
+  const exp = Number(payload.exp || 0);
+  if (expiresAt) return expiresAt > Date.now();
+  if (exp) return exp * 1000 > Date.now();
+  return false;
+}
+
+function hasValidAgentType(payload: Record<string, unknown>): boolean {
+  if (!payload.type) return true;
+  return payload.type === "agent-access" || payload.type === "shortly-agent-token";
+}
+
 async function isValidAgentToken(token: string): Promise<boolean> {
   if (!token) return false;
-  // Signed session token: <base64url payload>.<hmac>
   const signedSecret = readEnv("SHORTLY_AGENT_AUTH_SECRET", "SHORTLY_AGENT_SHARED_TOKEN");
-  const [encodedPayload, signature] = token.split(".");
-  if (signedSecret && encodedPayload && signature) {
+  const parts = token.split(".");
+
+  // HS256 JWT session token: <base64url header>.<base64url payload>.<hmac>
+  if (signedSecret && parts.length === 3) {
+    const [encodedHeader, encodedPayload, signature] = parts;
+    try {
+      const header = JSON.parse(new TextDecoder().decode(decodeBase64Url(encodedHeader)));
+      const payload = JSON.parse(new TextDecoder().decode(decodeBase64Url(encodedPayload)));
+      const expected = await hmacSignature(`${encodedHeader}.${encodedPayload}`, signedSecret);
+      if (
+        (!header.alg || header.alg === "HS256") &&
+        timingSafeEqualString(signature, expected) &&
+        hasValidExpiry(payload) &&
+        hasValidAgentType(payload)
+      ) {
+        return true;
+      }
+    } catch {
+      // fall through to legacy comparison
+    }
+  }
+
+  // Signed session token: <base64url payload>.<hmac>
+  if (signedSecret && parts.length === 2) {
+    const [encodedPayload, signature] = parts;
     try {
       const payload = JSON.parse(new TextDecoder().decode(decodeBase64Url(encodedPayload)));
       const expected = await hmacSignature(encodedPayload, signedSecret);
       if (
         timingSafeEqualString(signature, expected) &&
-        Number(payload.expiresAt || 0) > Date.now() &&
-        payload.type === "agent-access"
+        hasValidExpiry(payload) &&
+        hasValidAgentType(payload)
       ) {
         return true;
       }

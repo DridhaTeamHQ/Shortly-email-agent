@@ -53,8 +53,26 @@ async function createHmacSignature(payload: string, secret: string) {
     .replace(/=+$/g, "");
 }
 
-async function verifySignedToken(token: string, secret: string) {
-  const [encodedPayload, signature] = token.split(".");
+function hasValidExpiry(payload: Record<string, unknown>) {
+  const expiresAt = Number(payload.expiresAt || 0);
+  const exp = Number(payload.exp || 0);
+  if (expiresAt) return expiresAt > Date.now();
+  if (exp) return exp * 1000 > Date.now();
+  return false;
+}
+
+function hasValidAgentType(payload: Record<string, unknown>) {
+  if (!payload.type) return true;
+  return payload.type === "agent-access" || payload.type === "shortly-agent-token";
+}
+
+async function verifyPayloadToken(token: string, secret: string) {
+  const parts = token.split(".");
+  if (parts.length !== 2) {
+    return { ok: false, error: "invalid token" };
+  }
+
+  const [encodedPayload, signature] = parts;
   if (!encodedPayload || !signature) {
     return { ok: false, error: "invalid token" };
   }
@@ -72,12 +90,11 @@ async function verifySignedToken(token: string, secret: string) {
     return { ok: false, error: "invalid token signature" };
   }
 
-  const expiresAt = Number(payload.expiresAt || 0);
-  if (!expiresAt || expiresAt < Date.now()) {
+  if (!hasValidExpiry(payload)) {
     return { ok: false, error: "token expired" };
   }
 
-  if (payload.type !== "agent-access") {
+  if (!hasValidAgentType(payload)) {
     return { ok: false, error: "invalid token type" };
   }
 
@@ -85,6 +102,57 @@ async function verifySignedToken(token: string, secret: string) {
     ok: true,
     payload
   };
+}
+
+async function verifyJwtToken(token: string, secret: string) {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    return { ok: false, error: "invalid token" };
+  }
+
+  const [encodedHeader, encodedPayload, signature] = parts;
+  if (!encodedHeader || !encodedPayload || !signature) {
+    return { ok: false, error: "invalid token" };
+  }
+
+  let header: Record<string, unknown>;
+  let payload: Record<string, unknown>;
+  try {
+    header = JSON.parse(new TextDecoder().decode(decodeBase64Url(encodedHeader)));
+    payload = JSON.parse(new TextDecoder().decode(decodeBase64Url(encodedPayload)));
+  } catch {
+    return { ok: false, error: "invalid token payload" };
+  }
+
+  if (header.alg && header.alg !== "HS256") {
+    return { ok: false, error: "unsupported token algorithm" };
+  }
+
+  const expectedSignature = await createHmacSignature(`${encodedHeader}.${encodedPayload}`, secret);
+  if (!timingSafeEqualString(signature, expectedSignature)) {
+    return { ok: false, error: "invalid token signature" };
+  }
+
+  if (!hasValidExpiry(payload)) {
+    return { ok: false, error: "token expired" };
+  }
+
+  if (!hasValidAgentType(payload)) {
+    return { ok: false, error: "invalid token type" };
+  }
+
+  return {
+    ok: true,
+    payload
+  };
+}
+
+async function verifySignedToken(token: string, secret: string) {
+  const jwtVerification = await verifyJwtToken(token, secret);
+  if (jwtVerification.ok || token.split(".").length === 3) {
+    return jwtVerification;
+  }
+  return await verifyPayloadToken(token, secret);
 }
 
 Deno.serve(async (request) => {
