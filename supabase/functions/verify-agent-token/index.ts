@@ -37,7 +37,7 @@ function decodeBase64Url(value: string) {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-async function createHmacSignature(payload: string, secret: string) {
+async function createHmacSignatures(payload: string, secret: string) {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -47,10 +47,16 @@ async function createHmacSignature(payload: string, secret: string) {
   );
 
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  return btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
+  const bytes = new Uint8Array(signature);
+  const base64 = btoa(String.fromCharCode(...bytes));
+  const base64url = base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return [base64url, base64, hex];
+}
+
+async function matchesHmacSignature(signature: string, payload: string, secret: string) {
+  const expectedSignatures = await createHmacSignatures(payload, secret);
+  return expectedSignatures.some((expected) => timingSafeEqualString(signature, expected));
 }
 
 function hasValidExpiry(payload: Record<string, unknown>) {
@@ -87,11 +93,9 @@ async function verifyPayloadToken(token: string, secret: string) {
     return { ok: false, error: "invalid token payload" };
   }
 
-  const expectedEncodedSignature = await createHmacSignature(encodedPayload, secret);
-  const expectedPayloadSignature = await createHmacSignature(payloadText, secret);
   if (
-    !timingSafeEqualString(signature, expectedEncodedSignature) &&
-    !timingSafeEqualString(signature, expectedPayloadSignature)
+    !(await matchesHmacSignature(signature, encodedPayload, secret)) &&
+    !(await matchesHmacSignature(signature, payloadText, secret))
   ) {
     return { ok: false, error: "invalid token signature" };
   }
@@ -134,8 +138,7 @@ async function verifyJwtToken(token: string, secret: string) {
     return { ok: false, error: "unsupported token algorithm" };
   }
 
-  const expectedSignature = await createHmacSignature(`${encodedHeader}.${encodedPayload}`, secret);
-  if (!timingSafeEqualString(signature, expectedSignature)) {
+  if (!(await matchesHmacSignature(signature, `${encodedHeader}.${encodedPayload}`, secret))) {
     return { ok: false, error: "invalid token signature" };
   }
 

@@ -44,7 +44,7 @@ function decodeBase64Url(value: string): Uint8Array {
   return Uint8Array.from(binary, (c) => c.charCodeAt(0));
 }
 
-async function hmacSignature(payload: string, secret: string): Promise<string> {
+async function hmacSignatures(payload: string, secret: string): Promise<string[]> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -53,10 +53,16 @@ async function hmacSignature(payload: string, secret: string): Promise<string> {
     ["sign"],
   );
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  return btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
+  const bytes = new Uint8Array(signature);
+  const base64 = btoa(String.fromCharCode(...bytes));
+  const base64url = base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return [base64url, base64, hex];
+}
+
+async function matchesHmacSignature(signature: string, payload: string, secret: string): Promise<boolean> {
+  const expectedSignatures = await hmacSignatures(payload, secret);
+  return expectedSignatures.some((expected) => timingSafeEqualString(signature, expected));
 }
 
 function hasValidExpiry(payload: Record<string, unknown>): boolean {
@@ -83,10 +89,9 @@ async function isValidAgentToken(token: string): Promise<boolean> {
     try {
       const header = JSON.parse(new TextDecoder().decode(decodeBase64Url(encodedHeader)));
       const payload = JSON.parse(new TextDecoder().decode(decodeBase64Url(encodedPayload)));
-      const expected = await hmacSignature(`${encodedHeader}.${encodedPayload}`, signedSecret);
       if (
         (!header.alg || header.alg === "HS256") &&
-        timingSafeEqualString(signature, expected) &&
+        (await matchesHmacSignature(signature, `${encodedHeader}.${encodedPayload}`, signedSecret)) &&
         hasValidExpiry(payload) &&
         hasValidAgentType(payload)
       ) {
@@ -103,11 +108,9 @@ async function isValidAgentToken(token: string): Promise<boolean> {
     try {
       const payloadText = new TextDecoder().decode(decodeBase64Url(encodedPayload));
       const payload = JSON.parse(payloadText);
-      const expectedEncoded = await hmacSignature(encodedPayload, signedSecret);
-      const expectedPayload = await hmacSignature(payloadText, signedSecret);
       if (
-        (timingSafeEqualString(signature, expectedEncoded) ||
-          timingSafeEqualString(signature, expectedPayload)) &&
+        ((await matchesHmacSignature(signature, encodedPayload, signedSecret)) ||
+          (await matchesHmacSignature(signature, payloadText, signedSecret))) &&
         hasValidExpiry(payload) &&
         hasValidAgentType(payload)
       ) {
