@@ -249,6 +249,12 @@ function setAuthGate(message, busy = false) {
   gate.style.display = "flex";
 }
 
+function clearAgentSession() {
+  localStorage.removeItem(AGENT_TOKEN_KEY);
+  localStorage.removeItem(AGENT_SESSION_KEY);
+  renderAgentSession();
+}
+
 function unlockDashboardUi() {
   ensureAuthGate().style.display = "none";
   $(".app").style.display = "";
@@ -333,8 +339,7 @@ function renderAgentSession() {
 }
 
 function logoutAgent() {
-  localStorage.removeItem(AGENT_TOKEN_KEY);
-  localStorage.removeItem(AGENT_SESSION_KEY);
+  clearAgentSession();
   window.location.href = agentAppUrl();
 }
 
@@ -375,11 +380,7 @@ async function bootAuth() {
   const token = tokenFromUrl || storedToken;
 
   if (!token) {
-    unlockDashboardUi();
-    if (!dashboardBooted) {
-      dashboardBooted = true;
-      await bootDashboard();
-    }
+    setAuthGate("Open this dashboard from Shortly Agents to continue.", false);
     return;
   }
 
@@ -391,14 +392,9 @@ async function bootAuth() {
       window.history.replaceState({}, "", url.toString());
     }
   } catch (error) {
-    localStorage.removeItem(AGENT_TOKEN_KEY);
-    localStorage.removeItem(AGENT_SESSION_KEY);
-    unlockDashboardUi();
-    if (!dashboardBooted) {
-      dashboardBooted = true;
-      await bootDashboard();
-    }
-    toast(error instanceof Error ? error.message : "Invalid shared token. Opened dashboard normally.");
+    clearAgentSession();
+    setAuthGate("Your Shortly Agents session is invalid or expired. Please open this dashboard again from Shortly Agents.", false);
+    toast(error instanceof Error ? error.message : "Invalid shared token.");
   }
 }
 
