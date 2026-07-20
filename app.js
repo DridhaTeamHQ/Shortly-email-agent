@@ -3,6 +3,7 @@
 const cfg = window.SHORTLY;
 const DAILY_CAP = cfg.dailyCap ?? 10;
 const AGENT_TOKEN_KEY = "shortly-agent-shared-token";
+const AGENT_SESSION_KEY = "shortly-agent-session";
 let dashboardBooted = false;
 
 const NEWSLETTER_TOPICS = [
@@ -258,10 +259,90 @@ async function verifyAgentToken(token) {
   return api("POST", cfg.verifyToken, { token });
 }
 
+function agentAppUrl() {
+  return cfg.agentAppUrl || "https://shortlyagents.vercel.app";
+}
+
+function displayNameFromSession(session) {
+  if (!session || typeof session !== "object") return "Agent";
+  const user = session.user && typeof session.user === "object" ? session.user : {};
+  return (
+    session.name ||
+    session.fullName ||
+    session.full_name ||
+    session.displayName ||
+    session.personName ||
+    session.person_name ||
+    session.userName ||
+    session.username ||
+    user.name ||
+    user.fullName ||
+    user.full_name ||
+    user.displayName ||
+    user.personName ||
+    user.person_name ||
+    user.userName ||
+    user.username ||
+    session.email ||
+    user.email ||
+    "Agent"
+  );
+}
+
+function initialsForName(name) {
+  const parts = String(name || "Agent").trim().split(/\s+/).filter(Boolean);
+  const initials = parts.slice(0, 2).map((part) => part[0]).join("");
+  return initials.toUpperCase() || "A";
+}
+
+function saveAgentSession(verification) {
+  const session = verification?.session || null;
+  if (session) {
+    localStorage.setItem(AGENT_SESSION_KEY, JSON.stringify(session));
+  } else if (verification?.legacy) {
+    localStorage.setItem(AGENT_SESSION_KEY, JSON.stringify({ name: "Agent" }));
+  }
+  renderAgentSession();
+}
+
+function readAgentSession() {
+  try {
+    return JSON.parse(localStorage.getItem(AGENT_SESSION_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function renderAgentSession() {
+  const wrap = $("#agentSession");
+  const nameEl = $("#agentName");
+  const avatar = $("#agentAvatar");
+  if (!wrap || !nameEl || !avatar) return;
+
+  const session = readAgentSession();
+  const hasToken = Boolean(localStorage.getItem(AGENT_TOKEN_KEY));
+  if (!session && !hasToken) {
+    wrap.hidden = true;
+    return;
+  }
+
+  const name = displayNameFromSession(session);
+  nameEl.textContent = name;
+  avatar.textContent = initialsForName(name);
+  wrap.hidden = false;
+}
+
+function logoutAgent() {
+  localStorage.removeItem(AGENT_TOKEN_KEY);
+  localStorage.removeItem(AGENT_SESSION_KEY);
+  window.location.href = agentAppUrl();
+}
+
 async function unlockWithToken(token) {
   setAuthGate("Verifying access token...", true);
-  await verifyAgentToken(token);
+  const verification = await verifyAgentToken(token);
   localStorage.setItem(AGENT_TOKEN_KEY, token);
+  saveAgentSession(verification);
   unlockDashboardUi();
   if (!dashboardBooted) {
     dashboardBooted = true;
@@ -311,6 +392,7 @@ async function bootAuth() {
     }
   } catch (error) {
     localStorage.removeItem(AGENT_TOKEN_KEY);
+    localStorage.removeItem(AGENT_SESSION_KEY);
     unlockDashboardUi();
     if (!dashboardBooted) {
       dashboardBooted = true;
@@ -2196,6 +2278,7 @@ function openMenu() {
 // ---------- wire up ----------
 initTheme();
 setWorkspace(localStorage.getItem(WORKSPACE_KEY) || "short");
+renderAgentSession();
 
 $("#menuToggle")?.addEventListener("click", () => {
   $("#sidebar").classList.contains("open") ? closeMenu() : openMenu();
@@ -2218,6 +2301,7 @@ $$(".nav-item").forEach((btn) =>
 
 // Theme toggle
 $("#themeToggle").addEventListener("click", toggleTheme);
+$("#logoutAgent")?.addEventListener("click", logoutAgent);
 
 // Search & filter
 $("#searchArticles").addEventListener("input", (e) => {

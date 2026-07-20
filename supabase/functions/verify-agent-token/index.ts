@@ -2,7 +2,7 @@ import { json } from "../_shared/http.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-agent-token",
   "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS"
 };
 

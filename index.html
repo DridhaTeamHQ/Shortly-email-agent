@@ -83,8 +83,16 @@
             <p class="muted" id="sectionSub">Approve articles for today's digest.</p>
           </div>
           <div class="topbar-actions">
+            <div class="agent-session" id="agentSession" hidden>
+              <span class="agent-avatar" id="agentAvatar">A</span>
+              <span class="agent-copy">
+                <span class="agent-kicker">Signed in</span>
+                <span class="agent-name" id="agentName">Agent</span>
+              </span>
+            </div>
             <button id="previewDigest" class="btn-ghost" style="display:none">Preview</button>
             <button id="sendDigest" class="btn-primary" disabled>Send digest</button>
+            <button id="logoutAgent" class="btn-ghost" type="button">Logout</button>
           </div>
         </header>
 

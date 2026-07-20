@@ -220,6 +220,30 @@ a:hover { text-decoration-color: var(--ink); }
 .topbar h1 { margin: 0 0 5px; font-size: 30px; font-weight: 700; }
 .topbar p { margin: 0; }
 .topbar-actions { display: flex; gap: 8px; align-items: center; }
+.agent-session[hidden] { display: none; }
+.agent-session {
+  display: flex; align-items: center; gap: 9px;
+  min-width: 0; max-width: 240px;
+  padding: 6px 10px 6px 7px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+.agent-avatar {
+  flex: 0 0 auto; width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: 999px; background: var(--ink); color: var(--surface);
+  font-size: 11px; font-weight: 800;
+}
+.agent-copy { min-width: 0; display: grid; gap: 1px; }
+.agent-kicker {
+  color: var(--muted); font-size: 10px; line-height: 1;
+  font-weight: 700; text-transform: uppercase;
+}
+.agent-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink); font-size: 13px; line-height: 1.15; font-weight: 700;
+}
 
 /* ── Buttons ── */
 .btn-primary {
@@ -910,6 +934,7 @@ a:hover { text-decoration-color: var(--ink); }
   .topbar { flex-direction: column; align-items: stretch; gap: 12px; }
   .topbar h1 { font-size: 24px; }
   .topbar-actions { flex-direction: column; }
+  .agent-session { width: 100%; max-width: none; }
   .btn-primary, .btn-ghost { width: 100%; }
   #sendDigest { width: 100%; padding: 14px; }
   .toolbar { flex-direction: column; }
