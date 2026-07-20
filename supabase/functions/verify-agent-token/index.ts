@@ -78,15 +78,21 @@ async function verifyPayloadToken(token: string, secret: string) {
   }
 
   let payload: Record<string, unknown>;
+  let payloadText = "";
   try {
     const bytes = decodeBase64Url(encodedPayload);
-    payload = JSON.parse(new TextDecoder().decode(bytes));
+    payloadText = new TextDecoder().decode(bytes);
+    payload = JSON.parse(payloadText);
   } catch {
     return { ok: false, error: "invalid token payload" };
   }
 
-  const expectedSignature = await createHmacSignature(encodedPayload, secret);
-  if (!timingSafeEqualString(signature, expectedSignature)) {
+  const expectedEncodedSignature = await createHmacSignature(encodedPayload, secret);
+  const expectedPayloadSignature = await createHmacSignature(payloadText, secret);
+  if (
+    !timingSafeEqualString(signature, expectedEncodedSignature) &&
+    !timingSafeEqualString(signature, expectedPayloadSignature)
+  ) {
     return { ok: false, error: "invalid token signature" };
   }
 

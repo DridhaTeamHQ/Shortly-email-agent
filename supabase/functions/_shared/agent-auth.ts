@@ -101,10 +101,13 @@ async function isValidAgentToken(token: string): Promise<boolean> {
   if (signedSecret && parts.length === 2) {
     const [encodedPayload, signature] = parts;
     try {
-      const payload = JSON.parse(new TextDecoder().decode(decodeBase64Url(encodedPayload)));
-      const expected = await hmacSignature(encodedPayload, signedSecret);
+      const payloadText = new TextDecoder().decode(decodeBase64Url(encodedPayload));
+      const payload = JSON.parse(payloadText);
+      const expectedEncoded = await hmacSignature(encodedPayload, signedSecret);
+      const expectedPayload = await hmacSignature(payloadText, signedSecret);
       if (
-        timingSafeEqualString(signature, expected) &&
+        (timingSafeEqualString(signature, expectedEncoded) ||
+          timingSafeEqualString(signature, expectedPayload)) &&
         hasValidExpiry(payload) &&
         hasValidAgentType(payload)
       ) {
