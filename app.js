@@ -262,7 +262,20 @@ function unlockDashboardUi() {
 
 async function verifyAgentToken(token) {
   if (!cfg.verifyToken) throw new Error("Missing verifyToken endpoint");
-  return api("POST", cfg.verifyToken, { token });
+  const headers = { "Content-Type": "application/json" };
+  if (cfg.anonKey) {
+    headers.apikey = cfg.anonKey;
+    headers.Authorization = `Bearer ${cfg.anonKey}`;
+  }
+
+  const response = await fetch(cfg.verifyToken, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ token })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
 }
 
 function agentAppUrl() {

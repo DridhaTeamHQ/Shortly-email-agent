@@ -291,7 +291,7 @@ window.SHORTLY = {
 };`;
 
 async function api(req, res, pathname, url) {
-  if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "content-type,authorization,apikey" }); return res.end(); }
+  if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "content-type,authorization,apikey,x-agent-token,x-admin-token" }); return res.end(); }
 
   if (pathname === "/api/list-articles" && req.method === "GET") {
     const status = url.searchParams.get("status") || "summarized";
