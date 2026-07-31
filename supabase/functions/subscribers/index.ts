@@ -193,6 +193,7 @@ Deno.serve(async (request) => {
         send_days: sendDays,
         source_preference: sourcePreference,
         status: "subscribed",
+        unsubscribed_at: null,
         updated_at: new Date().toISOString(),
       };
       if (normalizedName) record.full_name = normalizedName;
@@ -237,6 +238,7 @@ Deno.serve(async (request) => {
           plan,
           category,
           topics: normalizedTopics,
+          unsubscribed_at: null,
           updated_at: new Date().toISOString()
         };
         if (normalizedName) patch.full_name = normalizedName;
@@ -275,6 +277,7 @@ Deno.serve(async (request) => {
           category,
           topics,
           status: "subscribed",
+          unsubscribed_at: null,
           updated_at: updatedAt
         });
       }
@@ -296,7 +299,12 @@ Deno.serve(async (request) => {
       const { id, status } = body;
       if (!id) return json({ error: "id is required" }, 400);
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      if (status) patch.status = status;
+      if (status) {
+        patch.status = status;
+        patch.unsubscribed_at = status === "unsubscribed" || status === "bounced"
+          ? new Date().toISOString()
+          : null;
+      }
       if ("plan" in body) {
         const plan = normalizePlan(body.plan);
         patch.plan = plan;

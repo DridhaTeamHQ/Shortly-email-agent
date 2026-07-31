@@ -1,4 +1,4 @@
-// Smoke test: approve 10 articles, verify 11th is blocked, send digest.
+// Smoke test: approve 5 articles, verify 6th is blocked, send digest.
 const base = "http://localhost:4173";
 const j = (path, opts = {}) =>
   fetch(base + path, { headers: { "Content-Type": "application/json" }, ...opts })

@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
+import { renderPrivacyFooter } from "../_shared/privacy.ts";
 
 type ArticlePayload = {
   title: string;
@@ -76,7 +77,7 @@ Deno.serve(async (request) => {
     const result = await sendEmail({
       to: subscriber.email,
       subject: article.title,
-      html: renderEmail(article, subscriber),
+      html: await renderEmail(article, subscriber),
     });
 
     if (result.ok) {
@@ -118,10 +119,11 @@ function requiredEnv(name: string) {
   return value;
 }
 
-function renderEmail(article: ArticlePayload, subscriber: Subscriber) {
+async function renderEmail(article: ArticlePayload, subscriber: Subscriber): Promise<string> {
   const name = subscriber.full_name ? ` ${escapeHtml(subscriber.full_name)}` : "";
   const source = article.source ? `<p style="color:#6d28d9;font-weight:700;margin:0 0 12px">${escapeHtml(article.source)}</p>` : "";
   const note = article.note ? `<p style="color:#5f5673;margin:0 0 18px">${escapeHtml(article.note)}</p>` : "";
+  const privacyFooter = await renderPrivacyFooter(subscriber.email);
 
   return `
     <div style="margin:0;background:#f5f3ff;padding:32px;font-family:Roboto,Arial,sans-serif;color:#2d0f57">
@@ -135,6 +137,7 @@ function renderEmail(article: ArticlePayload, subscriber: Subscriber) {
         <h1 style="font-size:32px;line-height:1.12;margin:0 0 16px;color:#51209a;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(article.title)}</h1>
         <p style="font-size:16px;line-height:1.7;color:#5f5673;margin:0 0 24px">${escapeHtml(article.summary)}</p>
         <a href="${escapeHtml(article.url)}" style="display:inline-block;background:#6d28d9;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:13px 18px">Read article</a>
+        ${privacyFooter}
       </div>
     </div>
   `;

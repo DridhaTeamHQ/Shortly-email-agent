@@ -5,6 +5,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
+import { renderPrivacyFooter } from "../_shared/privacy.ts";
+import { matchesCategoryContent } from "../_shared/category-quality.ts";
 
 type Subscriber = { id: string; email: string; full_name: string | null; topics?: string[] | null };
 type DailyArticle = {
@@ -16,6 +18,7 @@ type DailyArticle = {
   url: string;
   source: string | null;
   topic: string | null;
+  category: string | null;
   scraped_at: string;
 };
 type EditorialDraft = {
@@ -54,9 +57,16 @@ const TOPIC_LABELS: Record<string, string> = {
 };
 const TOPIC_SLUGS = Object.keys(TOPIC_LABELS);
 const CASE_STUDY_TOPICS = ["real-estate", "automobile", "health-wellness", "tech-ai", "markets-startups"];
+const TOPIC_CATEGORY_LABELS: Record<string, string> = {
+  "real-estate": "Real Estate",
+  "automobile": "Automobile",
+  "health-wellness": "Health & Wellness",
+  "tech-ai": "Tech & AI",
+  "markets-startups": "Markets & Startups",
+};
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
-  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/figma-email-banner.png";
 const FOOTER_LOGO_URL =
   Deno.env.get("SHORTLY_FOOTER_LOGO_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/footer-logo.png";
@@ -90,15 +100,6 @@ Deno.serve(async (request) => {
   try {
     supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
 
-    // Duplicate guard: skip if a real digest was sent in the last 2 minutes.
-    if (!dryRun && !forceSend) {
-      const recentCutoff = new Date(Date.now() - 120 * 1000).toISOString();
-      const { data: recent } = await supabase
-        .from("digests").select("id").gt("recipients", 0).gte("sent_at", recentCutoff)
-        .order("sent_at", { ascending: false }).limit(1).maybeSingle();
-      if (recent) return json({ skipped: true, reason: "A digest was already sent in the last 2 minutes.", digestId: recent.id });
-    }
-
     [items, subscribers] = await Promise.all([
       loadDigestItems(supabase, topic),
       loadSubscribers(supabase, topic, subscriberIds),
@@ -110,11 +111,26 @@ Deno.serve(async (request) => {
   if (items.length === 0) return json({ error: `No approved ${topicLabel(topic)} items available to send` }, 400);
   if (subscribers.length === 0) return json({ error: "No subscribers" }, 400);
 
+  if (!dryRun && !forceSend) {
+    const recentDuplicate = await findRecentDuplicateDigest(
+      supabase,
+      digestContentIds(items),
+      subscribers.length,
+    );
+    if (recentDuplicate) {
+      return json({
+        skipped: true,
+        reason: "This same article set was already sent in the last 2 minutes.",
+        digestId: recentDuplicate.id
+      });
+    }
+  }
+
   if (dryRun) {
     return json({ dryRun: true, topic, topicLabel: topicLabel(topic), items: items.length, recipients: subscribers.length });
   }
 
-  const dailyIds = items.filter((item) => item.topic === "daily-wrap").map((item) => item.id);
+  const dailyIds = digestContentIds(items);
   const { data: digest, error: digestError } = await supabase
     .from("digests")
     .insert({ article_ids: dailyIds, recipients: subscribers.length })
@@ -125,10 +141,10 @@ Deno.serve(async (request) => {
 
   const subjectDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
   const subject = topic === "case-study-pool"
-    ? `${subjectDate} - Shortly Case Study`
+    ? `${subjectDate} - Daily Mattr Case Study`
     : topic === "all-topics"
-    ? `${subjectDate} - Shortly topic digest is here!`
-    : `${subjectDate} - ${topicLabel(topic)} from Shortly`;
+    ? `${subjectDate} - Daily Mattr topic digest is here!`
+    : `${subjectDate} - ${topicLabel(topic)} from Daily Mattr`;
 
   let sent = 0;
   let failed = 0;
@@ -137,7 +153,7 @@ Deno.serve(async (request) => {
   for (let i = 0; i < subscribers.length; i += batchSize) {
     const batch = subscribers.slice(i, i + batchSize);
     const results = await Promise.all(batch.map(async (sub) => {
-      const result = await sendEmail({ to: sub.email, subject, html: renderDigest(items, sub, topic) });
+      const result = await sendEmail({ to: sub.email, subject, html: await renderDigest(items, sub, topic) });
       await supabase.from("article_deliveries").insert({
         digest_id: digestId,
         subscriber_id: sub.id,
@@ -189,6 +205,34 @@ function topicLabel(topic: string): string {
   return TOPIC_LABELS[topic] ?? topic;
 }
 
+async function findRecentDuplicateDigest(
+  supabase: any,
+  articleIds: string[],
+  recipients: number,
+): Promise<{ id: string } | null> {
+  if (articleIds.length === 0 || recipients <= 0) return null;
+  const recentCutoff = new Date(Date.now() - 120 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("digests")
+    .select("id,article_ids,recipients")
+    .gt("recipients", 0)
+    .gte("sent_at", recentCutoff)
+    .order("sent_at", { ascending: false })
+    .limit(20);
+  if (error) throw new Error(error.message);
+
+  const target = [...articleIds].sort().join("|");
+  return ((data ?? []) as Array<{ id: string; article_ids: string[] | null; recipients: number }>)
+    .find((digest) =>
+      Number(digest.recipients ?? 0) === recipients &&
+      [...(digest.article_ids ?? [])].sort().join("|") === target
+    ) ?? null;
+}
+
+function digestContentIds(items: DigestItem[]): string[] {
+  return [...new Set(items.map((item) => item.id.split(":", 1)[0]))];
+}
+
 function istDayWindow() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"
@@ -203,13 +247,13 @@ async function loadSubscribers(supabase: any, topic: string, subscriberIds: stri
     .from("subscribers")
     .select("id,email,full_name,topics")
     .eq("status", "subscribed");
-
-  if (subscriberIds.length > 0) {
-    query = query.in("id", subscriberIds);
-  } else if (topic === "case-study-pool") {
+  if (topic === "case-study-pool") {
     query = query.overlaps("topics", CASE_STUDY_TOPICS);
   } else if (topic !== "all-topics") {
     query = query.contains("topics", [topic]);
+  }
+  if (subscriberIds.length > 0) {
+    query = query.in("id", subscriberIds);
   }
 
   const { data, error } = await query;
@@ -220,7 +264,7 @@ async function loadSubscribers(supabase: any, topic: string, subscriberIds: stri
 async function loadDigestItems(supabase: any, topic: string): Promise<DigestItem[]> {
   if (topic === "daily-wrap") return loadDailyItems(supabase);
   if (topic === "case-study-pool") return loadCaseStudyPoolItem(supabase);
-  if (topic !== "all-topics") return loadEditorialItems(supabase, topic);
+  if (topic !== "all-topics") return loadTopicShortItems(supabase, topic);
 
   const [daily, editorial] = await Promise.all([
     loadDailyItems(supabase),
@@ -233,14 +277,14 @@ async function loadDailyItems(supabase: any): Promise<DigestItem[]> {
   const { start, end } = istDayWindow();
   const { data, error } = await supabase
     .from("articles")
-    .select("id,title,edited_title,summary,edited_summary,url,source,topic,scraped_at")
+    .select("id,title,edited_title,summary,edited_summary,url,source,topic,category,scraped_at")
     .eq("status", "approved")
     .is("category", null)
     .gte("scraped_at", start)
     .lt("scraped_at", end)
     .order("rank_score", { ascending: false })
     .order("scraped_at", { ascending: false })
-    .limit(5);
+    .limit(10);
   if (error) throw new Error(error.message);
 
   return ((data ?? []) as DailyArticle[]).map((article) => ({
@@ -252,6 +296,38 @@ async function loadDailyItems(supabase: any): Promise<DigestItem[]> {
     sourceUrl: article.url,
     source: article.source,
   }));
+}
+
+async function loadTopicShortItems(supabase: any, topic: string): Promise<DigestItem[]> {
+  const { start, end } = istDayWindow();
+  const category = TOPIC_CATEGORY_LABELS[topic];
+  if (!category) return [];
+
+  const { data, error } = await supabase
+    .from("articles")
+    .select("id,title,edited_title,summary,edited_summary,url,source,topic,category,scraped_at,rank_score")
+    .eq("status", "approved")
+    .eq("category", category)
+    .gte("scraped_at", start)
+    .lt("scraped_at", end)
+    .order("rank_score", { ascending: false })
+    .order("scraped_at", { ascending: false })
+    .limit(5);
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as DailyArticle[])
+    .filter((article) =>
+      matchesCategoryContent(category, article.edited_title || article.title, article.edited_summary || article.summary || "")
+    )
+    .map((article) => ({
+      id: article.id,
+      topic,
+      section: topicLabel(topic),
+      headline: article.edited_title || article.title,
+      body: article.edited_summary || article.summary || "",
+      sourceUrl: article.url,
+      source: article.source,
+    }));
 }
 
 async function loadEditorialItems(supabase: any, topic: string): Promise<DigestItem[]> {
@@ -359,31 +435,16 @@ function escapeHtml(value = ""): string {
 }
 
 function renderLabelBar(text: string, bg: string): string {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 18px;padding:0 10px"><tr>
-      <td style="width:220px">
-        <div style="background:${bg};color:#ffffff;border:3px solid #111111;font-size:14px;font-weight:800;letter-spacing:0.02em;text-transform:uppercase;text-align:center;padding:4px 12px;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</div>
-      </td>
-      <td style="border-bottom:3px solid #111111">&nbsp;</td>
-    </tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 22px"><tr><td style="background:${bg};color:#ffffff;padding:8px 24px;font-size:17px;line-height:1.25;font-weight:800;letter-spacing:-0.02em;font-family:'Roboto Serif',Georgia,serif">${escapeHtml(text)}</td></tr></table>`;
 }
 
-function renderItems(items: DigestItem[]): string {
-  return items.map((item, index) => `
-    <tr><td style="padding:0 0 16px">
-      <div style="background:#ffffff;border:3px solid #111111;border-radius:12px;padding:18px 18px 18px 16px">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-          <td style="width:44px;vertical-align:top;padding-top:2px">
-            <div style="width:36px;height:36px;border-radius:50%;background:#efe7ff;color:#6d28d9;border:2px solid #6d28d9;font-size:15px;font-weight:700;text-align:center;line-height:32px">${index + 1}</div>
-          </td>
-          <td style="padding-left:14px">
-            <p style="margin:0 0 6px;color:#6d28d9;font-size:11px;line-height:1.2;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;font-family:Roboto,Arial,sans-serif">${escapeHtml(item.section)}</p>
-            <h2 style="font-size:18px;line-height:1.28;margin:0 0 10px;color:#191919;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(item.headline)}</h2>
-            <p style="font-size:15px;line-height:1.72;color:#2f2f39;margin:0 0 10px;font-family:Roboto,Arial,sans-serif">${escapeHtml(item.body)}</p>
-            ${item.sourceUrl ? `<a href="${escapeHtml(item.sourceUrl)}" style="font-size:12px;color:#6d28d9;font-family:Roboto,Arial,sans-serif;text-decoration:none">Read source</a>` : ""}
-          </td>
-        </tr></table>
-      </div>
-    </td></tr>`).join("");
+function renderTopMeta(): string {
+  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#020202"><tr><td style="padding:8px 24px;color:#dadada;font:12px/22px Roboto,Arial,sans-serif">From the Daily Mattr Team</td><td style="padding:8px 24px;color:#dadada;font:12px/22px Roboto,Arial,sans-serif;text-align:right">${today}</td></tr></table>`;
+}
+
+function renderHero(): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#020202 url('${BANNER_URL}') center/cover no-repeat"><tr><td style="background:rgba(0,0,0,.68);padding:36px 24px 40px;text-align:center;color:#ffffff"><div style="font:700 24px/1 'Roboto Serif',Georgia,serif;margin-bottom:18px">DailyMattr<sup style="font-size:10px">®</sup></div><div style="font:900 54px/.95 Georgia,'Times New Roman',serif;letter-spacing:-.04em">LONG MATTR</div><div style="margin-top:14px;font:700 12px/1.2 Roboto,Arial,sans-serif;letter-spacing:.28em;text-transform:uppercase">Stories that matter</div></td></tr></table>`;
 }
 
 function renderTopicSections(items: DigestItem[]): string {
@@ -393,48 +454,62 @@ function renderTopicSections(items: DigestItem[]): string {
     groups.set(label, [...(groups.get(label) ?? []), item]);
   });
   return [...groups.entries()].map(([label, group]) => `
-    ${renderLabelBar(label, "#6d28d9")}
+    ${renderLabelBar(label, "#111111")}
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-      ${renderItems(group)}
+      ${renderRealItems(group)}
     </table>
   `).join("");
 }
 
-function renderDigest(items: DigestItem[], sub: Subscriber, topic: string): string {
+function renderRealItems(items: DigestItem[]): string {
+  return items.map((item) => `
+    <tr><td style="padding:0 0 16px">
+      <div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
+        <h2 style="font-size:16px;line-height:1.32;margin:0 0 10px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(item.headline)}</h2>
+        <p style="font-size:12px;line-height:1.2;margin:0 0 14px;color:#666666;font-family:Roboto,Arial,sans-serif">${escapeHtml(item.section)}</p>
+        <p style="font-size:13px;line-height:1.55;color:#686868;margin:0 0 12px;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(item.body)}</p>
+        ${item.sourceUrl || item.source ? `<p style="font-size:11px;line-height:1.3;color:#777777;margin:0;font-family:Roboto,Arial,sans-serif">${item.sourceUrl ? `<a href="${escapeHtml(item.sourceUrl)}" style="color:#555555;text-decoration:none">${escapeHtml(item.source || "Read source")}</a>` : escapeHtml(item.source || "")}</p>` : ""}
+      </div>
+    </td></tr>`).join("");
+}
+
+async function renderDigest(items: DigestItem[], sub: Subscriber, topic: string): Promise<string> {
   const greeting = sub.full_name ? `Hi ${escapeHtml(sub.full_name)},` : "Hi there,";
   const shareUrl = SITE_URL ? `${SITE_URL}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
-  const shareMessage = "Click here to subscribe to Shortly:";
+  const shareMessage = "Click here to subscribe to Daily Mattr:";
   const twitterUrl = shareUrl
     ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`
     : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}`;
   const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl || BANNER_URL)}`;
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`.trim())}`;
+  const privacyFooter = await renderPrivacyFooter(sub.email);
   const intro = topic === "case-study-pool"
-    ? "Here is today's Shortly case study, picked from the approved case-study pool."
+    ? "Here is today's Daily Mattr case study, picked from the approved case-study pool."
     : topic === "all-topics"
-    ? "Here are the approved stories across Shortly's topic newsletters, minus the noise."
-    : `Here is today's approved ${topicLabel(topic)} edition from Shortly, written for a fast and useful read.`;
+    ? "Here are the approved stories across Daily Mattr's topic newsletters, minus the noise."
+    : `Here is today's approved ${topicLabel(topic)} edition from Daily Mattr, written for a fast and useful read.`;
 
   return `
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <div style="margin:0;background:#fcfbf7;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
+  <div style="margin:0;background:#ffffff;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
     <div style="max-width:640px;margin:0 auto">
-      <img src="${BANNER_URL}" alt="Shortly" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
-      ${renderLabelBar("From the Shortly Team", "#0f9d69")}
-      <div style="background:#ffffff;border-radius:12px;padding:26px 28px;margin:0 0 24px;border:3px solid #111111">
+      ${renderTopMeta()}
+      ${renderHero()}
+      <div style="background:#ffffff;padding:24px;margin:0 0 22px;border-bottom:1px solid #d1d1d1">
         <p style="margin:0 0 12px;color:#191919;font-size:18px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${greeting}</p>
         <p style="margin:0;color:#2f2f39;font-size:16px;line-height:1.7;font-weight:400;font-family:Roboto,Arial,sans-serif">${escapeHtml(intro)}</p>
       </div>
       ${renderTopicSections(items)}
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:4px;margin-bottom:20px">
         <tr><td style="text-align:center;padding:10px 20px 14px">
-          <img src="${FOOTER_LOGO_URL}" alt="Shortly" width="96" style="display:block;width:96px;max-width:100%;height:auto;margin:0 auto 8px">
-          <p style="margin:0 0 10px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">Curated news, summarized daily.<br>You're receiving this because you subscribed to Shortly.</p>
+          <div style="margin:0 auto 8px;color:#111111;font:700 24px/1 'Roboto Serif',Georgia,serif">DailyMattr<sup style="font-size:10px">®</sup></div>
+          <p style="margin:0 0 10px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">Curated news, summarized daily.<br>You're receiving this because you subscribed to Daily Mattr.</p>
           <div style="text-align:center">
-            <a href="${twitterUrl}" style="display:inline-block;margin:0 8px;color:#6d28d9;font-size:12px;font-family:Roboto,Arial,sans-serif">X</a>
-            <a href="${linkedinUrl}" style="display:inline-block;margin:0 8px;color:#6d28d9;font-size:12px;font-family:Roboto,Arial,sans-serif">LinkedIn</a>
-            <a href="${whatsappUrl}" style="display:inline-block;margin:0 8px;color:#6d28d9;font-size:12px;font-family:Roboto,Arial,sans-serif">WhatsApp</a>
+            <a href="${twitterUrl}" style="display:inline-block;margin:0 8px;color:#111111;font-size:12px;font-family:Roboto,Arial,sans-serif">X</a>
+            <a href="${linkedinUrl}" style="display:inline-block;margin:0 8px;color:#111111;font-size:12px;font-family:Roboto,Arial,sans-serif">LinkedIn</a>
+            <a href="${whatsappUrl}" style="display:inline-block;margin:0 8px;color:#111111;font-size:12px;font-family:Roboto,Arial,sans-serif">WhatsApp</a>
           </div>
+          ${privacyFooter}
         </td></tr>
       </table>
     </div>

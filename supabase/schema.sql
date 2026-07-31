@@ -8,6 +8,7 @@ create table if not exists public.subscribers (
   phone_number text,
   topics text[] not null default array['daily-wrap']::text[],
   status text not null default 'subscribed' check (status in ('subscribed', 'unsubscribed', 'bounced')),
+  unsubscribed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -75,7 +75,7 @@ window.SHORTLY = {
   subscribers:"/api/subscribers", scrape:"/api/scrape-news", summarize:"/api/summarize-articles",
   corporateCase:"/api/corporate-case-agent", editorialTopics:"/api/editorial-topic-agent",
   siteUrl:"", twitterUrl:"https://x.com/Shortly_news", linkedinUrl:"", agentAppUrl:"",
-  anonKey:"", dailyCap:10, reviewer:"local-mock"
+  anonKey:"", dailyCap:5, reviewer:"local-mock"
 };`;
 
 const ALLOWED_CATS = ["Corporate Case", "Real Estate", "Policy Partner", "Money Matters", "Wellness Daily"];

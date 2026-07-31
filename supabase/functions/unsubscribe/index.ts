@@ -70,6 +70,7 @@ function htmlPage(title: string, message: string, success: boolean): Response {
 async function processUnsubscribe(
   email: string | null,
   token: string | null,
+  action = "unsubscribe",
 ): Promise<{ ok: boolean; error?: string }> {
   if (!email?.trim() || !token?.trim()) {
     return { ok: false, error: "Missing email or token parameter." };
@@ -101,15 +102,29 @@ async function processUnsubscribe(
     return { ok: false, error: "Email address not found in our subscriber list." };
   }
 
-  if (subscriber.status === "unsubscribed") {
+  if (action !== "delete" && subscriber.status === "unsubscribed") {
     // Already unsubscribed — treat as success
+    return { ok: true };
+  }
+
+  if (action === "delete") {
+    // Remove delivery rows first so the subscriber's personal data is not
+    // retained through a recipient-linked record.
+    await supabase.from("article_deliveries").delete().eq("subscriber_id", subscriber.id);
+    const { error: deleteError } = await supabase
+      .from("subscribers")
+      .delete()
+      .eq("id", subscriber.id);
+    if (deleteError) {
+      return { ok: false, error: "Failed to delete your data. Please try again later." };
+    }
     return { ok: true };
   }
 
   // Mark as unsubscribed
   const { error: updateError } = await supabase
     .from("subscribers")
-    .update({ status: "unsubscribed", updated_at: new Date().toISOString() })
+    .update({ status: "unsubscribed", unsubscribed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", subscriber.id);
 
   if (updateError) {
@@ -130,13 +145,16 @@ Deno.serve(async (request) => {
     const url = new URL(request.url);
     const email = url.searchParams.get("email");
     const token = url.searchParams.get("token");
+    const action = url.searchParams.get("action") === "delete" ? "delete" : "unsubscribe";
 
-    const result = await processUnsubscribe(email, token);
+    const result = await processUnsubscribe(email, token, action);
 
     if (result.ok) {
       return htmlPage(
-        "You've been unsubscribed",
-        "You will no longer receive emails from Shortly. If this was a mistake, you can re-subscribe anytime.",
+        action === "delete" ? "Your data has been deleted" : "You've been unsubscribed",
+        action === "delete"
+          ? "Your Shortly subscriber record and delivery history have been deleted."
+          : "You will no longer receive emails from Shortly. If this was a mistake, you can re-subscribe anytime.",
         true,
       );
     }
@@ -149,10 +167,11 @@ Deno.serve(async (request) => {
     try {
       const body = await request.json();
       const { email, token } = body;
-      const result = await processUnsubscribe(email, token);
+      const action = body.action === "delete" ? "delete" : "unsubscribe";
+      const result = await processUnsubscribe(email, token, action);
 
       if (result.ok) {
-        return json({ ok: true, message: "Successfully unsubscribed." });
+        return json({ ok: true, message: action === "delete" ? "Your data was deleted." : "Successfully unsubscribed." });
       }
 
       return json({ ok: false, error: result.error }, 400);

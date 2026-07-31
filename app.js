@@ -1,7 +1,7 @@
 // Shortly dashboard — review, approve, manage subscribers, send digest.
 
 const cfg = window.SHORTLY;
-const DAILY_CAP = cfg.dailyCap ?? 10;
+const DAILY_CAP = cfg.dailyCap ?? 5;
 const AGENT_TOKEN_KEY = "shortly-agent-shared-token";
 const AGENT_SESSION_KEY = "shortly-agent-session";
 let dashboardBooted = false;
@@ -23,12 +23,12 @@ const DEFAULT_SECTION = { short: "review", cases: "topics" };
 function defaultSectionFor(ws) { return DEFAULT_SECTION[ws] || "review"; }
 const DIGEST_FORMATS = {
   "daily-wrap-10": {
-    label: "General 10 Articles",
-    dailyMin: 10,
-    dailyLimit: 10,
+    label: "General 5 Articles",
+    dailyMin: 5,
+    dailyLimit: 5,
     caseLimit: 0,
     generalOnly: true,
-    hint: "Pick 10 approved General stories. Category-specific articles and case studies are sent separately.",
+    hint: "Pick 5 approved General stories. Category-specific articles and case studies are sent separately.",
   },
   "category-5-case-1": {
     label: "Category 5 Articles",
@@ -659,7 +659,7 @@ function resolveDigestComposition() {
 }
 
 function selectedSubscriberCount() {
-  return state.subscribers.filter((s) => s.status === "subscribed" && state.selectedSubscribers.has(s.id)).length;
+  return eligibleSelectedSubscriberIds().length;
 }
 
 function dailyWrapSubscriberCount() {
@@ -675,6 +675,50 @@ function topicSubscriberCount(topicSlug) {
     return subscribed.filter((s) => normalizeTopicList(s.topics).some((topic) => CASE_STUDY_TOPIC_SLUGS.includes(topic))).length;
   }
   return subscribed.filter((s) => normalizeTopicList(s.topics).includes(topicSlug)).length;
+}
+
+function subscriberMatchesDigestAudience(subscriber) {
+  const topics = normalizeTopicList(subscriber.topics);
+  if (state.digestFormat === "case-study-only") {
+    return topics.some((topic) => CASE_STUDY_TOPIC_SLUGS.includes(topic));
+  }
+  if (digestFormatConfig().needsCategory && state.digestCategory) {
+    return topics.includes(normalizeTopicSlug(state.digestCategory));
+  }
+  return topics.includes("daily-wrap");
+}
+
+function subscriberMatchesCasesAudience(subscriber) {
+  const topics = normalizeTopicList(subscriber.topics);
+  if (state.casesSendMode === "case-study-only") {
+    return topics.some((topic) => CASE_STUDY_TOPIC_SLUGS.includes(topic));
+  }
+  return topics.includes(state.casesTopic);
+}
+
+function subscriberMatchesCurrentAudience(subscriber) {
+  if (subscriber.status !== "subscribed") return false;
+  if (state.section === "email-builder") return subscriberMatchesDigestAudience(subscriber);
+  if (state.section === "cases-send") return subscriberMatchesCasesAudience(subscriber);
+  return true;
+}
+
+function eligibleSelectedSubscriberIds() {
+  return state.subscribers
+    .filter((subscriber) => subscriberMatchesCurrentAudience(subscriber) && state.selectedSubscribers.has(subscriber.id))
+    .map((subscriber) => subscriber.id);
+}
+
+function syncSelectedSubscribersForAudience() {
+  if (!["email-builder", "cases-send"].includes(state.section)) return;
+  const eligible = new Set(
+    state.subscribers
+      .filter(subscriberMatchesCurrentAudience)
+      .map((subscriber) => subscriber.id)
+  );
+  for (const id of [...state.selectedSubscribers]) {
+    if (!eligible.has(id)) state.selectedSubscribers.delete(id);
+  }
 }
 
 function defaultDigestAudienceCount() {
@@ -698,6 +742,7 @@ function syncDigestCategoryFromControl() {
 }
 
 function updateSubscriberSelectionUi() {
+  syncSelectedSubscribersForAudience();
   const count = selectedSubscriberCount();
   const bar = $("#subscriberBulkBar");
   const label = $("#subscriberBulkCount");
@@ -716,7 +761,7 @@ function updateSubscriberSelectionUi() {
     bar.classList.toggle("show", count > 0);
   }
   if (selectAll) {
-    const subscribed = state.subscribers.filter((s) => s.status === "subscribed");
+    const subscribed = state.subscribers.filter((s) => subscriberMatchesCurrentAudience(s));
     const allChecked = subscribed.length > 0 && subscribed.every((s) => state.selectedSubscribers.has(s.id));
     selectAll.checked = allChecked;
     selectAll.indeterminate = !allChecked && count > 0;
@@ -1361,13 +1406,19 @@ function selectedSubscriberTopics() {
 }
 
 function renderSubscribers() {
-  const subscribed = state.subscribers.filter((s) => s.status === "subscribed");
+  syncSelectedSubscribersForAudience();
+  const subscribed = state.subscribers.filter((s) => subscriberMatchesCurrentAudience(s));
   const allChecked = subscribed.length > 0 && subscribed.every((s) => state.selectedSubscribers.has(s.id));
   const rows = state.subscribers
     .map(
-      (s) => `
+      (s) => {
+        const eligible = subscriberMatchesCurrentAudience(s);
+        const checkbox = s.status === "subscribed"
+          ? `<input type="checkbox" class="sub-check" data-id="${s.id}" ${state.selectedSubscribers.has(s.id) ? "checked" : ""} ${eligible ? "" : "disabled"}>`
+          : "";
+        return `
       <tr data-id="${s.id}">
-        <td>${s.status === "subscribed" ? `<input type="checkbox" class="sub-check" data-id="${s.id}" ${state.selectedSubscribers.has(s.id) ? "checked" : ""}>` : ""}</td>
+        <td>${checkbox}</td>
         <td>${esc(s.email)}</td>
         <td>${esc(s.full_name || "")}</td>
         <td>${esc(s.phone_number || "")}</td>
@@ -1379,7 +1430,8 @@ function renderSubscribers() {
             : `<button class="btn-ghost" data-action="subscribe">Re-subscribe</button>`}
           <button class="btn-ghost" data-action="delete">Delete</button>
         </td>
-      </tr>`
+      </tr>`;
+      }
     )
     .join("");
   $("#subRows").innerHTML = rows || `<tr><td colspan="7" class="muted" style="padding:18px">No subscribers yet.</td></tr>`;
@@ -2104,69 +2156,71 @@ function generatePreviewHtml() {
     window.location.origin && window.location.origin !== "null"
       ? `${window.location.origin}/`
       : new URL(".", window.location.href).href;
-  const previewBannerUrl = `${new URL("assets/email-banner.jpg", previewBaseUrl).href}?v=${Date.now()}`;
+  const previewBannerUrl = `${new URL("assets/figma-email-banner.png", previewBaseUrl).href}?v=${Date.now()}`;
   const previewFooterLogoUrl = `${new URL("assets/footer-logo.png", previewBaseUrl).href}?v=${Date.now()}`;
 
   const shareBase = (cfg.siteUrl || window.location.origin || "").replace(/\/+$/, "");
   const shareUrl = shareBase ? `${shareBase}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
-  const shareMessage = "Click here to subscribe to Shortly Daily Wrap:";
+  const shareMessage = "Click here to subscribe to Daily Mattr:";
   const twitterUrl = shareUrl
     ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`
     : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}`;
   const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl || window.location.href)}`;
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`.trim())}`;
-  const xIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.901 2H21.98l-6.73 7.693L23.167 22h-6.197l-4.85-7.356L5.68 22H2.6l7.2-8.23L1.5 2h6.355l4.384 6.689L18.901 2Zm-1.087 18.145h1.706L6.93 3.759H5.1l12.714 16.386Z" fill="#6d28d9"/></svg>`;
-  const linkedinIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.94 8.5H3.56V20h3.38V8.5Zm.22-3.56C7.15 3.77 6.3 3 5.26 3S3.38 3.77 3.38 4.94s.83 1.94 1.85 1.94h.03c1.06 0 1.9-.77 1.9-1.94ZM20.62 12.65c0-3.46-1.85-5.07-4.32-5.07-1.99 0-2.88 1.1-3.37 1.87V8.5H9.55c.04.63 0 11.5 0 11.5h3.38v-6.42c0-.34.02-.68.12-.92.27-.68.88-1.39 1.9-1.39 1.34 0 1.88 1.02 1.88 2.52V20H20.2v-6.35Z" fill="#6d28d9"/></svg>`;
-  const whatsappIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.52 3.48A11.86 11.86 0 0 0 12.07 0C5.51 0 .18 5.33.18 11.88c0 2.1.55 4.16 1.58 5.97L0 24l6.33-1.66a11.86 11.86 0 0 0 5.74 1.47h.01c6.55 0 11.88-5.33 11.88-11.88 0-3.17-1.24-6.14-3.44-8.45Zm-8.45 18.3h-.01a9.94 9.94 0 0 1-5.07-1.39l-.36-.21-3.76.99 1-3.66-.23-.37a9.9 9.9 0 0 1-1.53-5.26c0-5.47 4.45-9.92 9.93-9.92 2.65 0 5.14 1.03 7.01 2.9a9.85 9.85 0 0 1 2.9 7.02c0 5.47-4.45 9.92-9.91 9.92Zm5.44-7.42c-.3-.15-1.8-.89-2.08-.99-.28-.1-.48-.15-.69.15-.2.3-.79.99-.96 1.19-.18.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5a9 9 0 0 1-1.67-2.07c-.18-.3-.02-.46.13-.61.13-.13.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.02-.53-.08-.15-.69-1.66-.94-2.28-.25-.6-.5-.52-.69-.53h-.58c-.2 0-.53.08-.81.38-.28.3-1.06 1.03-1.06 2.5s1.09 2.89 1.24 3.1c.15.2 2.14 3.26 5.18 4.57.72.31 1.29.5 1.73.64.73.23 1.39.2 1.92.12.59-.09 1.8-.74 2.05-1.45.25-.71.25-1.32.17-1.45-.08-.13-.28-.2-.58-.35Z" fill="#6d28d9"/></svg>`;
-
-  function renderItems(items, kind = "daily") {
-    return items.map((a, i) => {
-      const previewKey = kind === "daily" ? dailyDigestKey(a.id) : caseDigestKey(a.id);
-      const headline = liveHeadlines.get(previewKey) || (a.edited_title || a.title || a.headline || "").trim();
-      const text = liveSummaries.get(previewKey) || (a.edited_summary || a.summary || a.detail || "").trim();
-      return `<tr><td style="padding:0 0 16px">
-        <div style="background:#ffffff;border:3px solid #111111;border-radius:12px;padding:18px 18px 18px 16px">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-            <td style="width:44px;vertical-align:top;padding-top:2px">
-              <div style="width:36px;height:36px;border-radius:50%;background:#efe7ff;color:#6d28d9;border:2px solid #6d28d9;font-size:15px;font-weight:700;text-align:center;line-height:32px">${i + 1}</div>
-            </td>
-            <td style="padding-left:14px">
-              <h2 style="font-size:18px;line-height:1.28;margin:0 0 10px;color:#191919;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${esc(headline)}</h2>
-              <p style="font-size:15px;line-height:1.72;color:#2f2f39;margin:0;font-family:Roboto,Arial,sans-serif">${esc(text)}</p>
-            </td>
-          </tr></table>
-        </div>
-      </td></tr>`;
-    }).join("");
-  }
+  const xIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.901 2H21.98l-6.73 7.693L23.167 22h-6.197l-4.85-7.356L5.68 22H2.6l7.2-8.23L1.5 2h6.355l4.384 6.689L18.901 2Zm-1.087 18.145h1.706L6.93 3.759H5.1l12.714 16.386Z" fill="#111111"/></svg>`;
+  const linkedinIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.94 8.5H3.56V20h3.38V8.5Zm.22-3.56C7.15 3.77 6.3 3 5.26 3S3.38 3.77 3.38 4.94s.83 1.94 1.85 1.94h.03c1.06 0 1.9-.77 1.9-1.94ZM20.62 12.65c0-3.46-1.85-5.07-4.32-5.07-1.99 0-2.88 1.1-3.37 1.87V8.5H9.55c.04.63 0 11.5 0 11.5h3.38v-6.42c0-.34.02-.68.12-.92.27-.68.88-1.39 1.9-1.39 1.34 0 1.88 1.02 1.88 2.52V20H20.2v-6.35Z" fill="#111111"/></svg>`;
+  const whatsappIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.52 3.48A11.86 11.86 0 0 0 12.07 0C5.51 0 .18 5.33.18 11.88c0 2.1.55 4.16 1.58 5.97L0 24l6.33-1.66a11.86 11.86 0 0 0 5.74 1.47h.01c6.55 0 11.88-5.33 11.88-11.88 0-3.17-1.24-6.14-3.44-8.45Zm-8.45 18.3h-.01a9.94 9.94 0 0 1-5.07-1.39l-.36-.21-3.76.99 1-3.66-.23-.37a9.9 9.9 0 0 1-1.53-5.26c0-5.47 4.45-9.92 9.93-9.92 2.65 0 5.14 1.03 7.01 2.9a9.85 9.85 0 0 1 2.9 7.02c0 5.47-4.45 9.92-9.91 9.92Zm5.44-7.42c-.3-.15-1.8-.89-2.08-.99-.28-.1-.48-.15-.69.15-.2.3-.79.99-.96 1.19-.18.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5a9 9 0 0 1-1.67-2.07c-.18-.3-.02-.46.13-.61.13-.13.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.02-.53-.08-.15-.69-1.66-.94-2.28-.25-.6-.5-.52-.69-.53h-.58c-.2 0-.53.08-.81.38-.28.3-1.06 1.03-1.06 2.5s1.09 2.89 1.24 3.1c.15.2 2.14 3.26 5.18 4.57.72.31 1.29.5 1.73.64.73.23 1.39.2 1.92.12.59-.09 1.8-.74 2.05-1.45.25-.71.25-1.32.17-1.45-.08-.13-.28-.2-.58-.35Z" fill="#111111"/></svg>`;
 
   function renderLabelBar(text, bg) {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 18px;padding:0 10px"><tr>
-      <td style="width:220px">
-        <div style="background:${bg};color:#ffffff;border:3px solid #111111;font-size:14px;font-weight:800;letter-spacing:0.02em;text-transform:uppercase;text-align:center;padding:4px 12px;font-family:Roboto,Arial,sans-serif">${text}</div>
-      </td>
-      <td style="border-bottom:3px solid #111111">&nbsp;</td>
-    </tr></table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 22px"><tr><td style="background:${bg};color:#ffffff;padding:8px 24px;font-size:17px;line-height:1.25;font-weight:800;letter-spacing:-0.02em;font-family:'Roboto Serif',Georgia,serif">${text}</td></tr></table>`;
   }
 
-  function renderSection(label, items, kind = "daily", color = "#6d28d9") {
+  function renderTopMeta() {
+    const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
+    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#020202"><tr><td style="padding:8px 24px;color:#dadada;font:12px/22px Roboto,Arial,sans-serif;letter-spacing:.02em">From the Daily Mattr Team</td><td style="padding:8px 24px;color:#dadada;font:12px/22px Roboto,Arial,sans-serif;text-align:right">${today}</td></tr></table>`;
+  }
+
+  function renderHero() {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#020202 url('${previewBannerUrl}') center/cover no-repeat"><tr><td style="background:rgba(0,0,0,.68);padding:36px 24px 40px;text-align:center;color:#ffffff"><div style="font:700 24px/1 'Roboto Serif',Georgia,serif;margin-bottom:18px">DailyMattr<sup style="font-size:10px">®</sup></div><div style="font:900 54px/.95 Georgia,'Times New Roman',serif;letter-spacing:-.04em">LONG MATTR</div><div style="margin-top:14px;font:700 12px/1.2 Roboto,Arial,sans-serif;letter-spacing:.28em;text-transform:uppercase">Stories that matter</div></td></tr></table>`;
+  }
+
+  function renderSection(label, items, kind = "daily", color = "#111111") {
     if (items.length === 0) return "";
     return `${renderLabelBar(label, color)}<div style="margin-bottom:22px;border-radius:22px;background:transparent">
       <div style="padding:0">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-          ${renderItems(items, kind)}
+          ${renderPreviewItems(items, kind)}
         </table>
       </div>
     </div>`;
   }
 
+  function renderPreviewItems(items, kind = "daily") {
+    return items.map((a) => {
+      const previewKey = kind === "daily" ? dailyDigestKey(a.id) : caseDigestKey(a.id);
+      const headline = liveHeadlines.get(previewKey) || (a.edited_title || a.title || a.headline || "").trim();
+      const text = liveSummaries.get(previewKey) || (a.edited_summary || a.summary || a.detail || "").trim();
+      const sourceUrl = a.url || a.source_url || "";
+      const sourceName = a.source || "";
+      const sourceMeta = sourceUrl
+        ? `<a href="${esc(sourceUrl)}" style="color:#555555;text-decoration:none">${esc(sourceName || "Read source")}</a>`
+        : esc(sourceName);
+      return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
+        <h2 style="font-size:16px;line-height:1.32;margin:0 0 10px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${esc(headline)}</h2>
+        <p style="font-size:12px;line-height:1.2;margin:0 0 14px;color:#666666;font-family:Roboto,Arial,sans-serif">${esc(a.category || a.topic || "General")}</p>
+        <p style="font-size:13px;line-height:1.55;color:#686868;margin:0 0 12px;font-family:'Roboto Serif',Georgia,serif">${esc(text)}</p>
+        ${sourceMeta ? `<p style="font-size:11px;line-height:1.3;color:#777777;margin:0;font-family:Roboto,Arial,sans-serif">${sourceMeta}</p>` : ""}
+      </div></td></tr>`;
+    }).join("");
+  }
+
   const introText = state.section === "email-builder"
     ? {
-        "daily-wrap-10": "Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!",
+        "daily-wrap-10": "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up Daily Mattr!",
         "category-5-case-1": `Here are 5 stories from ${esc(plan.category || "today's focus")}. The biggest updates from this bucket, minus the noise.`,
-        "case-study-only": "Here is today's Shortly case study, designed as one focused long-form read."
+        "case-study-only": "Here is today's Daily Mattr case study, designed as one focused long-form read."
       }[state.digestFormat]
-    : "Here are 10 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!";
+    : "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up Daily Mattr!";
 
   const allText = [...wrapped, ...plan.caseStudies]
     .map((a) => {
@@ -2181,13 +2235,13 @@ function generatePreviewHtml() {
     : "Quick Hits. General";
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><base href="${previewBaseUrl}"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet"></head>
-  <body style="margin:0;background:#fcfbf7;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
+  <body style="margin:0;background:#ffffff;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
     <div style="max-width:640px;margin:0 auto">
-      <img src="${previewBannerUrl}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
-      ${renderLabelBar("From the Shortly Team", "#0f9d69")}
-      <div style="background:#ffffff;border-radius:12px;padding:26px 28px;margin:0 0 24px;border:3px solid #111111">
+      ${renderTopMeta()}
+      ${renderHero()}
+      <div style="background:#ffffff;padding:24px;margin:0 0 22px;border-bottom:1px solid #d1d1d1">
         <p style="margin:0 0 12px;color:#191919;font-size:18px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">Hi &lt;NAME&gt;,</p>
-        <p style="margin:0;color:#2f2f39;font-size:16px;line-height:1.7;font-weight:400;font-family:Roboto,Arial,sans-serif">
+        <p style="margin:0;color:#111111;font-size:16px;line-height:1.55;font-weight:400;font-family:Roboto,Arial,sans-serif">
           ${introText}
         </p>
       </div>
@@ -2195,10 +2249,10 @@ function generatePreviewHtml() {
       ${renderSection("Case Study", plan.caseStudies, "case", "#0f9d69")}
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:4px;margin-bottom:20px">
         <tr><td style="text-align:center;padding:10px 20px 14px">
-          <img src="${previewFooterLogoUrl}" alt="Shortly" style="display:block;width:96px;max-width:100%;height:auto;margin:0 auto 8px">
+          <div style="margin:0 auto 8px;color:#111111;font:700 24px/1 'Roboto Serif',Georgia,serif">DailyMattr<sup style="font-size:10px">®</sup></div>
           <p style="margin:0 0 10px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
             Curated news, summarized daily.<br>
-            You're receiving this because you subscribed to Shortly.
+            You're receiving this because you subscribed to Daily Mattr.
           </p>
             <p style="margin:0 0 8px;font-size:12px;color:#9a9ab0;font-family:Roboto,Arial,sans-serif">Can be forwarded to others.</p>
             <div style="text-align:center">
@@ -2541,7 +2595,7 @@ $("#subRows").addEventListener("change", (e) => {
 $("#subSelectAll").addEventListener("change", (e) => {
   const checked = e.target.checked;
   state.subscribers
-    .filter((s) => s.status === "subscribed")
+    .filter((s) => subscriberMatchesCurrentAudience(s))
     .forEach((s) => {
       if (checked) state.selectedSubscribers.add(s.id);
       else state.selectedSubscribers.delete(s.id);
@@ -2755,7 +2809,7 @@ async function sendCuratedDigest() {
     return;
   }
   const plan = resolveDigestComposition();
-  const selectedIds = [...state.selectedSubscribers];
+  const selectedIds = eligibleSelectedSubscriberIds();
   const subCount = selectedIds.length || defaultDigestAudienceCount();
   if (!plan.isReady) {
     toast("This format does not have enough approved items yet.");
@@ -2807,10 +2861,15 @@ async function sendCasesDigest() {
       toast("Topic digest endpoint is missing.");
       return;
     }
-    const count = topicSubscriberCount("case-study-pool");
+    const selectedIds = eligibleSelectedSubscriberIds();
+    const count = selectedIds.length || topicSubscriberCount("case-study-pool");
     if (!confirm(`Send 1 random approved case study from the pool to ${count} subscribers?`)) return;
     try {
-      const res = await api("POST", cfg.topicDigest, { manual: true, topic: "case-study-pool" });
+      const res = await api("POST", cfg.topicDigest, {
+        manual: true,
+        topic: "case-study-pool",
+        ...(selectedIds.length ? { subscriber_ids: selectedIds } : {})
+      });
       toast(`Sent case study to ${res.sent ?? 0} subscribers.`);
       await reload();
       showSection("cases-send");
@@ -2824,10 +2883,11 @@ async function sendCasesDigest() {
     return;
   }
   const topic = state.casesTopic;
-  const count = topicSubscriberCount(topic);
+  const count = eligibleSelectedSubscriberIds().length || topicSubscriberCount(topic);
   if (!confirm(`Send ${topicLabel(topic)} digest to ${count} subscribers?`)) return;
   try {
-    const res = await api("POST", cfg.topicDigest, { manual: true, topic });
+    const selectedIds = eligibleSelectedSubscriberIds();
+    const res = await api("POST", cfg.topicDigest, { manual: true, topic, ...(selectedIds.length ? { subscriber_ids: selectedIds } : {}) });
     toast(`Sent ${topicLabel(topic)} to ${res.sent ?? 0} subscribers.`);
     await reload();
     showSection("cases-send");

@@ -17,6 +17,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
+import { renderPrivacyFooter } from "../_shared/privacy.ts";
 
 type Article = {
   id: string;
@@ -67,14 +68,14 @@ const CATEGORY_TO_SLUG: Record<string, string> = {
   "Markets & Startups": "markets-startups",
 };
 
-const WRAP_COUNT = 10;
+const WRAP_COUNT = 5;
 const WRAP_SPLIT = 5;
 const CATEGORY_SPLIT = 5;
 const CATEGORY_CASE_SHORTS = 5;
 
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
-  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/figma-email-banner.png";
 const FOOTER_LOGO_URL =
   Deno.env.get("SHORTLY_FOOTER_LOGO_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/footer-logo.png";
@@ -204,7 +205,7 @@ Deno.serve(async (request) => {
       }
       const requestedSubject = String((r as Record<string, unknown>).subject ?? "").trim();
       const subject = requestedSubject || buildSubject(plan, caseCategory ?? shortsCategory, sd);
-      const html = renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection);
+      const html = await renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection);
       const result = await sendEmail({ to: email, subject, html, provider });
       if (result.ok) sent += 1; else failed += 1;
       out.push({
@@ -282,7 +283,7 @@ Deno.serve(async (request) => {
         if (builts.length === 0) { skipped += 1; return []; }
         const outcomes: boolean[] = [];
         for (const built of builts) {
-          const html = renderShell(prof.full_name, built.intro, built.sections);
+          const html = await renderShell(prof.full_name, prof.email, built.intro, built.sections);
           const result = await sendEmail({ to: testEmail ?? prof.email, subject: built.subject, html });
           await supabase.from("article_deliveries").insert({
             digest_id: digestId, subscriber_id: null, email: testEmail ?? prof.email,
@@ -323,7 +324,7 @@ Deno.serve(async (request) => {
         return null;
       }
       const subject = buildSubject(plan, sub.category, subjectDate);
-      const html = renderEmail(sub, plan, selection);
+      const html = await renderEmail(sub, plan, selection);
       const result = await sendEmail({ to: testEmail ?? sub.email, subject, html });
       await supabase.from("article_deliveries").insert({
         digest_id: digestId, subscriber_id: sub.id, email: testEmail ?? sub.email,
@@ -413,8 +414,8 @@ function buildAccountEmails(
     return [{
       subject: wrap[0]?.is_breaking
         ? `${subjectDate} - Breaking: ${(wrap[0].edited_title || wrap[0].title || "").slice(0, 70)}`
-        : `${subjectDate} - Shortly Daily Headlines`,
-      intro: `Here are today's ${wrap.length} biggest stories, minus the noise. You'll be caught up SHORTLY!`,
+        : `${subjectDate} - Daily Mattr Headlines`,
+      intro: `Here are today's ${wrap.length} biggest stories, minus the noise. You'll be caught up Daily Mattr!`,
       sections: renderWrapSections(wrap),
       selection,
       tally: "daily-headlines",
@@ -433,7 +434,7 @@ function buildAccountEmails(
     if (cs) {
       const selection: Selection = { wrap: [], shorts: [], caseStudy: cs, shortsCategory: null };
       out.push({
-        subject: `${subjectDate} - Shortly ${name} Case Study`,
+        subject: `${subjectDate} - Daily Mattr ${name} Case Study`,
         intro: `Today's ${escapeHtml(name)} case study - one story worth understanding properly.`,
         sections: renderCaseStudy(cs),
         selection,
@@ -448,7 +449,7 @@ function buildAccountEmails(
     if (shorts.length > 0) {
       const selection: Selection = { wrap: [], shorts, caseStudy: null, shortsCategory: name };
       out.push({
-        subject: `${subjectDate} - Shortly ${name} Weekly Briefing`,
+        subject: `${subjectDate} - Daily Mattr ${name} Weekly Briefing`,
         intro: `Your weekly ${escapeHtml(name)} briefing: ${shorts.length} updates worth knowing.`,
         sections: renderSection(`${name} Briefs`, "#b45309", shorts),
         selection,
@@ -526,10 +527,10 @@ function selectFor(
 }
 
 function buildSubject(plan: string, category: string | null, subjectDate: string): string {
-  if (plan === "case-only" && category) return `${subjectDate} - Shortly ${category} Case Study`;
-  if (plan === "category-case" && category) return `${subjectDate} - Your Shortly ${category} brief`;
-  if (plan === "wrap-category" && category) return `${subjectDate} - Shortly Daily Wrap + ${category}`;
-  return `${subjectDate} - Shortly Daily Wrap is here!`;
+  if (plan === "case-only" && category) return `${subjectDate} - Daily Mattr ${category} Case Study`;
+  if (plan === "category-case" && category) return `${subjectDate} - Your Daily Mattr ${category} brief`;
+  if (plan === "wrap-category" && category) return `${subjectDate} - Daily Mattr Daily Wrap + ${category}`;
+  return `${subjectDate} - Daily Mattr Daily Wrap is here!`;
 }
 
 // ---------- rendering ----------
@@ -544,12 +545,16 @@ function escapeHtml(v = "") {
 }
 
 function renderLabelBar(text: string, bg: string): string {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 18px;padding:0 10px"><tr>
-      <td style="width:240px">
-        <div style="background:${bg};color:#ffffff;border:3px solid #111111;font-size:14px;font-weight:800;letter-spacing:0.02em;text-transform:uppercase;text-align:center;padding:4px 12px;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</div>
-      </td>
-      <td style="border-bottom:3px solid #111111">&nbsp;</td>
-    </tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 22px"><tr><td style="background:${bg};color:#ffffff;padding:8px 24px;font-size:17px;line-height:1.25;font-weight:800;letter-spacing:-0.02em;font-family:'Roboto Serif',Georgia,serif">${escapeHtml(text)}</td></tr></table>`;
+}
+
+function renderTopMeta(): string {
+  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#020202"><tr><td style="padding:8px 24px;color:#dadada;font:12px/22px Roboto,Arial,sans-serif;letter-spacing:.02em">From the Daily Mattr Team</td><td style="padding:8px 24px;color:#dadada;font:12px/22px Roboto,Arial,sans-serif;text-align:right">${today}</td></tr></table>`;
+}
+
+function renderHero(): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#020202 url('${BANNER_URL}') center/cover no-repeat"><tr><td style="background:rgba(0,0,0,.68);padding:36px 24px 40px;text-align:center;color:#ffffff"><div style="font:700 24px/1 'Roboto Serif',Georgia,serif;margin-bottom:18px">DailyMattr<sup style="font-size:10px">®</sup></div><div style="font:900 54px/.95 Georgia,'Times New Roman',serif;letter-spacing:-.04em">LONG MATTR</div><div style="margin-top:14px;font:700 12px/1.2 Roboto,Arial,sans-serif;letter-spacing:.28em;text-transform:uppercase">Stories that matter</div></td></tr></table>`;
 }
 
 // Fact-score badge: only shown when the AI fact check scored the article well
@@ -565,35 +570,27 @@ function renderFactBadge(a: Article): string {
   return `<div style="display:inline-block;border:2px solid ${color};color:${color};font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:1px 8px;border-radius:999px;margin:0 0 8px;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</div>`;
 }
 
-function renderItems(articles: Article[]): string {
-  return articles.map((a, i) => {
-    const headline = (a.edited_title || a.title || "").trim();
-    const text = (a.edited_summary || a.summary || "").trim();
-    return `
-      <tr><td style="padding:0 0 16px">
-        <div style="background:#ffffff;border:3px solid #111111;border-radius:12px;padding:18px 18px 18px 16px">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
-            <td style="width:44px;vertical-align:top;padding-top:2px">
-              <div style="width:36px;height:36px;border-radius:50%;background:#efe7ff;color:#6d28d9;border:2px solid #6d28d9;font-size:15px;font-weight:700;text-align:center;line-height:32px">${i + 1}</div>
-            </td>
-            <td style="padding-left:14px">
-              ${renderFactBadge(a)}
-              <h2 style="font-size:18px;line-height:1.28;margin:0 0 10px;color:#191919;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(headline)}</h2>
-              <p style="font-size:15px;line-height:1.72;color:#2f2f39;margin:0;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</p>
-            </td>
-          </tr></table>
-        </div>
-      </td></tr>`;
-  }).join("");
-}
-
 function renderSection(label: string, bg: string, articles: Article[]): string {
   if (articles.length === 0) return "";
   return `
     ${renderLabelBar(label, bg)}
     <div style="margin-bottom:22px">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${renderItems(articles)}</table>
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${renderItemsReal(articles)}</table>
     </div>`;
+}
+
+function renderItemsReal(articles: Article[]): string {
+  return articles.map((article) => {
+    const headline = (article.edited_title || article.title || "").trim();
+    const text = (article.edited_summary || article.summary || "").trim();
+    const category = (article.category || article.topic || "General").replaceAll("-", " ");
+    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
+      <h2 style="font-size:16px;line-height:1.32;margin:0 0 10px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(headline)}</h2>
+      <p style="font-size:12px;line-height:1.2;margin:0 0 14px;color:#666666;font-family:Roboto,Arial,sans-serif">${escapeHtml(category)}</p>
+      <p style="font-size:13px;line-height:1.55;color:#686868;margin:0 0 12px;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(text)}</p>
+      ${renderSourceMeta(article)}
+    </div></td></tr>`;
+  }).join("");
 }
 
 // Daily-wrap renderer: breaking stories (flagged from the breaking_news view,
@@ -602,8 +599,8 @@ function renderSection(label: string, bg: string, articles: Article[]): string {
 function renderWrapSections(wrap: Article[]): string {
   const hot = wrap.filter((a) => a.is_breaking);
   const rest = wrap.filter((a) => !a.is_breaking);
-  if (hot.length === 0) return renderSection("Quick Hits. Daily Wrap", "#6d28d9", wrap);
-  return renderSection("Breaking", "#c2221e", hot) + renderSection("Quick Hits. Daily Wrap", "#6d28d9", rest);
+  if (hot.length === 0) return renderSection("Quick Hits. Daily Wrap", "#111111", wrap);
+  return renderSection("Breaking", "#c2221e", hot) + renderSection("Quick Hits. Daily Wrap", "#111111", rest);
 }
 
 function renderCaseStudy(cs: CaseStudy): string {
@@ -614,12 +611,12 @@ function renderCaseStudy(cs: CaseStudy): string {
     .map((p) => `<p style="font-size:15px;line-height:1.74;color:#2f2f39;margin:0 0 12px;font-family:Roboto,Arial,sans-serif">${escapeHtml(p)}</p>`)
     .join("");
   const sourceLine = cs.source_url
-    ? `<p style="font-size:13px;line-height:1.6;color:#6d28d9;margin:8px 0 0;font-family:Roboto,Arial,sans-serif"><a href="${escapeHtml(cs.source_url)}" style="color:#6d28d9;text-decoration:underline">Read the full source${cs.source ? ` - ${escapeHtml(cs.source)}` : ""}</a></p>`
+    ? `<p style="font-size:13px;line-height:1.6;color:#111111;margin:8px 0 0;font-family:Roboto,Arial,sans-serif"><a href="${escapeHtml(cs.source_url)}" style="color:#111111;text-decoration:underline">Read the full source${cs.source ? ` - ${escapeHtml(cs.source)}` : ""}</a></p>`
     : "";
   return `
     ${renderLabelBar(`Case Study - ${cs.category}`, "#0f9d69")}
     <div style="margin-bottom:22px">
-      <div style="background:#ffffff;border:3px solid #111111;border-radius:12px;padding:22px 22px 18px">
+      <div style="background:#ffffff;border:1px solid #111111;border-radius:12px;padding:22px 22px 18px">
         <h2 style="font-size:21px;line-height:1.25;margin:0 0 12px;color:#191919;font-weight:800;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(cs.headline)}</h2>
         ${cs.summary ? `<p style="font-size:16px;line-height:1.7;color:#191919;font-weight:500;margin:0 0 14px;font-family:Roboto,Arial,sans-serif">${escapeHtml(cs.summary)}</p>` : ""}
         ${paragraphs}
@@ -628,7 +625,7 @@ function renderCaseStudy(cs: CaseStudy): string {
     </div>`;
 }
 
-function renderEmail(sub: Subscriber, plan: string, selection: Selection): string {
+async function renderEmail(sub: Subscriber, plan: string, selection: Selection): Promise<string> {
   let sections = "";
   if (plan === "wrap-category") {
     sections += renderWrapSections(selection.wrap);
@@ -641,42 +638,51 @@ function renderEmail(sub: Subscriber, plan: string, selection: Selection): strin
   } else {
     sections += renderWrapSections(selection.wrap);
   }
-  return renderShell(sub.full_name, introFor(plan, selection), sections);
+  return renderShell(sub.full_name, sub.email, introFor(plan, selection), sections);
 }
 
-function renderShell(fullName: string | null, intro: string, sections: string): string {
+function renderSourceMeta(a: Article): string {
+  const sources = Array.isArray(a.fact_notes?.sources)
+    ? a.fact_notes!.sources!.filter((source) => source?.url && source?.source).slice(0, 5)
+    : [];
+  if (sources.length === 0 && a.url) sources.push({ source: a.source || "Read source", url: a.url });
+  return sources.map((source) => `<a href="${escapeHtml(source.url)}" style="color:#555555;text-decoration:none;margin-right:8px">${escapeHtml(source.source)}</a>`).join("");
+}
+
+async function renderShell(fullName: string | null, email: string, intro: string, sections: string): Promise<string> {
   const greeting = fullName ? `Hi ${escapeHtml(fullName)},` : "Hi there,";
   const shareUrl = SITE_URL ? `${SITE_URL}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
-  const shareMessage = "Click here to subscribe to Shortly:";
+  const shareMessage = "Click here to subscribe to Daily Mattr:";
   const twitterUrl = shareUrl
     ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`
     : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}`;
   const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl || BANNER_URL)}`;
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`.trim())}`;
+  const privacyFooter = await renderPrivacyFooter(email);
 
   return `
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <div style="margin:0;background:#fcfbf7;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
+  <div style="margin:0;background:#ffffff;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
     <div style="max-width:640px;margin:0 auto">
-      <img src="${BANNER_URL}" alt="Shortly" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
-
-      ${renderLabelBar("From the Shortly Team", "#0f9d69")}
-      <div style="background:#ffffff;border-radius:12px;padding:26px 28px;margin:0 0 24px;border:3px solid #111111">
+      ${renderTopMeta()}
+      ${renderHero()}
+      <div style="background:#ffffff;padding:24px;margin:0 0 22px;border-bottom:1px solid #d1d1d1">
         <p style="margin:0 0 12px;color:#191919;font-size:18px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${greeting}</p>
-        <p style="margin:0;color:#2f2f39;font-size:16px;line-height:1.7;font-family:Roboto,Arial,sans-serif">${intro}</p>
+        <p style="margin:0;color:#111111;font-size:16px;line-height:1.55;font-family:Roboto,Arial,sans-serif">${intro}</p>
       </div>
 
       ${sections}
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:4px;margin-bottom:20px">
         <tr><td style="text-align:center;padding:10px 20px 14px">
-          <img src="${FOOTER_LOGO_URL}" alt="Shortly" width="96" style="display:block;width:96px;max-width:100%;height:auto;margin:0 auto 8px">
-          <p style="margin:0 0 10px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">Curated news, summarized daily.<br>You're receiving this because you subscribed to Shortly.</p>
+          <div style="margin:0 auto 8px;color:#111111;font:700 24px/1 'Roboto Serif',Georgia,serif">DailyMattr<sup style="font-size:10px">®</sup></div>
+          <p style="margin:0 0 10px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">Curated news, summarized daily.<br>You're receiving this because you subscribed to Daily Mattr.</p>
           <div style="text-align:center">
-            <a href="${twitterUrl}" style="display:inline-block;margin:0 6px;color:#6d28d9;text-decoration:none;font-size:12px;font-weight:700">X</a>
-            <a href="${linkedinUrl}" style="display:inline-block;margin:0 6px;color:#6d28d9;text-decoration:none;font-size:12px;font-weight:700">LinkedIn</a>
-            <a href="${whatsappUrl}" style="display:inline-block;margin:0 6px;color:#6d28d9;text-decoration:none;font-size:12px;font-weight:700">WhatsApp</a>
+            <a href="${twitterUrl}" style="display:inline-block;margin:0 6px;color:#111111;text-decoration:none;font-size:12px;font-weight:700">X</a>
+            <a href="${linkedinUrl}" style="display:inline-block;margin:0 6px;color:#111111;text-decoration:none;font-size:12px;font-weight:700">LinkedIn</a>
+            <a href="${whatsappUrl}" style="display:inline-block;margin:0 6px;color:#111111;text-decoration:none;font-size:12px;font-weight:700">WhatsApp</a>
           </div>
+          ${privacyFooter}
         </td></tr>
       </table>
     </div>
@@ -687,12 +693,12 @@ function introFor(plan: string, selection: Selection): string {
   const cat = selection.shortsCategory ?? selection.caseStudy?.category ?? "your category";
   switch (plan) {
     case "category-case":
-      return `Your ${escapeHtml(cat)} briefing: ${selection.shorts.length} quick updates${selection.caseStudy ? " plus today's deep-dive case study" : ""}. You'll be caught up SHORTLY!`;
+      return `Your ${escapeHtml(cat)} briefing: ${selection.shorts.length} quick updates${selection.caseStudy ? " plus today's deep-dive case study" : ""}. You'll be caught up Daily Mattr!`;
     case "wrap-category":
       return `The day's biggest stories plus ${selection.shorts.length} fresh ${escapeHtml(cat)} updates, minus the noise. Grab your coffee.`;
     case "case-only":
       return `Today's ${escapeHtml(cat)} case study - one story worth understanding properly.`;
     default:
-      return `Here are ${selection.wrap.length} things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up SHORTLY!`;
+      return `Here are ${selection.wrap.length} things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up Daily Mattr!`;
   }
 }

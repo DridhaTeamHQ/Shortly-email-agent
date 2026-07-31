@@ -120,6 +120,7 @@ begin
     'shortly-send-newsletter',
     'shortly-backfill-fact-scores',
     'shortly-cleanup-midnight-ist',
+    'shortly-cleanup-privacy-data',
     -- legacy names
     'shortly-scrape','shortly-summarize','shortly-send',
     'shortly-scrape-8am-ist','shortly-summarize-815am-ist','shortly-send-digest-9am-ist',
@@ -137,6 +138,12 @@ $do$;
 -- 0) cleanup old Review/Approved pools 18:35 UTC = 00:05 IST, daily.
 select cron.schedule('shortly-cleanup-midnight-ist', '35 18 * * *',
   $job$ select public.shortly_cleanup_daily_review_pools(); $job$);
+
+-- Privacy retention: remove old delivery PII, old aggregate digest logs, and
+-- long-inactive unsubscribed/bounced subscriber records. Approved editorial
+-- content is not affected by this job.
+select cron.schedule('shortly-cleanup-privacy-data', '15 19 * * *',
+  $job$ select public.shortly_cleanup_privacy_data(); $job$);
 
 -- 1) General scrape-news 00:30 UTC = 06:00 IST, daily, no GPT.
 select cron.schedule('shortly-scrape-news', '30 0 * * *',

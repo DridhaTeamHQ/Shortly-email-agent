@@ -287,7 +287,7 @@ window.SHORTLY = {
   subscribers:"/api/subscribers", scrape:"/api/scrape-news", summarize:"/api/summarize-articles",
   corporateCase:"/api/corporate-case-agent", editorialTopics:"/api/editorial-topic-agent",
   siteUrl:"", twitterUrl:"https://x.com/Shortly_news", linkedinUrl:"", agentAppUrl:"",
-  anonKey:"", dailyCap:10, reviewer:"local"
+  anonKey:"", dailyCap:5, reviewer:"local"
 };`;
 
 async function api(req, res, pathname, url) {
