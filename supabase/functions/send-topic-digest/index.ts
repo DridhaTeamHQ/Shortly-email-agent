@@ -521,7 +521,7 @@ async function renderDigest(items: DigestItem[], sub: Subscriber, topic: string)
           ${privacyFooter}
         </td></tr>
       </table>
-      ${renderFooterBrand()}${renderFooter(shareUrl || SITE_URL || "#", twitterUrl, linkedinUrl, privacyFooter)}
+      ${renderFooterBrand()}${renderFooter("https://longmattr.com/", twitterUrl, linkedinUrl, privacyFooter)}
     </div>
   </div>`;
 }

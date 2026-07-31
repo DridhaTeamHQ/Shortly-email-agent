@@ -694,7 +694,7 @@ async function renderShell(fullName: string | null, email: string, intro: string
           ${privacyFooter}
         </td></tr>
       </table>
-      ${renderFooterBrand()}${renderFooter(shareUrl || SITE_URL || "#", twitterUrl, linkedinUrl, privacyFooter)}
+      ${renderFooterBrand()}${renderFooter("https://longmattr.com/", twitterUrl, linkedinUrl, privacyFooter)}
     </div>
   </div>`;
 }

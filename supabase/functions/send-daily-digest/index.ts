@@ -310,7 +310,7 @@ async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string
           ${privacyFooter}
         </td></tr>
       </table>
-      ${renderFooterBrand()}${renderFooter(shareUrl || SITE_URL || "#", twitterUrl, linkedinUrl, privacyFooter)}
+      ${renderFooterBrand()}${renderFooter("https://longmattr.com/", twitterUrl, linkedinUrl, privacyFooter)}
     </div>
   </div>`;
 }
