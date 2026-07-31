@@ -186,7 +186,7 @@ async function api(method, path, body) {
   // Edge functions verify this server-side (the anon key alone is public and
   // proves nothing) — same token the login gate stored after verify-agent-token.
   const agentToken = localStorage.getItem(AGENT_TOKEN_KEY);
-  if (agentToken) headers["x-agent-token"] = agentToken;
+  if (agentToken) headers["x-client-info"] = `shortly-agent-token ${agentToken}`;
   const r = await fetch(path, {
     method,
     headers,

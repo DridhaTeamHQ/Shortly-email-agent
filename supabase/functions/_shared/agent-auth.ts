@@ -127,7 +127,12 @@ async function isValidAgentToken(token: string): Promise<boolean> {
 export async function isAuthorizedAgent(request: Request): Promise<boolean> {
   const bearer = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (jwtRole(bearer) === "service_role") return true;
-  return await isValidAgentToken((request.headers.get("x-agent-token") ?? "").trim());
+  const agentToken = (request.headers.get("x-agent-token") ?? "").trim();
+  const clientInfoToken = (request.headers.get("x-client-info") ?? "")
+    .trim()
+    .match(/(?:^|[,\s])shortly-agent-token\s+(.+)$/i)?.[1]
+    ?.trim() ?? "";
+  return await isValidAgentToken(agentToken || clientInfoToken);
 }
 
 // Drop-in gate: `const denied = await requireAgent(request); if (denied) return denied;`
