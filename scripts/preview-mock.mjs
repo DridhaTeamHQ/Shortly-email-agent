@@ -121,8 +121,28 @@ async function api(req, res, pathname, url) {
     else if (b.action === "delete") store.subscribers = store.subscribers.filter((x) => x.id !== b.id);
     return sendJson(res, { ok: true });
   }
-  if (["/api/send-daily-digest", "/api/send-curated-digest", "/api/send-topic-digest", "/api/scrape-news", "/api/summarize-articles", "/api/send-article"].includes(pathname) && req.method === "POST")
-    return sendJson(res, { mock: true, sent: store.subscribers.length, failed: 0 });
+  if (["/api/send-daily-digest", "/api/send-curated-digest", "/api/send-topic-digest", "/api/scrape-news", "/api/summarize-articles", "/api/send-article"].includes(pathname) && req.method === "POST") {
+    const b = await readBody(req);
+    if (pathname === "/api/send-curated-digest") {
+      const format = b.format || "daily-wrap-10";
+      if (format === "daily-wrap-10" || format === "category-5-case-1") {
+        const ids = Array.isArray(b.article_ids) ? b.article_ids : [];
+        if (ids.length !== 5) return sendJson(res, { error: "Select exactly 5 approved articles for this format." }, 400);
+        const selected = ids.map((id) => store.articles.find((a) => a.id === id));
+        if (selected.some((a) => !a || a.status !== "approved")) return sendJson(res, { error: "All selected articles must be approved." }, 400);
+        if (format === "daily-wrap-10" && selected.some((a) => a.category)) return sendJson(res, { error: "General format accepts only General articles." }, 400);
+      } else if (format === "case-study-only" && !b.corporate_case_id) {
+        return sendJson(res, { error: "Select one approved case study." }, 400);
+      }
+    }
+    const recipients = b.test_email
+      ? 1
+      : Array.isArray(b.subscriber_ids)
+        ? b.subscriber_ids.length
+        : store.subscribers.filter((s) => s.status === "subscribed").length;
+    if (recipients === 0) return sendJson(res, { error: "No recipients selected." }, 400);
+    return sendJson(res, { mock: true, sent: recipients, failed: 0, validated: true });
+  }
   return sendJson(res, { error: "not found" }, 404);
 }
 

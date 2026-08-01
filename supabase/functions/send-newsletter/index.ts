@@ -121,6 +121,12 @@ Deno.serve(async (request) => {
     recipients = Array.isArray(body?.recipients) ? body.recipients : [];
   }
 
+  // A test address is a single-recipient override. Never route it through the
+  // normal subscriber loops, which would send one copy per subscriber.
+  if (testEmail && recipients.length === 0) {
+    recipients = [{ email: testEmail, plan: "daily-wrap" }];
+  }
+
   const { start: istStart, end: istEnd } = istDayWindow();
 
   // Idempotency: one scheduled send per IST day (unless forced).
@@ -530,7 +536,7 @@ function buildSubject(plan: string, category: string | null, subjectDate: string
   if (plan === "case-only" && category) return `${subjectDate} - Daily Mattr ${category} Case Study`;
   if (plan === "category-case" && category) return `${subjectDate} - Your Daily Mattr ${category} brief`;
   if (plan === "wrap-category" && category) return `${subjectDate} - Daily Mattr Daily Wrap + ${category}`;
-  return `${subjectDate} - Daily Mattr Daily Wrap is here!`;
+  return `${subjectDate} - Daily Mattr Wrap is here!`;
 }
 
 // ---------- rendering ----------
@@ -564,6 +570,10 @@ function renderFooterBrand(): string {
 function renderFooter(subscribeUrl: string, twitterUrl: string, linkedinUrl: string, privacyFooter: string): string {
   const icon = (href: string, label: string) => `<a href="${href}" style="display:inline-block;width:28px;height:28px;line-height:28px;margin-right:10px;border-radius:50%;background:#000;color:#fff;text-align:center;text-decoration:none;font:700 14px/28px Arial,sans-serif">${label}</a>`;
   return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:28px"><tr><td style="padding:18px 28px 14px;background:#fff"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td>${icon("https://www.instagram.com/dailymattr", "◎")}${icon(twitterUrl, "X")}${icon(linkedinUrl, "in")}</td><td style="text-align:right"><a href="${subscribeUrl}" style="display:inline-block;background:#202020;color:#fff;border-radius:24px;padding:12px 20px;text-decoration:none;font:700 15px/1 Roboto,Arial,sans-serif">Subscribe&nbsp; ↗</a></td></tr></table></td></tr><tr><td style="background:#050505;color:#fff;padding:16px 28px"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td style="font:700 15px/1.2 Roboto,Arial,sans-serif">Read from anywhere</td><td style="text-align:right"><a href="#" style="display:inline-block;background:#202020;border:1px solid #333;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif">▷&nbsp; Google Play</a>&nbsp; <a href="#" style="display:inline-block;background:#202020;border:1px solid #333;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif">●&nbsp; App Store</a></td></tr></table></td></tr></table>${privacyFooter}`;
+}
+
+function normalizeStoreLinks(html: string): string {
+  return html.replace('href="#"', 'href="https://play.google.com/store"').replace('href="#"', 'href="https://www.apple.com/app-store/"');
 }
 
 // Fact-score badge: only shown when the AI fact check scored the article well
@@ -694,7 +704,7 @@ async function renderShell(fullName: string | null, email: string, intro: string
           ${privacyFooter}
         </td></tr>
       </table>
-      ${renderFooterBrand()}${renderFooter("https://longmattr.com/", twitterUrl, linkedinUrl, privacyFooter)}
+      ${renderFooterBrand()}${normalizeStoreLinks(renderFooter("https://longmattr.com/", twitterUrl, linkedinUrl, privacyFooter))}
     </div>
   </div>`;
 }

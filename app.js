@@ -2268,7 +2268,7 @@ function generatePreviewHtml() {
             </div>
           </td></tr>
         </table>
-      ${renderFooter()}
+      ${renderFooter().replace('href="#"', 'href="https://play.google.com/store"').replace('href="#"', 'href="https://www.apple.com/app-store/"')}
     </div>
   </body></html>`;
 }

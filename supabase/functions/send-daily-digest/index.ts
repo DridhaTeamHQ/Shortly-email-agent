@@ -27,7 +27,7 @@ type Article = {
 
 type Subscriber = { id: string; email: string; full_name: string | null; topics?: string[] | null };
 
-const TOTAL_ARTICLES = 10;
+const TOTAL_ARTICLES = 5;
 // Selected articles older than this are treated as stale and dropped, so a
 // leftover old selection can never resurface as a "June 17 on June 20" email.
 const FRESH_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
@@ -141,14 +141,14 @@ Deno.serve(async (request) => {
     articles = orderedSelected.filter((article) => article.status === "approved" && isFresh(article.reviewed_at ?? article.scraped_at));
     ignoredOldSelected = orderedSelected.length - articles.length;
   } else {
-    const now = new Date();
-    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+    const { start: dayStart, end: dayEnd } = istDayWindow();
     const { data: approved, error: approvedError } = await supabase
       .from("articles")
       .select(ARTICLE_SELECT)
       .eq("status", "approved")
       .is("category", null)
       .gte("reviewed_at", dayStart)
+      .lt("reviewed_at", dayEnd)
       .order("rank_score", { ascending: false })
       .order("scraped_at", { ascending: false })
       .limit(TOTAL_ARTICLES);
@@ -186,7 +186,7 @@ Deno.serve(async (request) => {
   const digestId = digest!.id as string;
 
   const subjectDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
-  const subject = `${subjectDate} - Daily Mattr Daily Wrap is here!`;
+  const subject = `${subjectDate} - Daily Mattr Wrap is here!`;
 
   let sent = 0;
   let failed = 0;
@@ -264,6 +264,10 @@ function renderFooter(subscribeUrl: string, twitterUrl: string, linkedinUrl: str
   return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:28px"><tr><td style="padding:18px 28px 14px;background:#fff"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td>${icon("https://www.instagram.com/dailymattr", "◎")}${icon(twitterUrl, "X")}${icon(linkedinUrl, "in")}</td><td style="text-align:right"><a href="${subscribeUrl}" style="display:inline-block;background:#202020;color:#fff;border-radius:24px;padding:12px 20px;text-decoration:none;font:700 15px/1 Roboto,Arial,sans-serif">Subscribe&nbsp; ↗</a></td></tr></table></td></tr><tr><td style="background:#050505;color:#fff;padding:16px 28px"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td style="font:700 15px/1.2 Roboto,Arial,sans-serif">Read from anywhere</td><td style="text-align:right"><a href="#" style="display:inline-block;background:#202020;border:1px solid #333;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif">▷&nbsp; Google Play</a>&nbsp; <a href="#" style="display:inline-block;background:#202020;border:1px solid #333;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif">●&nbsp; App Store</a></td></tr></table></td></tr></table>${privacyFooter}`;
 }
 
+function normalizeStoreLinks(html: string): string {
+  return html.replace('href="#"', 'href="https://play.google.com/store"').replace('href="#"', 'href="https://www.apple.com/app-store/"');
+}
+
 function renderSectionBlock(articles: Article[]): string {
   if (articles.length === 0) return "";
   return `
@@ -310,7 +314,7 @@ async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string
           ${privacyFooter}
         </td></tr>
       </table>
-      ${renderFooterBrand()}${renderFooter("https://longmattr.com/", twitterUrl, linkedinUrl, privacyFooter)}
+      ${renderFooterBrand()}${normalizeStoreLinks(renderFooter("https://longmattr.com/", twitterUrl, linkedinUrl, privacyFooter))}
     </div>
   </div>`;
 }
