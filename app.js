@@ -59,6 +59,9 @@ function esc(s = "") {
     .replaceAll("'", "&#039;");
 }
 
+const HANDOFF_TOKEN_PARAM_KEYS = ["token", "shared_token", "sharedToken", "agent_token", "agentToken", "access_token", "accessToken"];
+const HANDOFF_TOKEN_MESSAGE_KEYS = ["token", "shared_token", "sharedToken", "agentToken", "accessToken"];
+
 function toast(msg) {
   const container = $("#toastContainer");
   if (!container) return;
@@ -85,6 +88,111 @@ function digestFormatConfig() {
 
 function dailyDigestKey(id) {
   return `daily:${id}`;
+}
+
+function safeUrl(value, base = window.location.href) {
+  try {
+    return new URL(value, base);
+  } catch {
+    return null;
+  }
+}
+
+function firstPresentToken(params) {
+  for (const key of HANDOFF_TOKEN_PARAM_KEYS) {
+    const value = params.get(key);
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function parseTokenParams(text) {
+  const raw = String(text || "").trim().replace(/^[#?]/, "");
+  if (!raw) return "";
+  return firstPresentToken(new URLSearchParams(raw));
+}
+
+function parseTokenFragment(hashText) {
+  const raw = String(hashText || "").trim().replace(/^#/, "");
+  if (!raw) return "";
+
+  const queryIndex = raw.indexOf("?");
+  if (queryIndex >= 0) {
+    const queryToken = parseTokenParams(raw.slice(queryIndex + 1));
+    if (queryToken) return queryToken;
+  }
+
+  return parseTokenParams(raw);
+}
+
+function tokenFromCurrentLocation() {
+  const currentUrl = safeUrl(window.location.href);
+  if (!currentUrl) return "";
+  return firstPresentToken(currentUrl.searchParams) || parseTokenFragment(currentUrl.hash);
+}
+
+function stripTokenParamsFromUrl(currentUrl) {
+  let changed = false;
+  for (const key of HANDOFF_TOKEN_PARAM_KEYS) {
+    if (currentUrl.searchParams.has(key)) {
+      currentUrl.searchParams.delete(key);
+      changed = true;
+    }
+  }
+
+  const rawHash = currentUrl.hash.replace(/^#/, "");
+  if (rawHash) {
+    if (rawHash.includes("?")) {
+      const [prefix, query = ""] = rawHash.split("?");
+      const hashParams = new URLSearchParams(query);
+      const before = hashParams.toString();
+      for (const key of HANDOFF_TOKEN_PARAM_KEYS) {
+        hashParams.delete(key);
+      }
+      const after = hashParams.toString();
+      if (before !== after) {
+        currentUrl.hash = after ? `#${prefix}?${after}` : prefix ? `#${prefix}` : "";
+        changed = true;
+      }
+    } else {
+      const hashParams = new URLSearchParams(rawHash);
+      const before = hashParams.toString();
+      for (const key of HANDOFF_TOKEN_PARAM_KEYS) {
+        hashParams.delete(key);
+      }
+      const after = hashParams.toString();
+      if (before !== after) {
+        currentUrl.hash = after ? `#${after}` : "";
+        changed = true;
+      }
+    }
+  }
+
+  return changed;
+}
+
+function tokenFromMessage(data) {
+  if (!data || typeof data !== "object") return "";
+  for (const key of HANDOFF_TOKEN_MESSAGE_KEYS) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function agentLoginUrl() {
+  const baseUrl = safeUrl(agentAppUrl());
+  if (!baseUrl) return agentAppUrl();
+  const returnToUrl = safeUrl(window.location.href);
+  if (returnToUrl) {
+    stripTokenParamsFromUrl(returnToUrl);
+    baseUrl.searchParams.set("returnTo", returnToUrl.toString());
+  }
+  return baseUrl.toString();
 }
 
 function caseDigestKey(id) {
@@ -235,7 +343,7 @@ function ensureAuthGate() {
     <div style="max-width:520px;width:100%;background:#ffffff;border:2px solid #111111;border-radius:16px;padding:28px 26px;box-shadow:0 18px 48px rgba(0,0,0,0.08);font-family:Inter,Arial,sans-serif">
       <p id="authGateTitle" style="margin:0 0 10px;font-size:24px;line-height:1.2;font-weight:800;color:#191919">Email Agent Login Required</p>
       <p id="authGateText" style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#2f2f39">Open this dashboard from Shortly Agents to continue.</p>
-      <a id="authGateLink" href="${esc(cfg.agentAppUrl || "https://shortlyagents.vercel.app")}" style="display:inline-block;background:#6d28d9;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:11px 16px">Open Shortly Agents</a>
+      <a id="authGateLink" href="${esc(agentLoginUrl())}" style="display:inline-block;background:#6d28d9;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:11px 16px">Open Shortly Agents</a>
     </div>`;
   document.body.appendChild(gate);
   return gate;
@@ -245,6 +353,7 @@ function setAuthGate(message, busy = false) {
   const gate = ensureAuthGate();
   $("#authGateText").textContent = message;
   const link = $("#authGateLink");
+  link.href = agentLoginUrl();
   link.style.display = busy ? "none" : "";
   gate.style.display = "flex";
 }
@@ -378,14 +487,14 @@ async function unlockWithToken(token) {
 
 function listenForSharedToken() {
   window.addEventListener("message", async (event) => {
-    const allowedOrigin = cfg.agentAppUrl ? new URL(cfg.agentAppUrl).origin : null;
-    if (allowedOrigin && event.origin !== allowedOrigin) return;
-    const token = event.data?.token;
-    if (event.data?.type !== "shortly-agent-token" || typeof token !== "string" || !token.trim()) return;
+    const token = tokenFromMessage(event.data);
+    if (!token) return;
     try {
-      await unlockWithToken(token.trim());
+      await unlockWithToken(token);
     } catch (error) {
-      setAuthGate(error instanceof Error ? error.message : "Invalid token.", false);
+      const message = authErrorMessage(error);
+      setAuthGate(message, false);
+      toast(message);
     }
   });
 }
@@ -395,8 +504,8 @@ async function bootAuth() {
   ensureAuthGate();
   listenForSharedToken();
 
-  const url = new URL(window.location.href);
-  const tokenFromUrl = url.searchParams.get("token") || url.searchParams.get("shared_token");
+  const url = safeUrl(window.location.href);
+  const tokenFromUrl = tokenFromCurrentLocation();
   const storedToken = localStorage.getItem(AGENT_TOKEN_KEY);
   const token = tokenFromUrl || storedToken;
 
@@ -407,15 +516,14 @@ async function bootAuth() {
 
   try {
     await unlockWithToken(token);
-    if (tokenFromUrl) {
-      url.searchParams.delete("token");
-      url.searchParams.delete("shared_token");
+    if (tokenFromUrl && url && stripTokenParamsFromUrl(url)) {
       window.history.replaceState({}, "", url.toString());
     }
   } catch (error) {
     clearAgentSession();
-    setAuthGate(authErrorMessage(error), false);
-    toast(error instanceof Error ? error.message : "Invalid shared token.");
+    const message = authErrorMessage(error);
+    setAuthGate(message, false);
+    toast(message);
   }
 }
 
