@@ -2344,6 +2344,12 @@ function generatePreviewHtml() {
     </div>`;
   }
 
+  function previewBreakingBadge(article) {
+    const isBreaking = Boolean(article?.is_breaking) || (state.breaking || []).some((hit) => hit.id === article?.id);
+    if (!isBreaking) return "";
+    return `<span style="display:inline-block;vertical-align:middle;margin:0 0 8px;padding:2px 8px;border-radius:999px;background:#c2221e;color:#ffffff;font-size:10px;line-height:1.2;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;font-family:Roboto,Arial,sans-serif">Breaking</span>`;
+  }
+
   function renderPreviewItems(items, kind = "daily") {
     return items.map((a) => {
       const previewKey = kind === "daily" ? dailyDigestKey(a.id) : caseDigestKey(a.id);
@@ -2355,6 +2361,7 @@ function generatePreviewHtml() {
         ? `<a href="${esc(sourceUrl)}" style="color:#555555;text-decoration:none">${esc(sourceName || "Read source")}</a>`
         : esc(sourceName);
       return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
+        ${previewBreakingBadge(a)}
         <h2 style="font-size:16px;line-height:1.32;margin:0 0 10px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${esc(headline)}</h2>
         <p style="font-size:12px;line-height:1.2;margin:0 0 14px;color:#666666;font-family:Roboto,Arial,sans-serif">${esc(a.category || a.topic || "General")}</p>
         <p style="font-size:13px;line-height:1.55;color:#686868;margin:0 0 12px;font-family:'Roboto Serif',Georgia,serif">${esc(text)}</p>
