@@ -4,6 +4,7 @@ import { sendEmail } from "../_shared/mailer.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
 import { matchesCategoryContent } from "../_shared/category-quality.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
+import { requireIstSendWindow } from "../_shared/send-window.ts";
 
 type Subscriber = { id: string; email: string; full_name: string | null; topics?: string[] | null };
 type DailyArticle = {
@@ -87,6 +88,8 @@ Deno.serve(async (request) => {
   const dryRun = body?.dry_run === true;
   const forceSend = body?.force === true;
   const provider = body?.provider === "ses" ? "ses" : body?.provider === "brevo" ? "brevo" : undefined;
+  const sendWindowDenied = requireIstSendWindow({ dryRun });
+  if (sendWindowDenied) return sendWindowDenied;
 
   if (config.requiresCategory && !category) {
     return json({ error: "Category is required for this format" }, 400);

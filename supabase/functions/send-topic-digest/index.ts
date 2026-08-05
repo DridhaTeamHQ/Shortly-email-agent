@@ -7,6 +7,7 @@ import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
 import { matchesCategoryContent } from "../_shared/category-quality.ts";
+import { requireIstSendWindow } from "../_shared/send-window.ts";
 
 type Subscriber = { id: string; email: string; full_name: string | null; topics?: string[] | null };
 type DailyArticle = {
@@ -93,6 +94,8 @@ Deno.serve(async (request) => {
   if (!isManual && !dryRun && !AUTO_TOPIC_DIGEST_ENABLED) {
     return json({ error: "Automatic topic digest sending is turned off for now." }, 403);
   }
+  const sendWindowDenied = requireIstSendWindow({ dryRun });
+  if (sendWindowDenied) return sendWindowDenied;
 
   let supabase;
   let items: DigestItem[] = [];

@@ -89,8 +89,10 @@ form?.addEventListener("submit", async (event) => {
       setMessage("Welcome back. Your subscription is active again.", "success");
     } else if (data.existing) {
       setMessage("You're already subscribed to Shortly Daily Wrap.", "success");
+    } else if (data.welcome_sent === false) {
+      setMessage("You're subscribed, but we could not send the welcome email yet. Your daily emails remain active.", "success");
     } else {
-      setMessage("You're in. Watch your inbox for the next Shortly Daily Wrap.", "success");
+      setMessage("You're in. Check your inbox for a welcome from Daily Mattr.", "success");
     }
   } catch (error) {
     setMessage(error.message || "Something went wrong. Please try again.", "error");

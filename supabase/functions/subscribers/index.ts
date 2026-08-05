@@ -8,6 +8,21 @@ import {
   WEEKDAYS,
 } from "../_shared/news-categories.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
+import { sendEmail } from "../_shared/mailer.ts";
+import { renderWelcomeEmail } from "../_shared/welcome-email.ts";
+
+async function sendWelcome(email: string, name: string | null) {
+  try {
+    const result = await sendEmail({
+      to: email,
+      subject: "Welcome to Daily Mattr",
+      html: await renderWelcomeEmail(email, name),
+    });
+    return result.ok ? { sent: true } : { sent: false, error: result.error ?? "Email provider rejected the message" };
+  } catch (error) {
+    return { sent: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
 
 // ---------- legacy plan model (kept for the old QA dashboard form) ----------
 const VALID_TOPICS = new Set([
@@ -158,6 +173,29 @@ Deno.serve(async (request) => {
     const body = await request.json();
     const { action } = body;
 
+    if (action === "send-welcome") {
+      const emails = Array.isArray(body.emails)
+        ? [...new Set(body.emails.map((email: unknown) => String(email).trim().toLowerCase()).filter((email: string) => email.includes("@")))]
+        : [];
+      if (emails.length === 0 || emails.length > 10) {
+        return json({ error: "Provide between 1 and 10 valid email addresses." }, 400);
+      }
+
+      const { data: subscribers, error } = await supabase
+        .from("subscribers")
+        .select("email,full_name")
+        .in("email", emails);
+      if (error) return json({ error: error.message }, 500);
+
+      const known = new Map((subscribers ?? []).map((subscriber) => [subscriber.email, subscriber.full_name ?? null]));
+      const results = [];
+      for (const email of emails) {
+        const welcome = await sendWelcome(email, known.get(email) ?? null);
+        results.push({ email, ...welcome });
+      }
+      return json({ ok: true, results });
+    }
+
     // NEW consumer subscribe (website form): rhythm + categories[] + source pref.
     if (action === "subscribe") {
       const { email, name, full_name } = body;
@@ -208,7 +246,8 @@ Deno.serve(async (request) => {
         .from("subscribers")
         .insert({ email: normalizedEmail, ...record });
       if (error) return json({ error: error.message }, 400);
-      return json({ ok: true, created: true });
+      const welcome = await sendWelcome(normalizedEmail, normalizedName);
+      return json({ ok: true, created: true, welcome_sent: welcome.sent, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
     }
 
     if (action === "add") {
@@ -256,7 +295,8 @@ Deno.serve(async (request) => {
         .insert({ email: normalizedEmail, full_name: normalizedName, phone_number: normalizedPhone, plan, category, topics: normalizedTopics });
       if (error) return json({ error: error.message }, 400);
 
-      return json({ ok: true, created: true });
+      const welcome = await sendWelcome(normalizedEmail, normalizedName);
+      return json({ ok: true, created: true, welcome_sent: welcome.sent, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
     }
 
     if (action === "import") {

@@ -8,6 +8,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
+import { requireIstSendWindow } from "../_shared/send-window.ts";
 
 type Article = {
   id: string;
@@ -89,6 +90,8 @@ Deno.serve(async (request) => {
   if (!isManual && !isScheduled && !AUTO_DIGEST_ENABLED) {
     return json({ error: "Automatic digest sending is turned off for now." }, 403);
   }
+  const sendWindowDenied = requireIstSendWindow();
+  if (sendWindowDenied) return sendWindowDenied;
 
   // Universal duplicate guard: skip if a real digest was already sent in the last
   // 2 minutes. Stops concurrent cron retries and manual double-clicks from blasting
@@ -297,7 +300,7 @@ async function renderDigest(wrapped: Article[], sub: Subscriber): Promise<string
       ${renderHero()}
       <div style="background:#ffffff;padding:24px;margin:0 0 22px;border-bottom:1px solid #d1d1d1">
         <p style="margin:0 0 12px;color:#191919;font-size:18px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${greeting}</p>
-        <p style="margin:0;color:#2f2f39;font-size:16px;line-height:1.7;font-weight:400;font-family:Roboto,Arial,sans-serif">Here are the stories that deserve your attention. The biggest news, minus the noise. Grab your coffee &mdash; you'll be caught up Daily Mattr!</p>
+        <p style="margin:0;color:#2f2f39;font-size:16px;line-height:1.7;font-weight:400;font-family:Roboto,Arial,sans-serif">Here are the stories that deserve your attention. The biggest news, minus the noise. Grab your coffee - you'll be caught up Daily Mattr!</p>
       </div>
 
       ${renderSectionBlock(wrapped)}

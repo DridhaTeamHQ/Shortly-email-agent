@@ -5,6 +5,8 @@ const DAILY_CAP = cfg.dailyCap ?? 5;
 const AGENT_TOKEN_KEY = "shortly-agent-shared-token";
 const AGENT_SESSION_KEY = "shortly-agent-session";
 let dashboardBooted = false;
+const SEND_WINDOW_TIME_ZONE = "Asia/Kolkata";
+const SEND_WINDOW_HOUR = 9;
 
 const NEWSLETTER_TOPICS = [
   { slug: "daily-wrap", label: "General" },
@@ -197,6 +199,35 @@ function agentLoginUrl() {
 
 function caseDigestKey(id) {
   return `case:${id}`;
+}
+
+function istHour(date = new Date()) {
+  return Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: SEND_WINDOW_TIME_ZONE,
+    hour: "2-digit",
+    hour12: false
+  }).format(new Date(date)));
+}
+
+function istTimeLabel(date = new Date()) {
+  return `${new Intl.DateTimeFormat("en-GB", {
+    timeZone: SEND_WINDOW_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(date))} IST`;
+}
+
+function sendWindowLabel() {
+  return "09:00-09:59 IST";
+}
+
+function sendWindowOpen(date = new Date()) {
+  return istHour(date) === SEND_WINDOW_HOUR;
+}
+
+function sendWindowMessage() {
+  return `Sending is allowed only during ${sendWindowLabel()}. Current time: ${istTimeLabel()}.`;
 }
 
 function normalizeTopicSlug(value = "") {
@@ -934,6 +965,10 @@ function refreshChrome() {
       ? `Send (${counts.wrapped}) to ${selectedSubs}`
       : `Send (${counts.wrapped})`;
     send.disabled = approved === 0 || dailyWrapSubs === 0;
+  }
+  if (!sendWindowOpen()) {
+    send.disabled = true;
+    send.title = sendWindowMessage();
   }
 
   const preview = $("#previewDigest");
@@ -2892,6 +2927,10 @@ $("#previewModal").addEventListener("click", (e) => {
 });
 
 async function sendDailyDigest() {
+  if (!sendWindowOpen()) {
+    toast(sendWindowMessage());
+    return;
+  }
   const selectedIds = [...state.selectedSubscribers];
   const approvedArticles = state.articles.filter(isApprovedToday);
   const selectedArticleIds = approvedArticles
@@ -2919,6 +2958,10 @@ async function sendDailyDigest() {
 }
 
 async function sendCuratedDigest() {
+  if (!sendWindowOpen()) {
+    toast(sendWindowMessage());
+    return;
+  }
   if (!cfg.curatedDigest) {
     toast("Curated digest endpoint is missing.");
     return;
@@ -2971,6 +3014,10 @@ $("#sendDigest").addEventListener("click", () => {
 });
 
 async function sendCasesDigest() {
+  if (!sendWindowOpen()) {
+    toast(sendWindowMessage());
+    return;
+  }
   if (state.casesSendMode === "case-study-only") {
     if (!cfg.topicDigest) {
       toast("Topic digest endpoint is missing.");
