@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#3979ff" />
     <title>Dailymattr Digest</title>
     <meta name="description" content="Follow Dailymattr for curated daily news that helps you catch up fast." />
     <link rel="canonical" href="/" />
@@ -333,10 +334,15 @@
         <!-- SUBSCRIBERS -->
         <section class="section" data-section="subscribers" data-workspace="both">
           <form id="subForm" class="sub-form">
-            <input id="subEmail" class="sub-input-email" type="email" placeholder="email@example.com" required />
-            <input id="subName" class="sub-input-name" type="text" placeholder="Full name (optional)" />
-            <input id="subPhone" class="sub-input-phone" type="text" placeholder="Phone number (optional)" />
-            <div class="topic-picker" id="subTopicPicker" aria-label="Subscriber topics"></div>
+            <div class="sub-contact-fields">
+              <input id="subEmail" type="email" placeholder="email@example.com" aria-label="Email address" required />
+              <input id="subName" type="text" placeholder="Full name (optional)" aria-label="Full name" />
+              <input id="subPhone" type="text" placeholder="Phone number (optional)" aria-label="Phone number" />
+            </div>
+            <div class="sub-topic-field">
+              <p class="sub-field-label">Newsletter subscriptions</p>
+              <div class="topic-picker" id="subTopicPicker" aria-label="Subscriber topics"></div>
+            </div>
             <button class="btn-primary sub-submit" type="submit">Add subscriber</button>
           </form>
           <div class="sub-form sub-import-row">
