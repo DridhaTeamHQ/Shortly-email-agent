@@ -2492,7 +2492,6 @@ function showSection(name) {
   state.section = name;
   $$(".section").forEach((s) => s.classList.toggle("active", s.dataset.section === name));
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.section === name));
-  $$(".global-nav-control").forEach((b) => b.classList.toggle("active", b.dataset.navTarget === name));
   refreshChrome();
   if (name === "trending") {
     renderTrending();
@@ -2545,13 +2544,6 @@ $("#workspaceToggle")?.addEventListener("click", (e) => {
 $$(".nav-item").forEach((btn) =>
   btn.addEventListener("click", () => {
     showSection(btn.dataset.section);
-    closeMenu();
-  })
-);
-
-$$('.global-nav-control').forEach((btn) =>
-  btn.addEventListener('click', () => {
-    showSection(btn.dataset.navTarget);
     closeMenu();
   })
 );
