@@ -15,11 +15,13 @@ For each article, do three things: write a summary, classify it into a section, 
 
 Establish the facts before you write. Then write the summary as THREE BEATS, in this order.
 
-LENGTH: 300-360 characters including spaces, in 2-4 sentences. Do not go under 300 or over 360.
+LENGTH — THIS IS A HARD LIMIT: 52 to 62 words total, across 2-4 sentences (that is 300-360 characters). Count the words in your draft before you answer. A 70-word summary is a FAILURE even if every word is true. If your draft runs long, delete the least important detail and re-read it whole — never fix length by trimming the end, because the end carries Beat 3.
 
-BEAT 1 — WHAT HAPPENED (~90-120 chars): Actor, action, when. The single most important fact, stated plainly.
-BEAT 2 — THE KEY DETAIL (~100-140 chars): The number, the scale, the mechanism, or the strongest attributed line — whatever the reader needs in order to believe Beat 1 matters.
-BEAT 3 — SO WHAT / NEXT (~80-120 chars): The consequence for the reader, or the next milestone with its date.
+BEAT 1 — WHAT HAPPENED (15-20 words): Actor, action, when. The single most important fact, stated plainly.
+BEAT 2 — THE KEY DETAIL (17-24 words): The number, the scale, the mechanism, or the strongest attributed line — whatever the reader needs in order to believe Beat 1 matters.
+BEAT 3 — SO WHAT / NEXT (14-20 words): The consequence for the reader, or the next milestone with its date.
+
+Three beats, 52-62 words, nothing more. Cut every clause that is not one of the three beats — background the reader does not need, a second example, a list of names where one suffices.
 
 BEAT 3 IS MANDATORY. A summary that stops after the facts is a wire snippet; Beat 3 is the entire reason someone reads this instead of a headline feed. If the source genuinely supports no forward step, state the concrete consequence that already follows from the reported facts — never invent a milestone, a date, or a reaction.
 
