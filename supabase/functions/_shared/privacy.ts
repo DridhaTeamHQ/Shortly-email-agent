@@ -21,7 +21,7 @@ export async function renderPrivacyFooter(email: string): Promise<string> {
   const deleteUrl = `${base}?${query}&action=delete`;
 
   return `<p style="margin:12px 0 0;color:#8b8b9d;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
-    <a href="${escapeHtml(unsubscribeUrl)}" style="color:#6d28d9;text-decoration:underline">Unsubscribe</a>
+    <a href="${escapeHtml(unsubscribeUrl)}" style="color:#3979ff;text-decoration:underline">Unsubscribe</a>
     <span style="color:#c4c4cf">&nbsp;|&nbsp;</span>
     <a href="${escapeHtml(deleteUrl)}" style="color:#8b8b9d;text-decoration:underline">Delete my data</a>
   </p>`;

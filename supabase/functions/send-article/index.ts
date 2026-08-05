@@ -127,12 +127,12 @@ async function renderEmail(article: ArticlePayload, subscriber: Subscriber): Pro
   const source = article.source ? `<p style="color:#555555;font-weight:700;margin:0 0 12px">${escapeHtml(article.source)}</p>` : "";
   const note = article.note ? `<p style="color:#555555;margin:0 0 18px">${escapeHtml(article.note)}</p>` : "";
   const privacyFooter = await renderPrivacyFooter(subscriber.email);
-  const footer = `<div style="margin:28px -30px -30px;padding:24px 20px 18px;background:#050505;color:#ffffff;text-align:center;font:13px/1.5 Roboto,Arial,sans-serif"><strong style="font:700 22px/1 'Roboto Serif',Georgia,serif">DailyMattr<sup style="font-size:9px">®</sup></strong><br>Curated news, summarized daily.<br><a href="https://longmattr.com/" style="display:inline-block;margin-top:12px;background:#202020;color:#ffffff;border-radius:22px;padding:10px 18px;text-decoration:none;font-weight:700">Subscribe</a></div>`;
+  const footer = `<div style="margin:28px -30px -30px;padding:24px 20px 18px;background:#3979ff;color:#ffffff;text-align:center;font:13px/1.5 Roboto,Arial,sans-serif"><strong style="font:700 22px/1 'Roboto Serif',Georgia,serif">Dailymattr<sup style="font-size:9px">®</sup></strong><br>Curated news, summarized daily.<br><a href="https://longmattr.com/" style="display:inline-block;margin-top:12px;background:#3979ff;color:#ffffff;border-radius:22px;padding:10px 18px;text-decoration:none;font-weight:700">Subscribe</a></div>`;
 
   return `
     <div style="margin:0;background:#ffffff;padding:32px;font-family:Roboto,Arial,sans-serif;color:#191919">
       <div style="max-width:640px;margin:0 auto">
-        <img src="${BANNER_URL}" alt="Shortly Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
+        <img src="${BANNER_URL}" alt="Dailymattr Daily Wrap" width="640" style="display:block;width:100%;max-width:640px;height:auto;border-radius:0 0 16px 16px">
       </div>
       <div style="max-width:620px;margin:20px auto 0;background:#ffffff;border-radius:12px;padding:30px;border:1px solid #111111">
         <p style="margin:0 0 18px;color:#191919;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">Hi${name},</p>
@@ -140,7 +140,7 @@ async function renderEmail(article: ArticlePayload, subscriber: Subscriber): Pro
         ${source}
         <h1 style="font-size:32px;line-height:1.12;margin:0 0 16px;color:#191919;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(article.title)}</h1>
         <p style="font-size:16px;line-height:1.7;color:#3f3f46;margin:0 0 24px">${escapeHtml(article.summary)}</p>
-        <a href="${escapeHtml(article.url)}" style="display:inline-block;background:#202020;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:13px 18px">Read article</a>
+        <a href="${escapeHtml(article.url)}" style="display:inline-block;background:#3979ff;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:13px 18px">Read article</a>
         ${footer}
         ${privacyFooter}
       </div>

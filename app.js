@@ -1,4 +1,4 @@
-// Shortly dashboard — review, approve, manage subscribers, send digest.
+// Dailymattr dashboard - review, approve, manage subscribers, send digest.
 
 const cfg = window.SHORTLY;
 const DAILY_CAP = cfg.dailyCap ?? 5;
@@ -373,8 +373,8 @@ function ensureAuthGate() {
   gate.innerHTML = `
     <div style="max-width:520px;width:100%;background:#ffffff;border:2px solid #111111;border-radius:16px;padding:28px 26px;box-shadow:0 18px 48px rgba(0,0,0,0.08);font-family:Inter,Arial,sans-serif">
       <p id="authGateTitle" style="margin:0 0 10px;font-size:24px;line-height:1.2;font-weight:800;color:#191919">Email Agent Login Required</p>
-      <p id="authGateText" style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#2f2f39">Open this dashboard from Shortly Agents to continue.</p>
-      <a id="authGateLink" href="${esc(agentLoginUrl())}" style="display:inline-block;background:#6d28d9;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:11px 16px">Open Shortly Agents</a>
+      <p id="authGateText" style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#2f2f39">Open this dashboard from Dailymattr Agents to continue.</p>
+      <a id="authGateLink" href="${esc(agentLoginUrl())}" style="display:inline-block;background:#3979ff;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:11px 16px">Open Dailymattr Agents</a>
     </div>`;
   document.body.appendChild(gate);
   return gate;
@@ -499,7 +499,7 @@ function logoutAgent() {
 function authErrorMessage(error) {
   const reason = error instanceof Error ? error.message : "Invalid shared token.";
   if (reason === "invalid token signature") {
-    return "Token signature did not match. Set the same SHORTLY_AGENT_AUTH_SECRET in Shortly Agents and Supabase, then redeploy the Supabase functions.";
+    return "Token signature did not match. Set the same SHORTLY_AGENT_AUTH_SECRET in Dailymattr Agents and Supabase, then redeploy the Supabase functions.";
   }
   return reason;
 }
@@ -541,7 +541,7 @@ async function bootAuth() {
   const token = tokenFromUrl || storedToken;
 
   if (!token) {
-    setAuthGate("Open this dashboard from Shortly Agents to continue.", false);
+    setAuthGate("Open this dashboard from Dailymattr Agents to continue.", false);
     return;
   }
 
@@ -1349,7 +1349,7 @@ function topicDraftCardHtml(card, options = {}) {
         <div class="card-head">
           <div class="chips">
             ${sendChip}
-            <span class="source-pill">${esc(card.source || "Shortly")}</span>
+            <span class="source-pill">${esc(card.source || "Dailymattr")}</span>
             <span class="topic-chip">${esc(card.topic)}</span>
             ${card.label ? `<span class="tag section-ahead">${esc(card.label)}</span>` : ""}
             <span class="tag ${esc(card.status)}">${esc(card.status)}</span>
@@ -2304,7 +2304,7 @@ function generatePreviewHtml() {
 
   const shareBase = (cfg.siteUrl || window.location.origin || "").replace(/\/+$/, "");
   const shareUrl = shareBase ? `${shareBase}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
-  const shareMessage = "Click here to subscribe to Daily Mattr:";
+  const shareMessage = "Click here to subscribe to Dailymattr:";
   const twitterUrl = shareUrl
     ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`
     : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}`;
@@ -2317,7 +2317,7 @@ function generatePreviewHtml() {
   function renderFooter() {
     const subscribeUrl = "https://longmattr.com/";
     const icon = (href, content) => `<a href="${href}" style="display:inline-block;width:28px;height:28px;line-height:28px;margin-right:10px;border-radius:50%;background:#000;color:#fff;text-align:center;text-decoration:none;font:700 14px/28px Arial,sans-serif">${content}</a>`;
-    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:28px"><tr><td style="padding:18px 28px 14px;background:#fff"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td>${icon("https://www.instagram.com/dailymattr", "◎")}${icon(twitterUrl, "X")}${icon(linkedinUrl, "in")}</td><td style="text-align:right"><a href="${subscribeUrl}" style="display:inline-block;background:#202020;color:#fff;border-radius:24px;padding:12px 20px;text-decoration:none;font:700 15px/1 Roboto,Arial,sans-serif">Subscribe&nbsp; ↗</a></td></tr></table></td></tr><tr><td style="background:#050505;color:#fff;padding:16px 28px"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td style="font:700 15px/1.2 Roboto,Arial,sans-serif">Read from anywhere</td><td style="text-align:right"><a href="#" style="display:inline-block;background:#202020;border:1px solid #333;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif">▷&nbsp; Google Play</a>&nbsp; <a href="#" style="display:inline-block;background:#202020;border:1px solid #333;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif">●&nbsp; App Store</a></td></tr></table></td></tr></table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:28px"><tr><td style="padding:18px 28px 14px;background:#fff"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td>${icon("https://www.instagram.com/dailymattr", "◎")}${icon(twitterUrl, "X")}${icon(linkedinUrl, "in")}</td><td style="text-align:right"><a href="${subscribeUrl}" style="display:inline-block;background:#3979ff;color:#fff;border-radius:24px;padding:12px 20px;text-decoration:none;font:700 15px/1 Roboto,Arial,sans-serif">Subscribe&nbsp; ↗</a></td></tr></table></td></tr><tr><td style="background:#3979ff;color:#fff;padding:16px 28px"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td style="font:700 15px/1.2 Roboto,Arial,sans-serif">Read from anywhere</td><td style="text-align:right"><a href="#" style="display:inline-block;background:#3979ff;border:1px solid #333;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif">▷&nbsp; Google Play</a>&nbsp; <a href="#" style="display:inline-block;background:#3979ff;border:1px solid #333;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif">●&nbsp; App Store</a></td></tr></table></td></tr></table>`;
   }
 
   function renderLabelBar(text, bg) {
@@ -2326,11 +2326,11 @@ function generatePreviewHtml() {
 
   function renderTopMeta() {
     const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
-    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#020202"><tr><td style="padding:8px 24px;color:#dadada;font:12px/22px Roboto,Arial,sans-serif;letter-spacing:.02em">From the Daily Mattr Team</td><td style="padding:8px 24px;color:#dadada;font:12px/22px Roboto,Arial,sans-serif;text-align:right">${today}</td></tr></table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#3979ff"><tr><td style="padding:8px 24px;color:#ffffff;font:12px/22px Roboto,Arial,sans-serif;letter-spacing:.02em">From the Dailymattr Team</td><td style="padding:8px 24px;color:#ffffff;font:12px/22px Roboto,Arial,sans-serif;text-align:right">${today}</td></tr></table>`;
   }
 
   function renderHero() {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#020202 url('${previewBannerUrl}') center/cover no-repeat"><tr><td style="background:rgba(0,0,0,.68);padding:36px 24px 40px;text-align:center;color:#ffffff"><div style="font:700 24px/1 'Roboto Serif',Georgia,serif;margin-bottom:18px">DailyMattr<sup style="font-size:10px">®</sup></div><div style="font:900 54px/.95 Georgia,'Times New Roman',serif;letter-spacing:-.04em">LONG MATTR</div><div style="margin-top:14px;font:700 12px/1.2 Roboto,Arial,sans-serif;letter-spacing:.28em;text-transform:uppercase">Stories that matter</div></td></tr></table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#3979ff url('${previewBannerUrl}') center/cover no-repeat"><tr><td style="background:rgba(0,0,0,.68);padding:36px 24px 40px;text-align:center;color:#ffffff"><div style="font:700 24px/1 'Roboto Serif',Georgia,serif;margin-bottom:18px">Dailymattr<sup style="font-size:10px">®</sup></div><div style="font:900 54px/.95 Georgia,'Times New Roman',serif;letter-spacing:-.04em">DAILYMATTR</div><div style="margin-top:14px;font:700 12px/1.2 Roboto,Arial,sans-serif;letter-spacing:.28em;text-transform:uppercase">Stories that matter</div></td></tr></table>`;
   }
 
   function renderSection(label, items, kind = "daily", color = "#111111") {
@@ -2372,11 +2372,11 @@ function generatePreviewHtml() {
 
   const introText = state.section === "email-builder"
     ? {
-        "daily-wrap-10": "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up Daily Mattr!",
+        "daily-wrap-10": "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up Dailymattr!",
         "category-5-case-1": `Here are 5 stories from ${esc(plan.category || "today's focus")}. The biggest updates from this bucket, minus the noise.`,
-        "case-study-only": "Here is today's Daily Mattr case study, designed as one focused long-form read."
+        "case-study-only": "Here is today's Dailymattr case study, designed as one focused long-form read."
       }[state.digestFormat]
-    : "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up Daily Mattr!";
+    : "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up Dailymattr!";
 
   const allText = [...wrapped, ...plan.caseStudies]
     .map((a) => {
@@ -2405,10 +2405,10 @@ function generatePreviewHtml() {
       ${renderSection("Case Study", plan.caseStudies, "case", "#0f9d69")}
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="display:none;margin-top:4px;margin-bottom:20px">
         <tr><td style="text-align:center;padding:10px 20px 14px">
-          <div style="margin:0 auto 8px;color:#111111;font:700 24px/1 'Roboto Serif',Georgia,serif">DailyMattr<sup style="font-size:10px">®</sup></div>
+          <div style="margin:0 auto 8px;color:#111111;font:700 24px/1 'Roboto Serif',Georgia,serif">Dailymattr<sup style="font-size:10px">®</sup></div>
           <p style="margin:0 0 10px;color:#9a9ab0;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
             Curated news, summarized daily.<br>
-            You're receiving this because you subscribed to Daily Mattr.
+            You're receiving this because you subscribed to Dailymattr.
           </p>
             <p style="margin:0 0 8px;font-size:12px;color:#9a9ab0;font-family:Roboto,Arial,sans-serif">Can be forwarded to others.</p>
             <div style="text-align:center">
@@ -2906,7 +2906,7 @@ $("#scrapeForm").addEventListener("submit", async (e) => {
   const payload = {
     title: $("#scTitle").value.trim(),
     url: $("#scUrl").value.trim(),
-    source: $("#scSource").value.trim() || "Shortly",
+    source: $("#scSource").value.trim() || "Dailymattr",
     topic: $("#scTopic").value.trim(),
     raw_content: $("#scRaw").value.trim()
   };

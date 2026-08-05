@@ -72,7 +72,7 @@ form?.addEventListener("submit", async (event) => {
   }
 
   button.disabled = true;
-  setMessage("Adding you to Shortly...", "");
+  setMessage("Adding you to Dailymattr...", "");
 
   try {
     const data = await api(cfg.subscribers, {
@@ -88,11 +88,11 @@ form?.addEventListener("submit", async (event) => {
     if (data.resubscribed) {
       setMessage("Welcome back. Your subscription is active again.", "success");
     } else if (data.existing) {
-      setMessage("You're already subscribed to Shortly Daily Wrap.", "success");
+      setMessage("You're already subscribed to Dailymattr Daily Wrap.", "success");
     } else if (data.welcome_sent === false) {
       setMessage("You're subscribed, but we could not send the welcome email yet. Your daily emails remain active.", "success");
     } else {
-      setMessage("You're in. Check your inbox for a welcome from Daily Mattr.", "success");
+      setMessage("You're in. Check your inbox for a welcome from Dailymattr.", "success");
     }
   } catch (error) {
     setMessage(error.message || "Something went wrong. Please try again.", "error");
