@@ -55,6 +55,13 @@ body {
   padding: 18px 18px 18px 24px;
 }
 
+.hero-logo {
+  display: block;
+  width: min(220px, 72%);
+  height: auto;
+  margin: 0 0 18px;
+}
+
 .eyebrow,
 .card-label {
   margin: 0 0 10px;

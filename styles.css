@@ -132,20 +132,16 @@ a:hover { text-decoration-color: var(--ink); }
   transition: background var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
 }
 .brand {
-  display: flex; align-items: center; gap: 11px;
-  font-family: var(--font-display);
-  font-weight: 700; font-size: 20px;
-  margin-bottom: 26px; padding: 0 8px;
+  display: flex; align-items: center;
+  margin-bottom: 26px; padding: 2px 8px 0;
 }
-.brand-mark {
-  width: 34px; height: 34px;
-  background: var(--ink); color: var(--surface);
-  display: grid; place-items: center;
-  border-radius: 999px; font-weight: 700;
-  font-family: var(--font-display);
-  transition: transform var(--t-med) var(--ease-spring), background var(--t-med) var(--ease), color var(--t-med) var(--ease);
+.brand-logo {
+  display: block;
+  width: min(180px, 100%);
+  height: auto;
+  transition: transform var(--t-med) var(--ease-spring), opacity var(--t-med) var(--ease);
 }
-.brand:hover .brand-mark { transform: rotate(-8deg) scale(1.08); }
+.brand:hover .brand-logo { transform: translateY(-1px) scale(1.02); }
 
 ** ── Workspace toggle ── **
 .workspace-toggle {
