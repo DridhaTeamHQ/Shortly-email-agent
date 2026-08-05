@@ -19,61 +19,96 @@
     <meta name="twitter:title" content="Dailymattr Daily Wrap" />
     <meta name="twitter:description" content="Follow Dailymattr for curated daily news that helps you catch up fast." />
     <meta name="twitter:image" content="/assets/email-banner.jpg" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css" />
     <link rel="stylesheet" href="./styles.css" />
     <script src="./config.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   </head>
   <body>
     <div class="app">
-      <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">&#9776;</button>
-      <aside class="sidebar" id="sidebar">
-        <div class="brand" aria-label="Dailymattr">
-          <img class="brand-logo" src="./assets/footer-logo.png" alt="Dailymattr" />
+      <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">
+        <i class="ph ph-list" aria-hidden="true"></i>
+      </button>
+      <header class="global-nav">
+        <div class="global-brand" aria-label="Dailymattr">
+          <img class="global-brand-logo" src="./assets/footer-logo.png" alt="Dailymattr" />
         </div>
+        <nav class="global-shortcuts" aria-label="Primary navigation">
+          <button class="global-nav-control global-nav-pill active" type="button" data-nav-target="review">
+            <i class="ph ph-squares-four" aria-hidden="true"></i>
+            <span>Dashboard</span>
+          </button>
+          <button class="global-nav-control global-nav-icon" type="button" data-nav-target="trending" aria-label="Trending" title="Trending">
+            <i class="ph ph-trend-up" aria-hidden="true"></i>
+          </button>
+          <button class="global-nav-control global-nav-icon" type="button" data-nav-target="approved" aria-label="Approved Pool" title="Approved Pool">
+            <i class="ph ph-check-circle" aria-hidden="true"></i>
+          </button>
+          <button class="global-nav-control global-nav-icon" type="button" data-nav-target="email-builder" aria-label="Email Builder" title="Email Builder">
+            <i class="ph ph-envelope-simple" aria-hidden="true"></i>
+          </button>
+          <button class="global-nav-control global-nav-icon" type="button" data-nav-target="subscribers" aria-label="Subscribers" title="Subscribers">
+            <i class="ph ph-users" aria-hidden="true"></i>
+          </button>
+          <button class="global-nav-control global-nav-icon global-nav-secondary" type="button" data-nav-target="analytics" aria-label="Analytics" title="Analytics">
+            <i class="ph ph-chart-line-up" aria-hidden="true"></i>
+          </button>
+        </nav>
+        <div class="global-nav-spacer"></div>
         <div class="workspace-toggle" id="workspaceToggle" role="tablist" aria-label="Workspace">
           <button class="ws-btn active" data-workspace="short" role="tab" aria-selected="true">Short Articles</button>
           <button class="ws-btn" data-workspace="cases" role="tab" aria-selected="false">Case Studies</button>
         </div>
+        <span class="global-date" id="globalDate"></span>
+        <div class="agent-session" id="agentSession" hidden>
+          <span class="agent-avatar" id="agentAvatar">A</span>
+          <span class="agent-copy">
+            <span class="agent-kicker">Signed in</span>
+            <span class="agent-name" id="agentName">Agent</span>
+          </span>
+        </div>
+      </header>
+      <aside class="sidebar" id="sidebar">
         <nav class="nav">
-          <button class="nav-item active" data-section="review" data-workspace="short">
-            <span>Review</span><span class="badge" id="badgeReview">0</span>
+          <button class="nav-item active" data-section="review" data-workspace="short" data-label="Review" aria-label="Review" title="Review">
+            <i class="ph ph-newspaper" aria-hidden="true"></i><span class="nav-label">Review</span><span class="badge" id="badgeReview">0</span>
           </button>
-          <button class="nav-item" data-section="trending" data-workspace="short">
-            <span>Trending</span><span class="badge" id="badgeTrending">0</span>
+          <button class="nav-item" data-section="trending" data-workspace="short" data-label="Trending" aria-label="Trending" title="Trending">
+            <i class="ph ph-trend-up" aria-hidden="true"></i><span class="nav-label">Trending</span><span class="badge" id="badgeTrending">0</span>
           </button>
-          <button class="nav-item" data-section="approved" data-workspace="short">
-            <span>Approved Pool</span><span class="badge accent" id="badgeApproved">0</span>
+          <button class="nav-item" data-section="approved" data-workspace="short" data-label="Approved Pool" aria-label="Approved Pool" title="Approved Pool">
+            <i class="ph ph-check-circle" aria-hidden="true"></i><span class="nav-label">Approved Pool</span><span class="badge accent" id="badgeApproved">0</span>
           </button>
-          <button class="nav-item" data-section="email-builder" data-workspace="short">
-            <span>Email Builder</span><span class="badge accent" id="badgeEmailBuilder">0</span>
+          <button class="nav-item" data-section="email-builder" data-workspace="short" data-label="Email Builder" aria-label="Email Builder" title="Email Builder">
+            <i class="ph ph-envelope-simple" aria-hidden="true"></i><span class="nav-label">Email Builder</span><span class="badge accent" id="badgeEmailBuilder">0</span>
           </button>
-          <button class="nav-item" data-section="rejected" data-workspace="short">
-            <span>Rejected</span><span class="badge" id="badgeRejected">0</span>
+          <button class="nav-item" data-section="rejected" data-workspace="short" data-label="Rejected" aria-label="Rejected" title="Rejected">
+            <i class="ph ph-x-circle" aria-hidden="true"></i><span class="nav-label">Rejected</span><span class="badge" id="badgeRejected">0</span>
           </button>
-          <button class="nav-item" data-section="topics" data-workspace="cases">
-            <span>Case Drafts</span><span class="badge" id="badgeTopics">0</span>
+          <button class="nav-item" data-section="topics" data-workspace="cases" data-label="Case Drafts" aria-label="Case Drafts" title="Case Drafts">
+            <i class="ph ph-article" aria-hidden="true"></i><span class="nav-label">Case Drafts</span><span class="badge" id="badgeTopics">0</span>
           </button>
-          <button class="nav-item" data-section="cases-send" data-workspace="cases">
-            <span>Approved Cases</span><span class="badge accent" id="badgeCasesApproved">0</span>
-          </button>
-          <div class="nav-divider"></div>
-          <button class="nav-item" data-section="history" data-workspace="both">
-            <span>History</span>
-          </button>
-          <button class="nav-item" data-section="analytics" data-workspace="both">
-            <span>Analytics</span>
+          <button class="nav-item" data-section="cases-send" data-workspace="cases" data-label="Approved Cases" aria-label="Approved Cases" title="Approved Cases">
+            <i class="ph ph-paper-plane-tilt" aria-hidden="true"></i><span class="nav-label">Approved Cases</span><span class="badge accent" id="badgeCasesApproved">0</span>
           </button>
           <div class="nav-divider"></div>
-          <button class="nav-item" data-section="subscribers" data-workspace="both">
-            <span>Subscribers</span><span class="badge" id="badgeSubs">0</span>
+          <button class="nav-item" data-section="history" data-workspace="both" data-label="History" aria-label="History" title="History">
+            <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i><span class="nav-label">History</span>
           </button>
-          <button class="nav-item" data-section="scraper" data-workspace="short">
-            <span>Scraper</span>
+          <button class="nav-item" data-section="analytics" data-workspace="both" data-label="Analytics" aria-label="Analytics" title="Analytics">
+            <i class="ph ph-chart-line-up" aria-hidden="true"></i><span class="nav-label">Analytics</span>
+          </button>
+          <div class="nav-divider"></div>
+          <button class="nav-item" data-section="subscribers" data-workspace="both" data-label="Subscribers" aria-label="Subscribers" title="Subscribers">
+            <i class="ph ph-users" aria-hidden="true"></i><span class="nav-label">Subscribers</span><span class="badge" id="badgeSubs">0</span>
+          </button>
+          <button class="nav-item" data-section="scraper" data-workspace="short" data-label="Scraper" aria-label="Scraper" title="Scraper">
+            <i class="ph ph-cloud-arrow-down" aria-hidden="true"></i><span class="nav-label">Scraper</span>
           </button>
         </nav>
         <div class="sidebar-footer">
-          <button class="theme-toggle" id="themeToggle">
-            <span id="themeIcon">&#9790;</span>
+          <button class="theme-toggle" id="themeToggle" aria-label="Toggle color theme" title="Toggle color theme">
+            <i class="ph ph-moon" id="themeIcon" aria-hidden="true"></i>
             <span id="themeLabel">Dark mode</span>
           </button>
         </div>
@@ -86,13 +121,6 @@
             <p class="muted" id="sectionSub">Approve articles for today's digest.</p>
           </div>
           <div class="topbar-actions">
-            <div class="agent-session" id="agentSession" hidden>
-              <span class="agent-avatar" id="agentAvatar">A</span>
-              <span class="agent-copy">
-                <span class="agent-kicker">Signed in</span>
-                <span class="agent-name" id="agentName">Agent</span>
-              </span>
-            </div>
             <button id="previewDigest" class="btn-ghost" style="display:none">Preview</button>
             <button id="sendDigest" class="btn-primary" disabled>Send digest</button>
             <button id="logoutAgent" class="btn-ghost" type="button">Logout</button>

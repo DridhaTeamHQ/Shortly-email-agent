@@ -2477,7 +2477,8 @@ function toggleTheme() {
 
 // ---------- section nav ----------
 function updateThemeButton(isDark) {
-  $("#themeIcon").textContent = isDark ? "\u2600" : "\u263E";
+  const icon = $("#themeIcon");
+  if (icon) icon.className = isDark ? "ph ph-sun" : "ph ph-moon";
   $("#themeLabel").textContent = isDark ? "Light mode" : "Dark mode";
 }
 
@@ -2491,6 +2492,7 @@ function showSection(name) {
   state.section = name;
   $$(".section").forEach((s) => s.classList.toggle("active", s.dataset.section === name));
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.section === name));
+  $$(".global-nav-control").forEach((b) => b.classList.toggle("active", b.dataset.navTarget === name));
   refreshChrome();
   if (name === "trending") {
     renderTrending();
@@ -2546,6 +2548,23 @@ $$(".nav-item").forEach((btn) =>
     closeMenu();
   })
 );
+
+$$('.global-nav-control').forEach((btn) =>
+  btn.addEventListener('click', () => {
+    showSection(btn.dataset.navTarget);
+    closeMenu();
+  })
+);
+
+const globalDate = $("#globalDate");
+if (globalDate) {
+  globalDate.textContent = new Intl.DateTimeFormat("en-IN", {
+    timeZone: SEND_WINDOW_TIME_ZONE,
+    weekday: "short",
+    day: "numeric",
+    month: "short"
+  }).format(new Date());
+}
 
 // Theme toggle
 $("#themeToggle").addEventListener("click", toggleTheme);
