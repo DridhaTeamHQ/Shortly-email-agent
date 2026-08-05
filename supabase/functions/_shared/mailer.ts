@@ -13,10 +13,10 @@ type SendOpts = {
 };
 
 export async function sendEmail(opts: SendOpts) {
-  const fromRaw = Deno.env.get("FROM_EMAIL") ?? "Shortly Dailywrap <dailywrap@shortlyindia.com>";
+  const fromRaw = Deno.env.get("FROM_EMAIL") ?? "Dailymattr Daily Wrap <dailywrap@shortlyindia.com>";
 
   const match = fromRaw.match(/^(.+?)\s*<(.+?)>$/);
-  const senderName = match?.[1] ?? "Shortly Dailywrap";
+  const senderName = match?.[1] ?? "Dailymattr Daily Wrap";
   const senderEmail = match?.[2] ?? fromRaw;
 
   const awsKey = Deno.env.get("AWS_ACCESS_KEY_ID");

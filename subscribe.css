@@ -5,8 +5,8 @@
   --text: #1b1331;
   --muted: #675d78;
   --line: rgba(72, 44, 108, 0.14);
-  --purple: #6d28d9;
-  --purple-deep: #2d0f57;
+  --purple: #3979ff;
+  --purple-deep: #2459cf;
   --rose: #ff8d71;
   --shadow: 0 28px 70px rgba(56, 31, 94, 0.14);
 }
@@ -22,7 +22,7 @@ body {
   color: var(--text);
   background:
     radial-gradient(circle at top left, rgba(255, 141, 113, 0.24), transparent 28%),
-    radial-gradient(circle at top right, rgba(109, 40, 217, 0.18), transparent 30%),
+    radial-gradient(circle at top right, rgba(57, 121, 255, 0.2), transparent 30%),
     linear-gradient(180deg, #fdf9f2 0%, var(--bg) 52%, #f3ebdf 100%);
 }
 
@@ -126,7 +126,7 @@ body {
   aspect-ratio: 16 / 10;
   border-radius: 28px;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(109, 40, 217, 0.9), rgba(255, 141, 113, 0.72));
+  background: linear-gradient(135deg, rgba(57, 121, 255, 0.92), rgba(255, 141, 113, 0.72));
 }
 
 .hero-visual img {
@@ -169,7 +169,7 @@ body {
 
 .subscribe-form input {
   width: 100%;
-  border: 1px solid rgba(109, 40, 217, 0.18);
+  border: 1px solid rgba(57, 121, 255, 0.2);
   border-radius: 16px;
   padding: 14px 16px;
   font: inherit;

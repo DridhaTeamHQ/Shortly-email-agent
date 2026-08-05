@@ -15,12 +15,12 @@ function escapeHtml(v = "") {
     .replaceAll("'", "&#039;");
 }
 
-/** Shortly-branded HTML confirmation page (purple theme). */
+/** Dailymattr-branded HTML confirmation page (purple theme). */
 function htmlPage(title: string, message: string, success: boolean): Response {
-  const accentColor = success ? "#7c3aed" : "#dc2626";
+  const accentColor = success ? "#3979ff" : "#dc2626";
   const icon = success
-    ? `<div style="width:64px;height:64px;border-radius:50%;background:#ede9fe;margin:0 auto 20px;display:flex;align-items:center;justify-content:center">
-         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    ? `<div style="width:64px;height:64px;border-radius:50%;background:#eaf1ff;margin:0 auto 20px;display:flex;align-items:center;justify-content:center">
+         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3979ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
            <polyline points="20 6 9 17 4 12"/>
          </svg>
        </div>`
@@ -35,19 +35,19 @@ function htmlPage(title: string, message: string, success: boolean): Response {
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>${escapeHtml(title)} — Shortly</title>
+  <title>${escapeHtml(title)} - Dailymattr</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Inter','Helvetica Neue',Arial,sans-serif;background:#f5f3ff;color:#1a1a2e;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
-    .header{font-size:28px;font-weight:800;color:#7c3aed;letter-spacing:-0.5px;margin-bottom:40px}
-    .card{background:#ffffff;border-radius:16px;padding:48px 40px;max-width:480px;width:100%;text-align:center;border:1px solid #e8e0f5;box-shadow:0 4px 24px rgba(124,58,237,0.08)}
+    body{font-family:'Inter','Helvetica Neue',Arial,sans-serif;background:#f4f8ff;color:#1a1a2e;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+    .header{font-size:28px;font-weight:800;color:#3979ff;letter-spacing:-0.5px;margin-bottom:40px}
+    .card{background:#ffffff;border-radius:16px;padding:48px 40px;max-width:480px;width:100%;text-align:center;border:1px solid #d7e5ff;box-shadow:0 4px 24px rgba(57,121,255,0.12)}
     .card h1{font-size:22px;font-weight:700;color:${accentColor};margin-bottom:12px;letter-spacing:-0.3px}
     .card p{font-size:15px;line-height:1.6;color:#6b6b8a}
     .footer{margin-top:40px;text-align:center;color:#9a9ab0;font-size:12px;line-height:1.5}
   </style>
 </head>
 <body>
-  <div class="header">shortly</div>
+  <div class="header">Dailymattr</div>
   <div class="card">
     ${icon}
     <h1>${escapeHtml(title)}</h1>
@@ -55,7 +55,7 @@ function htmlPage(title: string, message: string, success: boolean): Response {
   </div>
   <div class="footer">
     Curated news, summarized daily.<br>
-    &copy; ${new Date().getFullYear()} Shortly
+    &copy; ${new Date().getFullYear()} Dailymattr
   </div>
 </body>
 </html>`;
@@ -153,8 +153,8 @@ Deno.serve(async (request) => {
       return htmlPage(
         action === "delete" ? "Your data has been deleted" : "You've been unsubscribed",
         action === "delete"
-          ? "Your Shortly subscriber record and delivery history have been deleted."
-          : "You will no longer receive emails from Shortly. If this was a mistake, you can re-subscribe anytime.",
+          ? "Your Dailymattr subscriber record and delivery history have been deleted."
+          : "You will no longer receive emails from Dailymattr. If this was a mistake, you can re-subscribe anytime.",
         true,
       );
     }
