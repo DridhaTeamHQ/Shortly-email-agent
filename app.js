@@ -535,6 +535,16 @@ async function bootAuth() {
   ensureAuthGate();
   listenForSharedToken();
 
+  // The local mock server deliberately has no auth endpoint or agent app.
+  if (!cfg.verifyToken && !cfg.agentAppUrl) {
+    unlockDashboardUi();
+    if (!dashboardBooted) {
+      dashboardBooted = true;
+      await bootDashboard();
+    }
+    return;
+  }
+
   const url = safeUrl(window.location.href);
   const tokenFromUrl = tokenFromCurrentLocation();
   const storedToken = localStorage.getItem(AGENT_TOKEN_KEY);

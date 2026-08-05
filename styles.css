@@ -1,20 +1,24 @@
 /* Dashboard palette */
 :root {
-  --page: #101013;
-  --bg: #f4f4f6;
+  --page: #0f1f40;
+  --bg: #f7f9ff;
   --surface: #ffffff;
-  --soft: #ececef;
-  --softer: #f7f7f9;
-  --ink: #141417;
-  --ink-2: #3f3f46;
-  --muted: #8e8e98;
-  --line: #e4e4e9;
-  --line-strong: #d1d1d8;
-  ** legacy aliases kept for compatibility — all monochrome now **
-  --purple: #3979ff;
-  --purple-deep: #2459cf;
-  --purple-soft: #eaf1ff;
-  --purple-line: #bfd3ff;
+  --soft: #edf3ff;
+  --softer: #f8faff;
+  --ink: #10244d;
+  --ink-2: #41577f;
+  --muted: #7081a1;
+  --line: #dce6f7;
+  --line-strong: #bfd0ec;
+  /* Dailymattr brand tokens. */
+  --brand: #3979ff;
+  --brand-deep: #2564df;
+  --brand-soft: #eaf1ff;
+  --brand-line: #b9d0ff;
+  --purple: var(--brand);
+  --purple-deep: var(--brand-deep);
+  --purple-soft: var(--brand-soft);
+  --purple-line: var(--brand-line);
   --green: #141417;
   --green-soft: #ececef;
   --red: #3f3f46;
@@ -33,7 +37,7 @@
   --t-med: 0.3s;
 }
 
-** ── Dark Mode (window goes dark, backdrop stays black) ── **
+/* Dark mode */
 [data-theme="dark"] {
   --bg: #17171a;
   --surface: #1d1d22;
@@ -87,31 +91,31 @@ input, textarea {
 textarea { resize: vertical; }
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: var(--ink);
-  box-shadow: 0 0 0 3px rgba(20, 20, 23, 0.1);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(57, 121, 255, 0.16);
 }
 [data-theme="dark"] input:focus, [data-theme="dark"] textarea:focus, [data-theme="dark"] select:focus {
   border-color: var(--ink);
   box-shadow: 0 0 0 3px rgba(242, 242, 244, 0.12);
 }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.7; }
-input[type="checkbox"] { accent-color: var(--ink); }
+input[type="checkbox"] { accent-color: var(--brand); }
 code { background: var(--soft); padding: 2px 6px; border-radius: 5px; font-size: 12px; }
 a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; transition: text-decoration-color var(--t-fast) var(--ease); }
 a:hover { text-decoration-color: var(--ink); }
 .muted { color: var(--muted); }
 .hidden { display: none !important; }
 
-::selection { background: var(--ink); color: var(--bg); }
+::selection { background: var(--brand); color: #fff; }
 
-** Subtle custom scrollbar **
+/* Subtle custom scrollbar */
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 999px; }
 *::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
-** ── Layout: full-screen app ── **
+/* Full-screen app layout */
 .app {
   display: grid; grid-template-columns: 252px 1fr;
   height: 100vh;
@@ -124,7 +128,7 @@ a:hover { text-decoration-color: var(--ink); }
   to { opacity: 1; }
 }
 
-** ── Sidebar ── **
+/* Sidebar */
 .sidebar {
   background: var(--surface); border-right: 1px solid var(--line);
   padding: 26px 16px; display: flex; flex-direction: column;
@@ -143,7 +147,7 @@ a:hover { text-decoration-color: var(--ink); }
 }
 .brand:hover .brand-logo { transform: translateY(-1px) scale(1.02); }
 
-** ── Workspace toggle ── **
+/* Workspace toggle */
 .workspace-toggle {
   display: flex; gap: 4px; margin: 0 4px 18px; padding: 4px;
   border-radius: 999px; background: var(--soft); border: 1px solid var(--line);
@@ -156,7 +160,7 @@ a:hover { text-decoration-color: var(--ink); }
 }
 .ws-btn:hover { color: var(--ink); }
 .ws-btn:active { transform: scale(0.96); }
-.ws-btn.active { background: var(--ink); color: var(--surface); box-shadow: var(--shadow-sm); }
+.ws-btn.active { background: var(--brand); color: #fff; box-shadow: var(--shadow-sm); }
 
 .nav { display: grid; gap: 3px; }
 .nav-divider {
@@ -173,7 +177,7 @@ a:hover { text-decoration-color: var(--ink); }
 .nav-item:hover { background: var(--soft); color: var(--ink); transform: translateX(2px); }
 .nav-item:active { transform: translateX(2px) scale(0.98); }
 .nav-item.active {
-  background: var(--ink); color: var(--bg);
+  background: var(--brand); color: #fff;
   box-shadow: var(--shadow-sm);
   transform: translateX(0);
   animation: navPop var(--t-med) var(--ease-spring);
@@ -190,7 +194,7 @@ a:hover { text-decoration-color: var(--ink); }
   font-weight: 700; min-width: 28px; text-align: center;
   transition: background var(--t-med) var(--ease), color var(--t-med) var(--ease);
 }
-.badge.accent { background: var(--ink); color: var(--surface); }
+.badge.accent { background: var(--brand); color: #fff; }
 .sidebar-footer {
   margin-top: 16px; padding-top: 16px;
   border-top: 1px solid var(--line);
@@ -207,7 +211,7 @@ a:hover { text-decoration-color: var(--ink); }
 .theme-toggle #themeIcon { display: inline-block; transition: transform 0.45s var(--ease-spring); }
 .theme-toggle:hover #themeIcon { transform: rotate(-20deg) scale(1.15); }
 
-** ── Main ── **
+/* Main */
 .main { padding: 28px 34px 34px; overflow-y: auto; }
 .topbar {
   display: flex; justify-content: space-between; align-items: flex-end;
@@ -228,7 +232,7 @@ a:hover { text-decoration-color: var(--ink); }
 .agent-avatar {
   flex: 0 0 auto; width: 30px; height: 30px;
   display: grid; place-items: center;
-  border-radius: 999px; background: var(--ink); color: var(--surface);
+  border-radius: 999px; background: var(--brand); color: #fff;
   font-size: 11px; font-weight: 800;
 }
 .agent-copy { min-width: 0; display: grid; gap: 1px; }
@@ -241,9 +245,9 @@ a:hover { text-decoration-color: var(--ink); }
   color: var(--ink); font-size: 13px; line-height: 1.15; font-weight: 700;
 }
 
-** ── Buttons ── **
+/* Buttons */
 .btn-primary {
-  background: var(--ink); color: var(--bg); border: none;
+  background: var(--brand); color: #fff; border: none;
   padding: 11px 20px; border-radius: 999px; font-weight: 700; cursor: pointer;
   white-space: nowrap; font-size: 13px;
   box-shadow: var(--shadow-sm);
@@ -263,26 +267,26 @@ a:hover { text-decoration-color: var(--ink); }
   border-radius: 999px; font-weight: 600; cursor: pointer; font-size: 13px;
   transition: background var(--t-med) var(--ease), border-color var(--t-med) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-med) var(--ease);
 }
-.btn-ghost:hover { border-color: var(--ink); box-shadow: var(--shadow-sm); }
+.btn-ghost:hover { border-color: var(--brand); color: var(--brand); box-shadow: var(--shadow-sm); }
 .btn-ghost:active { transform: scale(0.97); }
-** Tonal action hierarchy: approve = black, save = mid, reject = quiet outline **
+/* Tonal action hierarchy */
 .btn-approve, .btn-reject, .btn-save {
   border: none; border-radius: 999px; padding: 9px 17px;
   font-weight: 700; cursor: pointer;
   transition: transform var(--t-fast) var(--ease), box-shadow var(--t-med) var(--ease), background var(--t-med) var(--ease), color var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
 }
-.btn-approve { background: var(--ink); color: var(--bg); }
+.btn-approve { background: var(--brand); color: #fff; }
 .btn-save    { background: var(--ink-2); color: #fff; }
 .btn-reject  { background: transparent; color: var(--muted); border: 1px solid var(--line-strong); }
 [data-theme="dark"] .btn-save { background: #d8d8de; color: #141417; }
 .btn-approve:hover:not(:disabled), .btn-save:hover {
   transform: translateY(-1px); box-shadow: var(--shadow-sm);
 }
-.btn-reject:hover { color: var(--ink); border-color: var(--ink); }
+.btn-reject:hover { color: var(--brand); border-color: var(--brand); }
 .btn-approve:active:not(:disabled), .btn-reject:active, .btn-save:active { transform: scale(0.96); }
 .btn-approve:disabled { background: var(--line-strong); color: var(--surface); cursor: not-allowed; }
 
-** ── Search & Filter Bar ── **
+/* Search and filter bar */
 .toolbar {
   display: flex; gap: 12px; margin-bottom: 16px; align-items: center; flex-wrap: wrap;
 }
@@ -301,10 +305,10 @@ a:hover { text-decoration-color: var(--ink); }
 .toolbar select:hover { border-color: var(--ink); box-shadow: var(--shadow-sm); }
 .toolbar .btn-primary { height: 44px; padding: 0 20px; }
 
-** ── Bulk Action Bar ── **
+/* Bulk action bar */
 .bulk-bar {
   display: none; align-items: center; gap: 12px;
-  background: var(--ink); color: var(--bg);
+  background: var(--brand); color: #fff;
   padding: 10px 18px; border-radius: 999px;
   margin-bottom: 14px; font-weight: 600; font-size: 13px;
   box-shadow: var(--shadow);
@@ -326,7 +330,7 @@ a:hover { text-decoration-color: var(--ink); }
 [data-theme="dark"] .bulk-bar button:hover { background: rgba(0,0,0,0.3); }
 .bulk-bar button:active { transform: scale(0.95); }
 
-** ── Sections ── **
+/* Sections */
 .section { display: none; }
 .section.active { display: block; animation: sectionIn 0.4s var(--ease) both; }
 @keyframes sectionIn {
@@ -335,7 +339,7 @@ a:hover { text-decoration-color: var(--ink); }
 }
 .list { display: grid; gap: 12px; }
 
-** Staggered entrance for freshly rendered cards **
+/* Staggered entrance for freshly rendered cards */
 .list > .card { animation: cardIn 0.45s var(--ease) both; }
 .list > .card:nth-child(1) { animation-delay: 0.02s; }
 .list > .card:nth-child(2) { animation-delay: 0.06s; }
@@ -356,7 +360,7 @@ a:hover { text-decoration-color: var(--ink); }
 .topic-tabs {
   display: flex; gap: 8px; flex-wrap: wrap;
 }
-** category tab rows that sit directly above a toolbar need breathing room **
+/* Category tab rows that sit directly above a toolbar need breathing room. */
 .short-cat-tabs { margin-bottom: 14px; }
 .topic-tab {
   border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted);
@@ -364,10 +368,10 @@ a:hover { text-decoration-color: var(--ink); }
   font-size: 12px;
   transition: background var(--t-med) var(--ease), color var(--t-med) var(--ease), border-color var(--t-med) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-med) var(--ease);
 }
-.topic-tab:hover { color: var(--ink); border-color: var(--ink); transform: translateY(-1px); }
+.topic-tab:hover { color: var(--brand); border-color: var(--brand); transform: translateY(-1px); }
 .topic-tab:active { transform: scale(0.96); }
 .topic-tab.active {
-  background: var(--ink); color: var(--bg); border-color: var(--ink);
+  background: var(--brand); color: #fff; border-color: var(--brand);
   box-shadow: var(--shadow-sm);
   animation: navPop var(--t-med) var(--ease-spring);
 }
@@ -415,7 +419,7 @@ a:hover { text-decoration-color: var(--ink); }
   transition: background var(--t-med) var(--ease);
 }
 
-** ── Generate-from-URL composer + Trending topics ── **
+/* Generate-from-URL composer and trending topics */
 .gen-url-card { margin-bottom: 16px; }
 .gen-url-card .digest-composer-row { margin-bottom: 0; }
 .tag.suggested { background: var(--soft); color: var(--ink-2); }
@@ -471,7 +475,7 @@ a:hover { text-decoration-color: var(--ink); }
   vertical-align: middle; margin-right: 6px; opacity: 0.85;
 }
 
-** ── Article Card ── **
+/* Article card */
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -539,7 +543,7 @@ a:hover { text-decoration-color: var(--ink); }
 .card .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
 .card .actions .draft-hint { font-size: 12px; margin-right: auto; }
 
-** Chips & Tags — tonal monochrome scale **
+/* Chips and tags */
 .source-pill {
   background: var(--ink); color: var(--bg);
   font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
@@ -567,8 +571,7 @@ a:hover { text-decoration-color: var(--ink); }
   color: var(--muted);
   border: 1px dashed var(--line-strong);
 }
-** BREAKING badge on hot cards (breaking_news view: velocity x prominence x
-   fact, freshness-decayed). Red pill with a pulsing dot; hover explains. **
+/* Breaking badge on hot cards. */
 .breaking-chip {
   display: inline-flex; align-items: center; gap: 6px;
   background: #c2221e; color: #fff;
@@ -581,10 +584,7 @@ a:hover { text-decoration-color: var(--ink); }
   animation: brkpulse 1.4s infinite;
 }
 @keyframes brkpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
-** AI fact-check score chip. Bands mirror _shared*fact-check.ts labels:
-   high >= 85 (verified), good >= 65 (mostly-factual), mixed >= 40, low < 40.
-   Bordered pills with tinted text so they sit quietly in the monochrome chip
-   row; hover shows the per-claim rationale (title attr). **
+/* AI fact-check score chip. */
 .fact-chip {
   font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
   padding: 3px 10px; border-radius: 999px;
@@ -609,7 +609,7 @@ a:hover { text-decoration-color: var(--ink); }
 .tag.rejected   { background: transparent; color: var(--muted); border: 1px solid var(--line-strong); }
 .tag.sent       { background: var(--ink-2); color: #fff; }
 [data-theme="dark"] .tag.sent { background: #d8d8de; color: #141417; }
-** ── Stats Cards (Analytics) — tonal steps of one palette ── **
+/* Analytics stat cards */
 .stats-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 14px; margin-bottom: 24px;
@@ -640,7 +640,7 @@ a:hover { text-decoration-color: var(--ink); }
   margin-top: 9px;
 }
 
-** ── History Table ── **
+/* History table */
 .history-table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); }
 .history-table th, .history-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--line); font-size: 13px; }
 .history-table th { background: var(--softer); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
@@ -651,7 +651,7 @@ a:hover { text-decoration-color: var(--ink); }
 .history-badge.success { background: var(--ink); color: var(--bg); }
 .history-badge.fail { background: transparent; color: var(--muted); border: 1px solid var(--line-strong); }
 
-** ── Subscribers ── **
+/* Subscribers */
 .sub-form {
   display: grid;
   grid-template-columns: minmax(220px, 1.4fr) minmax(180px, 1fr) minmax(160px, 0.9fr) auto;
@@ -743,13 +743,13 @@ a:hover { text-decoration-color: var(--ink); }
   justify-content: flex-start;
   flex-wrap: wrap;
 }
-** Status dots — tonal: filled * hollow * crossed **
+/* Status dots */
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
 .dot.subscribed   { background: var(--ink); }
 .dot.unsubscribed { background: transparent; border: 1.5px solid var(--line-strong); }
 .dot.bounced      { background: var(--line-strong); box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--line-strong); }
 
-** ── Fetch Today Card ── **
+/* Fetch today card */
 .fetch-today-card {
   display: flex; align-items: center; justify-content: space-between;
   background: var(--ink);
@@ -796,8 +796,8 @@ a:hover { text-decoration-color: var(--ink); }
   box-shadow: var(--shadow-sm);
 }
 .scrape-form label { display: grid; gap: 6px; font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
-.scrape-form .full { grid-column: 1 * -1; }
-.scrape-form button { grid-column: 1 * -1; justify-self: end; }
+.scrape-form .full { grid-column: 1 / -1; }
+.scrape-form button { grid-column: 1 / -1; justify-self: end; }
 .code-card {
   background: #141417; color: #d1d1d8;
   padding: 14px 18px; border-radius: var(--radius-sm);
@@ -806,7 +806,7 @@ a:hover { text-decoration-color: var(--ink); }
   animation: sectionIn var(--t-med) var(--ease) both;
 }
 
-** ── Skeleton loaders ── **
+/* Skeleton loaders */
 .skeleton {
   position: relative;
   overflow: hidden;
@@ -826,7 +826,7 @@ a:hover { text-decoration-color: var(--ink); }
 @keyframes shimmer { to { transform: translateX(100%); } }
 .skeleton-card { height: 116px; }
 
-** ── Preview Modal ── **
+/* Preview modal */
 .modal-overlay {
   display: none; position: fixed; inset: 0;
   background: rgba(10, 10, 12, 0.55); z-index: 100;
@@ -861,7 +861,7 @@ a:hover { text-decoration-color: var(--ink); }
 .modal-body { flex: 1; min-height: 0; overflow: hidden; padding: 0; }
 .modal-body iframe { display: block; width: 100%; height: 100%; border: none; }
 
-** ── Toasts (stacked) ── **
+/* Toasts */
 .toast-container {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
   display: flex; flex-direction: column-reverse; align-items: center; gap: 8px;
@@ -878,7 +878,7 @@ a:hover { text-decoration-color: var(--ink); }
 }
 .toast.show { opacity: 1; transform: translateY(0) scale(1); }
 
-** ── Mobile Menu Toggle ── **
+/* Mobile menu toggle */
 .menu-toggle {
   display: none; position: fixed; top: 12px; left: 12px; z-index: 50;
   background: var(--ink); color: var(--bg); border: none; border-radius: 999px;
@@ -897,7 +897,7 @@ a:hover { text-decoration-color: var(--ink); }
 }
 .backdrop.show { opacity: 1; pointer-events: auto; }
 
-** ── Reduced motion ── **
+/* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -907,7 +907,7 @@ a:hover { text-decoration-color: var(--ink); }
   html { scroll-behavior: auto; }
 }
 
-** ── Mobile Responsive ── **
+/* Mobile responsive */
 @media (max-width: 800px) {
   body { padding: 0; background: var(--bg); }
   .app {
