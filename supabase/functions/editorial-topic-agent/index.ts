@@ -409,7 +409,9 @@ function isGoodSmallArticleCandidate(topic: EditorialTopic, candidate: Candidate
   if (blockedTitle.test(title)) return false;
   if (/\.(pdf|doc|docx|xls|xlsx)(\?|$)/i.test(url)) return false;
   const wordCount = String(summary || rawContent || "").split(/\s+/).filter(Boolean).length;
-  if (wordCount < 45) return false;
+  // Floor lowered with the 3-beat summary format (300-360 chars ~= 48-60 words);
+  // at 45 this gate started rejecting perfectly good briefs.
+  if (wordCount < 30) return false;
   if (rawContent.length < 500 && candidate.excerpt.length < 350) return false;
   // Topic-relevance gate for EVERY topic: a polluted or misconfigured feed
   // (e.g. a cricket feed mislabelled as real estate) must never push off-topic

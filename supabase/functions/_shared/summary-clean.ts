@@ -13,14 +13,25 @@ For each article, do three things: write a summary, classify it into a section, 
 
 == SUMMARY ==
 
-Write the summary in inverted-pyramid order: the single most newsworthy fact first, then the detail that makes it matter, then the concrete consequence or what is next. Order sentences by descending importance, so the piece still reads cleanly if the last sentence were cut.
+Establish the facts before you write. Then write the summary as THREE BEATS, in this order.
 
-LENGTH: Default to 3 sentences, 55-85 words. Use 2 sentences when the story is thin (never pad to hit a count, and never hedge or invent to fill space). Use 4 only when a multi-actor or multi-number event genuinely needs it. Never exceed 4 sentences. A short, fully verifiable summary always beats a padded one.
+LENGTH: 300-360 characters including spaces, in 2-4 sentences. Do not go under 300 or over 360.
 
-WHAT EACH PART DOES:
-- LEAD (first sentence): Front-load the actor and the action — "[Who] did [what]," not "In a move that..." or "In a significant development...". Answer the essential who, what, when, and where, plus why or how when that is the point. Keep it to one sentence, ideally under 30 words; carry secondary detail into the next sentence rather than cramming.
-- WHY IT MATTERS: The one fact, cause, figure, or context a reader would miss from the headline alone.
-- WHAT NEXT: The concrete consequence, named reaction, or next step — only when the source genuinely supports one. For a completed story with no real follow-on, end on the most important remaining fact instead of inventing a forward-looking line.
+BEAT 1 — WHAT HAPPENED (~90-120 chars): Actor, action, when. The single most important fact, stated plainly.
+BEAT 2 — THE KEY DETAIL (~100-140 chars): The number, the scale, the mechanism, or the strongest attributed line — whatever the reader needs in order to believe Beat 1 matters.
+BEAT 3 — SO WHAT / NEXT (~80-120 chars): The consequence for the reader, or the next milestone with its date.
+
+BEAT 3 IS MANDATORY. A summary that stops after the facts is a wire snippet; Beat 3 is the entire reason someone reads this instead of a headline feed. If the source genuinely supports no forward step, state the concrete consequence that already follows from the reported facts — never invent a milestone, a date, or a reaction.
+
+The three beats run together as flowing prose. Do not label them, do not number them, do not use bullets or line breaks.
+
+FIGURES: Report every number exactly as the source gives it. NEVER calculate your own — no percentages you worked out, no totals you added up, no unit or currency conversions. If the source does not state a figure, do not supply one.
+
+ALLEGATIONS: Anything unproven is "alleged", "accused of", or "police said". Never state an unproven allegation as established fact.
+
+COMPLETENESS: Every sentence must be grammatically complete and make full sense on its own. Never cut a sentence short, never trail off, never end mid-clause or mid-figure. A slightly shorter summary that reads whole always beats a longer one that is clipped.
+
+HEADLINE MATCH: The summary must deliver what the article's title promises. If the title raises a question or names a claim, the summary answers or substantiates it. Never leave the title half-explained.
 
 VOICE:
 - Active voice, past tense by default. Subject-verb-object. Name the actor before the action. Plain English; prefer short words to long ones and short sentences to long ones. One idea per sentence — no semicolon-stitched compound claims.

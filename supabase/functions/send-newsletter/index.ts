@@ -18,6 +18,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
+import { buildWrapOrder } from "../_shared/editorial-picks.ts";
 
 type Article = {
   id: string;
@@ -30,13 +31,17 @@ type Article = {
   topic: string | null;
   category: string | null;
   rank_score: number | null;
+  // Editor prominence 1-5 from the summarizer. Feeds editorial selection.
+  prominence: number | null;
   fact_score: number | null;
   fact_label: string | null;
   fact_notes: { source_count?: number; sources?: Array<{ source: string; url: string }> } | null;
   scraped_at: string;
   reviewed_at: string | null;
+  // Scrape-time breaking marker (Latest/Live/Breaking section, headline or URL).
+  breaking_flag?: boolean | null;
   // Flagged from the breaking_news view: prominence x cross-outlet velocity x
-  // fact trust, freshness-decayed. Breaking stories lead the daily wrap.
+  // fact trust, freshness-decayed. One input to editorial selection.
   is_breaking?: boolean;
 };
 
@@ -148,7 +153,7 @@ Deno.serve(async (request) => {
   // ---- 1. Load approved (unsent) content pools ----
   const { data: approvedArticles, error: articlesError } = await supabase
     .from("articles")
-    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,fact_score,fact_label,fact_notes,scraped_at,reviewed_at")
+    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,prominence,fact_score,fact_label,fact_notes,scraped_at,reviewed_at,breaking_flag")
     .eq("status", "approved")
     .gte("reviewed_at", istStart)
     .lt("reviewed_at", istEnd)
@@ -165,10 +170,9 @@ Deno.serve(async (request) => {
     else if (!a.category) wrapPool.push(a);
   }
 
-  // BREAKING leads the wrap: fetch the day's qualifying stories from the
-  // breaking_news view (prominence x cross-outlet velocity x fact trust,
-  // freshness-decayed), flag + front-load them by score; everything else keeps
-  // its normal order. Non-fatal — a view error just means no breaking section.
+  // Mark the day's qualifying breaking stories from the breaking_news view
+  // (prominence x cross-outlet velocity x fact trust). This is now one INPUT to
+  // editorial selection rather than the ordering itself. Non-fatal.
   try {
     const { data: brk } = await supabase
       .from("breaking_news")
@@ -177,13 +181,43 @@ Deno.serve(async (request) => {
       .order("breaking_score", { ascending: false });
     const brkScore = new Map((brk ?? []).map((r: any) => [r.id as string, Number(r.breaking_score)]));
     if (brkScore.size > 0) {
-      const hot = wrapPool.filter((a) => brkScore.has(a.id))
-        .sort((a, b) => (brkScore.get(b.id) ?? 0) - (brkScore.get(a.id) ?? 0))
-        .map((a) => ({ ...a, is_breaking: true }));
-      const rest = wrapPool.filter((a) => !brkScore.has(a.id));
-      wrapPool = [...hot, ...rest];
+      wrapPool = wrapPool.map((a) => (brkScore.has(a.id) ? { ...a, is_breaking: true } : a));
     }
   } catch { /* breaking is optional */ }
+
+  // Flag consensus needs the SIBLINGS' breaking flags, not just this article's.
+  // One lookup over every corroborating URL the fact-check recorded lets Class A
+  // ask "what share of the outlets carrying this flagged it breaking?" for real.
+  // Non-fatal: without it, selection falls back to saturation breadth alone.
+  const flagByUrl = new Map<string, boolean | null>();
+  try {
+    const siblingUrls = [...new Set(
+      wrapPool.flatMap((a) => (a.fact_notes?.sources ?? []).map((s) => s?.url).filter(Boolean) as string[]),
+    )].slice(0, 500);
+    if (siblingUrls.length > 0) {
+      const { data: flagRows } = await supabase
+        .from("articles")
+        .select("url,breaking_flag")
+        .in("url", siblingUrls);
+      for (const r of (flagRows ?? []) as Array<{ url: string; breaking_flag: boolean | null }>) {
+        flagByUrl.set(r.url, r.breaking_flag);
+      }
+    }
+  } catch { /* sibling flags are optional */ }
+
+  // EDITORIAL SELECTION: order the pool so the first WRAP_COUNT entries are the
+  // wrap — consensus breaking first (max 3), then one qualified explainer, then
+  // important-people / viral stories, deduped by event, capped per topic, tonal
+  // check applied, strongest first with the most distinct story last. Falls back
+  // to the pool untouched if the judgement pass fails, so a bad classification
+  // can never cost us the send.
+  const wrapOrder = await buildWrapOrder(wrapPool, {
+    apiKey: Deno.env.get("OPENAI_API_KEY") ?? undefined,
+    model: Deno.env.get("SUMMARIZE_MODEL") ?? "gpt-4o-mini",
+    slots: WRAP_COUNT,
+    flagByUrl,
+  });
+  wrapPool = wrapOrder.pool as Article[];
 
   // Explicit one-recipient tests may intentionally use an approved case from
   // the active pool even when it was approved before today's scrape window.

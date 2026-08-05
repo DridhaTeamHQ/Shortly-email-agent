@@ -100,6 +100,28 @@ function extractSectionLinks(html: string, baseUrl: string): Array<{ url: string
   return [...byUrl.entries()].map(([url, title]) => ({ url, title }));
 }
 
+// BREAKING SIGNAL: does this item carry a breaking marker at scrape time?
+// Three equivalent markers, per the newsroom rule that a source "flagging it
+// breaking" includes a Latest/Live section, a LIVE/BREAKING headline prefix, or
+// a breaking URL path. Recorded per article so Class A selection can measure
+// how MANY independent sources flagged the same story, rather than inferring it
+// purely from corroboration breadth.
+function breakingSignal(
+  kind: "rss" | "section",
+  title: string,
+  url: string,
+): { flagged: boolean; reason: string | null } {
+  if (/^\s*(?:breaking|just in|urgent|big breaking)\b[:\s—-]/i.test(title)) {
+    return { flagged: true, reason: "headline-prefix" };
+  }
+  if (/\/(breaking|breaking-news|live-updates)\//i.test(url)) {
+    return { flagged: true, reason: "url-path" };
+  }
+  // Section sources are the Latest/Live/Breaking landing pages themselves.
+  if (kind === "section") return { flagged: true, reason: "live-section" };
+  return { flagged: false, reason: null };
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   // Server-side auth: service_role JWT (cron) or the dashboard's agent token.
@@ -141,6 +163,7 @@ Deno.serve(async (request) => {
               dropped += 1;
               continue;
             }
+            const sectionSignal = breakingSignal("section", link.title, link.url);
             scraped.push({
               title: link.title.slice(0, 500), // provisional; replaced by page metadata below
               url: link.url,
@@ -150,6 +173,8 @@ Deno.serve(async (request) => {
               image_url: null,
               rank_score: Number(src.weight) * qualityScore(link.title, link.url),
               status: "pending",
+              breaking_flag: sectionSignal.flagged,
+              breaking_flag_reason: sectionSignal.reason,
               _section: true,
             });
           }
@@ -162,6 +187,7 @@ Deno.serve(async (request) => {
               continue;
             }
             const cleanedDescription = cleanArticleText(item.description ?? "");
+            const feedSignal = breakingSignal("rss", item.title, item.url);
             scraped.push({
               title: item.title.slice(0, 500),
               url: item.url,
@@ -171,6 +197,8 @@ Deno.serve(async (request) => {
               image_url: item.image ?? null,
               rank_score: Number(src.weight) * qualityScore(item.title, item.url),
               status: "pending",
+              breaking_flag: feedSignal.flagged,
+              breaking_flag_reason: feedSignal.reason,
             });
           }
         }

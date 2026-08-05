@@ -265,7 +265,8 @@ async function upsertCorporateShortArticles(supabase: any, candidates: Candidate
     } catch {
       return null;
     }
-    if (!candidate.title || !candidate.url || summary.split(/\s+/).filter(Boolean).length < 35) return null;
+    // Floor lowered with the 3-beat summary format (300-360 chars ~= 48-60 words).
+    if (!candidate.title || !candidate.url || summary.split(/\s+/).filter(Boolean).length < 25) return null;
     // AI fact score against the scraped source text, corroborated across other
     // outlets in our pool that ran the same story; null (unscored) on failure.
     const relatedSources = await findRelatedSources(supabase, {
