@@ -163,7 +163,9 @@ export type Judgement = {
   grim: boolean;      // death, disaster or conflict (for the tonal check)
 };
 
-const CLASSIFY_SYSTEM_PROMPT = `You are a newsroom copy chief triaging today's candidate stories for a five-story daily briefing. You return only JSON.
+const CLASSIFY_SYSTEM_PROMPT = `You are a newsroom copy chief LABELLING today's candidate stories. You return only JSON.
+
+YOU ARE NOT CHOOSING STORIES. You do not pick a shortlist, and you do not drop anything. Return exactly ONE object for EVERY story you are given, in the order given. If you are given 24 stories you must return 24 objects. Returning fewer is a failure — the selection happens elsewhere and it needs a label for every candidate.
 
 For EACH story return an object with these keys:
 - "i": the story's number, exactly as given.
@@ -206,7 +208,11 @@ export async function judgeStories(
       model,
       CLASSIFY_SYSTEM_PROMPT,
       `<<<STORIES>>>\n${fenced}\n<<<END>>>`,
-      1400,
+      // ~70 tokens per story object, plus headroom. Too small a budget truncates
+      // the JSON, which fails the parse and silently drops the WHOLE pass to the
+      // deterministic fallback — the bug that let two write-ups of one RBI rate
+      // decision into the same wrap.
+      Math.max(1200, batch.length * 90),
       { jsonMode: true, temperature: 0 },
     );
     const parsed = JSON.parse(raw) as { stories?: Array<Record<string, unknown>> };
