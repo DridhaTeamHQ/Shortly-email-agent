@@ -252,10 +252,26 @@ function keyTokens(a: PickArticle): Set<string> {
   return new Set(raw.filter((t) => t.length >= 4 && !DEDUPE_STOP.has(t)));
 }
 
-function sameEvent(a: PickArticle, b: PickArticle, judged: Map<string, Judgement>): boolean {
+function sameEvent(
+  a: PickArticle,
+  b: PickArticle,
+  judged: Map<string, Judgement>,
+  dupPairs?: Map<string, Set<string>>,
+): boolean {
+  // Layer 1 — embedding proximity, computed in Postgres from the title vectors
+  // we already store. Calibrated so a hit is ALWAYS a real duplicate, which is
+  // why it is allowed to decide on its own and does not need the LLM to agree.
+  if (dupPairs?.get(a.id)?.has(b.id)) return true;
+  // Layer 2 — the LLM's event key. This is what covers the grey zone the
+  // embedding threshold deliberately refuses to touch (0.40-0.55), e.g. "RBI
+  // keeps repo rate unchanged" vs "RBI holds fire as war & taxes cloud outlook",
+  // which sit 0.44 apart -- too far to merge safely on distance alone, but
+  // plainly one event to a reader.
   const ea = judged.get(a.id)?.event;
   const eb = judged.get(b.id)?.event;
   if (ea && eb) return ea === eb;
+  // Layer 3 — headline token overlap. Weak, and useless on the RBI case above,
+  // but it costs nothing and catches obvious restatements.
   const ta = keyTokens(a);
   const tb = keyTokens(b);
   if (ta.size === 0 || tb.size === 0) return false;
@@ -278,6 +294,7 @@ export function orderWrapPool(
   slots = 5,
   now = Date.now(),
   flagByUrl?: Map<string, boolean | null>,
+  dupPairs?: Map<string, Set<string>>,
 ): PickArticle[] {
   if (pool.length <= 1) return [...pool];
 
@@ -286,7 +303,7 @@ export function orderWrapPool(
   // 1. Collapse duplicate events up front, keeping the stronger write-up.
   const deduped: PickArticle[] = [];
   for (const cand of byStrength) {
-    if (!deduped.some((kept) => sameEvent(kept, cand, judged))) deduped.push(cand);
+    if (!deduped.some((kept) => sameEvent(kept, cand, judged, dupPairs))) deduped.push(cand);
   }
 
   const chosen: PickArticle[] = [];
@@ -379,13 +396,24 @@ export function orderWrapPool(
 // failure returns the pool unchanged.
 export async function buildWrapOrder(
   pool: PickArticle[],
-  opts: { apiKey?: string; model?: string; slots?: number; now?: number; flagByUrl?: Map<string, boolean | null> } = {},
-): Promise<{ pool: PickArticle[]; judged: number; breaking: number }> {
+  opts: {
+    apiKey?: string;
+    model?: string;
+    slots?: number;
+    now?: number;
+    flagByUrl?: Map<string, boolean | null>;
+    dupPairs?: Map<string, Set<string>>;
+  } = {},
+): Promise<{ pool: PickArticle[]; judged: number; candidates: number; breaking: number; dupPairs: number }> {
+  // Each pair is stored in both directions, so halve it to report real pairs.
+  const dupCount = opts.dupPairs
+    ? [...opts.dupPairs.values()].reduce((n, s) => n + s.size, 0) / 2
+    : 0;
   try {
     const now = opts.now ?? Date.now();
     const slots = opts.slots ?? 5;
     const enabled = (Deno.env.get("WRAP_EDITORIAL_PICKS") ?? "true").toLowerCase() !== "false";
-    if (!enabled || pool.length <= 1) return { pool, judged: 0, breaking: 0 };
+    if (!enabled || pool.length <= 1) return { pool, judged: 0, candidates: 0, breaking: 0, dupPairs: dupCount };
 
     const candidates = [...pool]
       .sort((a, b) => strength(b, now) - strength(a, now))
@@ -395,13 +423,15 @@ export async function buildWrapOrder(
       ? await judgeStories(opts.apiKey, opts.model ?? "gpt-4o-mini", candidates)
       : new Map<string, Judgement>();
 
-    const ordered = orderWrapPool(pool, judged, slots, now, opts.flagByUrl);
+    const ordered = orderWrapPool(pool, judged, slots, now, opts.flagByUrl, opts.dupPairs);
     return {
       pool: ordered,
       judged: judged.size,
+      candidates: candidates.length,
       breaking: ordered.slice(0, slots).filter((a) => isBreakingStory(a, now, opts.flagByUrl)).length,
+      dupPairs: dupCount,
     };
   } catch {
-    return { pool, judged: 0, breaking: 0 };
+    return { pool, judged: 0, candidates: 0, breaking: 0, dupPairs: dupCount };
   }
 }

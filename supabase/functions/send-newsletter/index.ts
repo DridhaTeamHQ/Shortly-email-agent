@@ -211,11 +211,31 @@ Deno.serve(async (request) => {
   // check applied, strongest first with the most distinct story last. Falls back
   // to the pool untouched if the judgement pass fails, so a bad classification
   // can never cost us the send.
+  // Deterministic same-event detection from the title embeddings, computed in
+  // Postgres (pgvector) rather than shipping 1536-float vectors to the edge.
+  // This is the layer that survives an LLM outage: the threshold is calibrated
+  // so every hit is a genuine duplicate. Non-fatal — without it, dedupe simply
+  // falls back to the event key and token overlap.
+  const dupPairs = new Map<string, Set<string>>();
+  try {
+    const { data: pairs } = await supabase.rpc("wrap_duplicate_pairs", {
+      p_ids: wrapPool.map((a) => a.id),
+      p_max_distance: Number(Deno.env.get("WRAP_DUP_MAX_DISTANCE") ?? 0.40),
+    });
+    for (const p of (pairs ?? []) as Array<{ id_a: string; id_b: string }>) {
+      if (!dupPairs.has(p.id_a)) dupPairs.set(p.id_a, new Set());
+      if (!dupPairs.has(p.id_b)) dupPairs.set(p.id_b, new Set());
+      dupPairs.get(p.id_a)!.add(p.id_b);
+      dupPairs.get(p.id_b)!.add(p.id_a);
+    }
+  } catch { /* embedding dedupe is a safety net, never a requirement */ }
+
   const wrapOrder = await buildWrapOrder(wrapPool, {
     apiKey: Deno.env.get("OPENAI_API_KEY") ?? undefined,
     model: Deno.env.get("SUMMARIZE_MODEL") ?? "gpt-4o-mini",
     slots: WRAP_COUNT,
     flagByUrl,
+    dupPairs,
   });
   wrapPool = wrapOrder.pool as Article[];
 
@@ -253,7 +273,7 @@ Deno.serve(async (request) => {
         wrap: selection.wrap.length, shorts: selection.shorts.length, caseStudy: Boolean(selection.caseStudy)
       });
     }
-    return json({ mode: "recipients", sent, failed, results: out });
+    return json({ mode: "recipients", sent, failed, results: out, wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
   }
 
   // ---- 2. Create the digest (shared by the account + legacy sends) ----
@@ -398,7 +418,7 @@ Deno.serve(async (request) => {
     .update({ article_ids: [...usedArticleIds], recipients: sent, sent, failed })
     .eq("id", digestId);
 
-  return json({ digestId, sent, failed, skipped, accountSubscribers: accountEmails.size, plans: planTally, test: Boolean(testEmail) });
+  return json({ digestId, sent, failed, skipped, accountSubscribers: accountEmails.size, plans: planTally, test: Boolean(testEmail), wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
 });
 
 function istWeekday(): string {
