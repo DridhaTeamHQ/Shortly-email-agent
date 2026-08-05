@@ -192,7 +192,7 @@ Deno.serve(async (request) => {
   // ---- Test/recipients override: explicit recipients with independent shorts/case
   // categories. Sends real emails, logs nothing, and never marks content as sent. ----
   if (recipients.length > 0) {
-    const sd = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
+    const sd = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
     let sent = 0;
     let failed = 0;
     const out: Array<Record<string, unknown>> = [];
@@ -246,7 +246,7 @@ Deno.serve(async (request) => {
   let failed = 0;
   let skipped = 0;
   const planTally: Record<string, number> = {};
-  const subjectDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  const subjectDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
   const markUsed = (sel: Selection) => {
     sel.wrap.forEach((a) => usedArticleIds.add(a.id));
@@ -418,9 +418,8 @@ function buildAccountEmails(
     if (wrap.length === 0) return [];
     const selection: Selection = { wrap, shorts: [], caseStudy: null, shortsCategory: null };
     return [{
-      subject: wrap[0]?.is_breaking
-        ? `${subjectDate} - Breaking: ${(wrap[0].edited_title || wrap[0].title || "").slice(0, 70)}`
-        : `${subjectDate} - Daily Mattr Headlines`,
+      // One fixed subject line every day — no "Breaking:" variant.
+      subject: `${subjectDate} - Your daily wrap is here`,
       intro: `Here are today's ${wrap.length} biggest stories, minus the noise. You'll be caught up Daily Mattr!`,
       sections: renderWrapSections(wrap),
       selection,
@@ -536,7 +535,8 @@ function buildSubject(plan: string, category: string | null, subjectDate: string
   if (plan === "case-only" && category) return `${subjectDate} - Daily Mattr ${category} Case Study`;
   if (plan === "category-case" && category) return `${subjectDate} - Your Daily Mattr ${category} brief`;
   if (plan === "wrap-category" && category) return `${subjectDate} - Daily Mattr Daily Wrap + ${category}`;
-  return `${subjectDate} - Daily Mattr Wrap is here!`;
+  // Daily wrap — same fixed subject as the account path (buildAccountEmails).
+  return `${subjectDate} - Your daily wrap is here`;
 }
 
 // ---------- rendering ----------
@@ -612,14 +612,12 @@ function renderItemsReal(articles: Article[]): string {
   }).join("");
 }
 
-// Daily-wrap renderer: breaking stories (flagged from the breaking_news view,
-// already front-loaded in the pool) get their own red BREAKING section on top;
-// the rest render as the usual Quick Hits.
+// Daily-wrap renderer: ALWAYS one "Quick Hits. Daily Wrap" section — the email
+// never carries a red BREAKING banner. Breaking stories are still front-loaded
+// in the pool (is_breaking ordering above), so the hottest story leads the
+// list; it just isn't labelled as breaking.
 function renderWrapSections(wrap: Article[]): string {
-  const hot = wrap.filter((a) => a.is_breaking);
-  const rest = wrap.filter((a) => !a.is_breaking);
-  if (hot.length === 0) return renderSection("Quick Hits. Daily Wrap", "#111111", wrap);
-  return renderSection("Breaking", "#c2221e", hot) + renderSection("Quick Hits. Daily Wrap", "#111111", rest);
+  return renderSection("Quick Hits. Daily Wrap", "#111111", wrap);
 }
 
 function renderCaseStudy(cs: CaseStudy): string {
