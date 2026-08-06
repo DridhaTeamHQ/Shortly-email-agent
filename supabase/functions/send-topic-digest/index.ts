@@ -443,7 +443,7 @@ function renderLabelBar(text: string, bg: string): string {
 
 function renderTopMeta(): string {
   const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff"><tr><td style="padding:8px 24px;color:#3979ff;font:12px/22px Roboto,Arial,sans-serif">From Team Dailymattr</td><td style="padding:8px 24px;color:#3979ff;font:12px/22px Roboto,Arial,sans-serif;text-align:right">${today}</td></tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff"><tr><td style="padding:8px 24px;color:#3979ff;font:700 12px/22px Roboto,Arial,sans-serif">From Team Dailymattr</td><td style="padding:8px 24px;color:#3979ff;font:700 12px/22px Roboto,Arial,sans-serif;text-align:right">${today}</td></tr></table>`;
 }
 
 function renderHero(): string {
