@@ -997,7 +997,7 @@ function refreshChrome() {
     approved: ["Approved Pool", `${approvedHere} website-ready approved item${approvedHere === 1 ? "" : "s"}`],
     "email-builder": ["Email Builder", `${digestPlan.dailyArticles.length} selected for today's email`],
     topics: ["Case Drafts", `${topicLabel(state.activeTopicDraft)} drafts in article-card format`],
-    "cases-send": ["Approved Cases", `${topicLabel(state.casesApprovedTopic)} approved & ready to send`],
+    "cases-send": ["Case Email", `${topicLabel(state.casesApprovedTopic)} approved & ready to send`],
     rejected: ["Rejected", `${rejected} articles removed from queue`],
     history: ["Digest History", "All past digests and delivery stats"],
     analytics: ["Analytics", "Overview of your newsletter performance"],
