@@ -2,7 +2,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
-import { requireIstSendWindow } from "../_shared/send-window.ts";
 
 type ArticlePayload = {
   title: string;
@@ -41,9 +40,6 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
   }
-  const sendWindowDenied = requireIstSendWindow();
-  if (sendWindowDenied) return sendWindowDenied;
-
   const article = await request.json() as ArticlePayload;
   const validationError = validateArticle(article);
   if (validationError) {

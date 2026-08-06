@@ -8,7 +8,6 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
-import { requireIstSendWindow } from "../_shared/send-window.ts";
 
 type Article = {
   id: string;
@@ -90,9 +89,6 @@ Deno.serve(async (request) => {
   if (!isManual && !isScheduled && !AUTO_DIGEST_ENABLED) {
     return json({ error: "Automatic digest sending is turned off for now." }, 403);
   }
-  const sendWindowDenied = requireIstSendWindow();
-  if (sendWindowDenied) return sendWindowDenied;
-
   // Universal duplicate guard: skip if a real digest was already sent in the last
   // 2 minutes. Stops concurrent cron retries and manual double-clicks from blasting
   // subscribers with duplicate copies.
