@@ -19,7 +19,7 @@ export async function renderWelcomeEmail(email: string, name: string | null): Pr
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#f4f4f1;padding:24px 12px">
       <tr><td align="center">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:680px;background:#fff;border:1px solid #d9d9d4">
-          <tr><td style="background:#3979ff;color:#fff;padding:12px 22px;font-size:12px;line-height:1.4">From the Dailymattr Team</td></tr>
+          <tr><td style="background:#ffffff;color:#3979ff;padding:12px 22px;font-size:12px;line-height:1.4">From Team Dailymattr</td></tr>
           <tr><td style="padding:34px 32px 24px">
             <div style="margin:0 0 24px;color:#3979ff;font:700 28px/1 'Roboto Serif',Georgia,serif">Dailymattr<sup style="font-size:11px">®</sup></div>
             <h1 style="margin:0 0 16px;color:#3979ff;font:700 25px/1.2 'Roboto Serif',Georgia,serif">${greeting}</h1>
