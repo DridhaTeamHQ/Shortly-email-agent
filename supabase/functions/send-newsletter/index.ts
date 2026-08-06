@@ -723,7 +723,9 @@ function renderSourceMeta(a: Article): string {
     ? a.fact_notes!.sources!.filter((source) => source?.url && source?.source).slice(0, 5)
     : [];
   if (sources.length === 0 && a.url) sources.push({ source: a.source || "Read source", url: a.url });
-  return sources.map((source) => `<a href="${escapeHtml(source.url)}" style="color:#555555;text-decoration:none;margin-right:8px">${escapeHtml(source.source)}</a>`).join("");
+  return sources
+    .map((source) => `<a href="${escapeHtml(source.url)}" style="color:#555555;text-decoration:none">${escapeHtml(source.source)}</a>`)
+    .join(`<span aria-hidden="true" style="color:#777777">&nbsp;|&nbsp;</span>`);
 }
 
 async function renderShell(fullName: string | null, email: string, intro: string, sections: string): Promise<string> {

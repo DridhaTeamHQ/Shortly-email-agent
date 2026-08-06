@@ -2362,10 +2362,15 @@ function generatePreviewHtml() {
       const headline = liveHeadlines.get(previewKey) || (a.edited_title || a.title || a.headline || "").trim();
       const text = liveSummaries.get(previewKey) || (a.edited_summary || a.summary || a.detail || "").trim();
       const sourceUrl = a.url || a.source_url || "";
-      const sourceName = a.source || "";
-      const sourceMeta = sourceUrl
-        ? `<a href="${esc(sourceUrl)}" style="color:#555555;text-decoration:none">${esc(sourceName || "Read source")}</a>`
-        : esc(sourceName);
+      const linkedSources = Array.isArray(a.fact_notes?.sources)
+        ? a.fact_notes.sources.filter((source) => source?.url && source?.source).slice(0, 5)
+        : [];
+      if (linkedSources.length === 0 && sourceUrl) {
+        linkedSources.push({ source: a.source || "Read source", url: sourceUrl });
+      }
+      const sourceMeta = linkedSources.length
+        ? linkedSources.map((source) => `<a href="${esc(source.url)}" style="color:#555555;text-decoration:none">${esc(source.source)}</a>`).join(`<span aria-hidden="true" style="color:#777777">&nbsp;|&nbsp;</span>`)
+        : esc(a.source || "");
       return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
         ${previewBreakingBadge(a)}
         <h2 style="font-size:16px;line-height:1.32;margin:0 0 10px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${esc(headline)}</h2>
