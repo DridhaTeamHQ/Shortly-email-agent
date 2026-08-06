@@ -39,15 +39,15 @@
 
 /* Dark mode */
 [data-theme="dark"] {
-  --bg: #17171a;
-  --surface: #1d1d22;
-  --soft: #26262c;
-  --softer: #202025;
-  --ink: #f2f2f4;
-  --ink-2: #c9c9d0;
-  --muted: #8e8e98;
-  --line: #2b2b32;
-  --line-strong: #3a3a42;
+  --bg: #0b1220;
+  --surface: #131c2d;
+  --soft: #1b2840;
+  --softer: #162135;
+  --ink: #f6f8ff;
+  --ink-2: #d3dced;
+  --muted: #aab7cc;
+  --line: #2b3952;
+  --line-strong: #465976;
   --purple: #78a5ff;
   --purple-deep: #c9dbff;
   --purple-soft: #1d2740;
@@ -1577,13 +1577,13 @@ select:focus {
   display: flex;
   align-items: center;
   min-width: 0;
-  padding: 0 4px;
+  padding: 0 8px;
 }
 
 .global-brand-logo {
   display: block;
-  width: 122px;
-  max-height: 34px;
+  width: 36px;
+  max-height: 36px;
   object-fit: contain;
 }
 
@@ -1842,6 +1842,100 @@ select:focus {
 
 [data-theme="dark"] .nav-item .badge { border-color: #151c26; }
 
+/* Keep late glass-dashboard styles readable against the dark canvas. */
+[data-theme="dark"] .topic-tab {
+  border-color: var(--line-strong);
+  background: rgba(27, 40, 64, 0.88);
+  color: var(--ink-2);
+}
+
+[data-theme="dark"] .topic-tab:hover {
+  border-color: #6f9fff;
+  background: #1c315d;
+  color: #b8d1ff;
+}
+
+[data-theme="dark"] .topic-tab.active {
+  border-color: transparent;
+  background: linear-gradient(135deg, #3979ff 0%, #56a2ff 100%);
+  color: #fff;
+}
+
+[data-theme="dark"] .topic-chip,
+[data-theme="dark"] .tag.summarized,
+[data-theme="dark"] .send-chip.auto {
+  border-color: var(--line-strong);
+  background: #24324a;
+  color: #dbe4f5;
+}
+
+[data-theme="dark"] .tag.suggested,
+[data-theme="dark"] .badge {
+  background: #24324a;
+  color: #dbe4f5;
+}
+
+[data-theme="dark"] .card.selected {
+  border-color: #5f91ff;
+  background: linear-gradient(135deg, rgba(31, 49, 82, 0.98), rgba(20, 29, 47, 0.96));
+}
+
+[data-theme="dark"] .data-table th,
+[data-theme="dark"] .history-table th {
+  background: #1b2840;
+  color: #becae0;
+}
+
+[data-theme="dark"] .data-table tbody tr:hover td,
+[data-theme="dark"] .history-table tbody tr:hover td {
+  background: #1d2b43;
+}
+
+[data-theme="dark"] .topic-picker {
+  border-color: var(--line);
+  background: #162135;
+}
+
+[data-theme="dark"] .topic-option {
+  background: #22304a;
+  color: var(--ink);
+}
+
+[data-theme="dark"] .topic-option:hover {
+  background: #1c315d;
+  color: #b8d1ff;
+}
+
+[data-theme="dark"] .btn-ghost,
+[data-theme="dark"] .btn-reject {
+  border-color: var(--line-strong);
+  background: rgba(27, 40, 64, 0.72);
+  color: var(--ink-2);
+}
+
+[data-theme="dark"] .btn-ghost:hover,
+[data-theme="dark"] .btn-reject:hover {
+  border-color: #6f9fff;
+  background: #1c315d;
+  color: #b8d1ff;
+}
+
+[data-theme="dark"] .btn-primary:disabled,
+[data-theme="dark"] .btn-approve:disabled {
+  background: #3a465d;
+  color: #d6deed;
+}
+
+[data-theme="dark"] .fetch-today-card .muted,
+[data-theme="dark"] .stat-card:nth-child(1) .stat-label {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+[data-theme="dark"] .modal-close:hover {
+  background: #1c315d;
+  color: #b8d1ff;
+}
+
 .menu-toggle {
   display: none;
   place-items: center;
@@ -1858,7 +1952,7 @@ select:focus {
   .app { grid-template-columns: 54px minmax(0, 1fr); }
   .global-date { display: none; }
   .global-brand { flex-basis: 116px; }
-  .global-brand-logo { width: 110px; }
+  .global-brand-logo { width: 36px; }
   .main { padding: 20px 20px 30px; }
 }
 
@@ -1893,7 +1987,7 @@ select:focus {
   [data-theme="dark"] .global-nav { background: rgba(17, 24, 32, 0.86); }
 
   .global-brand { flex: 0 0 auto; padding: 0; }
-  .global-brand-logo { width: 112px; }
+  .global-brand-logo { width: 36px; }
   .global-nav .workspace-toggle,
   .global-date,
   .global-nav .agent-session { display: none; }
