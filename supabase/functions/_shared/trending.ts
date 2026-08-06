@@ -7,12 +7,27 @@
 // Tunables (shared with the trending-topics function). Distances are cosine
 // distance (0 = identical direction, 1 = orthogonal, 2 = opposite).
 export const CLUSTER_MAX_DIST = 0.38; // greedy-cluster join threshold
-export const ATTACH_MAX_DIST = 0.42;  // auto-attach a loose article to an approved topic
+// Auto-attach radius. Was 0.42, which let one topic become a magnet: "RBI's
+// Forex Management Strategies" absorbed 38 articles spanning polymer banknotes,
+// UPI funding, co-operative bank licensing and the repo-rate decision, because
+// everything in that vocabulary sits close together in embedding space.
+// Measured across today's approved topics, coherent ones have a p90 member
+// distance of 0.25-0.35, so 0.30 keeps their core and trims only the loosest
+// tail (2-3 members each) while cutting 15 of the RBI cluster's 38.
+export const ATTACH_MAX_DIST = 0.30;  // auto-attach a loose article to an approved topic
 export const DEDUPE_MAX_DIST = 0.30;  // a new cluster this close to an existing topic is a dup
 export const MIN_MEMBERS = 3;         // a cluster needs this many articles to surface
 export const MIN_SOURCES = 2;         // ...from at least this many distinct outlets
 export const WINDOW_HOURS = 72;       // only cluster articles scraped within this window
 export const MAX_ARTICLES = 300;      // hard cap on candidates loaded per run
+// A topic this large has stopped being one story. Attaching stops here, so a
+// high-volume beat cannot keep growing a single bucket forever; further stories
+// form their own cluster instead, which is what puts variety back on the rail.
+export const MAX_TOPIC_MEMBERS = 20;
+// Re-title once a topic has grown this much past the membership its title was
+// written for (and by at least MIN_RETITLE_GROWTH articles).
+export const RETITLE_GROWTH_RATIO = 1.6;
+export const MIN_RETITLE_GROWTH = 5;
 
 export type ClusterItem = { id: string; vec: number[]; scrapedAt: string; source: string };
 
@@ -102,6 +117,14 @@ export function greedyCluster(items: ClusterItem[], maxDist: number): Cluster[] 
 // several sources to the front of trending" means in practice.
 export const SOURCE_WEIGHT = 8;
 
+// How much recency-weighted VOLUME can add on top of cross-outlet breadth.
+// Applied to log1p(mass), not mass itself: raw mass grew linearly with member
+// count, so the biggest bucket automatically ranked first and stayed there --
+// the RBI topic scored 82.3 against 65.0 for the runner-up purely on having
+// 38 members to its 18. Diminishing returns keep a genuinely broad story on
+// top without letting a fat one own the rail indefinitely.
+export const MASS_WEIGHT = 6;
+
 // Media OWNERSHIP groups — TOI + ET + several section feeds are all the Times
 // Group, HT + Mint share HT Media, every NDTV feed is NDTV, etc. Counting
 // distinct GROUPS instead of feed names stops one media house's syndicated
@@ -131,5 +154,5 @@ export function scoreCluster(members: ClusterItem[], now: number): number {
     mass += Math.exp(-ageHours / 36);
     if (m.source) groups.add(mediaGroupOf(m.source));
   }
-  return groups.size * SOURCE_WEIGHT + mass;
+  return groups.size * SOURCE_WEIGHT + Math.log1p(mass) * MASS_WEIGHT;
 }

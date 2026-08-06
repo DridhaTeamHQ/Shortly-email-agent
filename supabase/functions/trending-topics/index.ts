@@ -26,6 +26,9 @@ import {
   MIN_SOURCES,
   WINDOW_HOURS,
   MAX_ARTICLES,
+  MAX_TOPIC_MEMBERS,
+  RETITLE_GROWTH_RATIO,
+  MIN_RETITLE_GROWTH,
 } from "../_shared/trending.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 
@@ -196,6 +199,8 @@ async function handleCluster(supabase: any): Promise<Response> {
   // (a young/sparse pool wants a lower member bar; a busy one wants a higher
   // one). Defaults come from _shared/trending.ts.
   const clusterMaxDist = Number(Deno.env.get("TREND_CLUSTER_DIST") ?? CLUSTER_MAX_DIST);
+  const attachMaxDist = Number(Deno.env.get("TREND_ATTACH_DIST") ?? ATTACH_MAX_DIST);
+  const maxTopicMembers = Number(Deno.env.get("TREND_MAX_MEMBERS") ?? MAX_TOPIC_MEMBERS);
   const minMembers = Number(Deno.env.get("TREND_MIN_MEMBERS") ?? MIN_MEMBERS);
   const minSources = Number(Deno.env.get("TREND_MIN_SOURCES") ?? MIN_SOURCES);
   const since = new Date(now - WINDOW_HOURS * 60 * 60 * 1000).toISOString();
@@ -221,7 +226,7 @@ async function handleCluster(supabase: any): Promise<Response> {
   // 2. Existing topics + their assigned articles.
   const { data: topicRows, error: topErr } = await supabase
     .from("topics")
-    .select("id,status,centroid,slug,title")
+    .select("id,status,centroid,slug,title,title_member_count")
     .or(activeTopicOr());
   if (topErr) return json({ error: topErr.message }, 500);
   const topics = (topicRows ?? []).map((t: any) => ({
@@ -229,17 +234,26 @@ async function handleCluster(supabase: any): Promise<Response> {
     status: t.status,
     slug: t.slug,
     title: t.title,
+    // Carried through so the re-title pass can compare current membership
+    // against the size the title was written for.
+    title_member_count: t.title_member_count,
     centroid: parseVec(t.centroid),
   }));
 
   const topicIds = topics.map((t: any) => t.id);
   const assigned = new Set<string>();
+  // Live membership per topic, so attaching can refuse to feed an already
+  // oversized bucket (see MAX_TOPIC_MEMBERS).
+  const memberCount = new Map<string, number>();
   if (topicIds.length > 0) {
     const { data: taRows } = await supabase
       .from("topic_articles")
       .select("topic_id,article_id")
       .in("topic_id", topicIds);
-    for (const r of (taRows ?? [])) assigned.add(r.article_id);
+    for (const r of (taRows ?? [])) {
+      assigned.add(r.article_id);
+      memberCount.set(r.topic_id, (memberCount.get(r.topic_id) ?? 0) + 1);
+    }
   }
 
   const touched = new Set<string>();
@@ -255,7 +269,11 @@ async function handleCluster(supabase: any): Promise<Response> {
       const d = cosineDist(t.centroid, cand.vec);
       if (d < bestDist) { bestDist = d; best = t; }
     }
-    if (best && bestDist <= ATTACH_MAX_DIST) {
+    // A topic at the cap has stopped being one story, so stop feeding it and
+    // let this article go on to form its own cluster below. Without this, a
+    // high-volume beat keeps growing one bucket and crowds the rail.
+    if (best && (memberCount.get(best.id) ?? 0) >= maxTopicMembers) continue;
+    if (best && bestDist <= attachMaxDist) {
       const { error } = await supabase
         .from("topic_articles")
         .upsert({ topic_id: best.id, article_id: cand.id, added_by: "ai" }, { onConflict: "topic_id,article_id", ignoreDuplicates: true });
@@ -263,6 +281,7 @@ async function handleCluster(supabase: any): Promise<Response> {
         attached++;
         assigned.add(cand.id);
         touched.add(best.id);
+        memberCount.set(best.id, (memberCount.get(best.id) ?? 0) + 1);
         // The topic is APPROVED (that's the attach pool), so its timeline is
         // live on the site — publish the newly attached story too, or it stays
         // invisible (the site only shows approved/sent articles) and the
@@ -339,6 +358,7 @@ async function handleCluster(supabase: any): Promise<Response> {
         status: "suggested",
         score: scoreCluster(cluster.members, now),
         centroid: cluster.centroid,
+        title_member_count: cluster.members.length,
       })
       .select("id")
       .single();
@@ -356,7 +376,66 @@ async function handleCluster(supabase: any): Promise<Response> {
   // Refresh centroid + score on every merged/attached-touched topic.
   for (const tid of touched) await recomputeTopic(supabase, tid, true);
 
-  return json({ suggested, attached, merged });
+  // RE-TITLE topics that have outgrown the name they were given. A title is
+  // written once from the founding cluster; as stories attach, the membership
+  // moves but the label does not, which is how a bucket holding polymer
+  // banknotes and UPI funding kept advertising itself as "RBI's Forex
+  // Management Strategies". Non-fatal: on any failure the old title stands.
+  let retitled = 0;
+  try {
+    const apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
+    if (apiKey && touched.size > 0) {
+      const stale: Array<{ id: string; titles: string[]; members: number }> = [];
+      for (const tid of touched) {
+        const topic = topics.find((t: any) => t.id === tid);
+        if (!topic) continue;
+        const { data: rows } = await supabase
+          .from("topic_articles")
+          .select("article_id, articles(title, edited_title, scraped_at)")
+          .eq("topic_id", tid)
+          .limit(60);
+        const members = (rows ?? []).length;
+        const writtenFor = Number(topic.title_member_count ?? 0);
+        if (
+          writtenFor > 0 &&
+          members >= writtenFor + MIN_RETITLE_GROWTH &&
+          members >= writtenFor * RETITLE_GROWTH_RATIO
+        ) {
+          // Name it from its NEWEST stories -- those are what the label is now
+          // failing to describe.
+          const titles = (rows ?? [])
+            .map((r: any) => r.articles)
+            .filter(Boolean)
+            .sort((a: any, b: any) => String(b.scraped_at).localeCompare(String(a.scraped_at)))
+            .map((a: any) => String(a.edited_title || a.title || "").trim())
+            .filter(Boolean);
+          if (titles.length > 0) stale.push({ id: tid, titles, members });
+        }
+      }
+      if (stale.length > 0) {
+        const named = await nameClusters(
+          apiKey,
+          Deno.env.get("SUMMARIZE_MODEL") ?? "gpt-4o-mini",
+          stale.map((s) => ({ titles: s.titles })),
+        );
+        for (let i = 0; i < stale.length; i++) {
+          const n = named[i];
+          if (!n?.title) continue;
+          await supabase
+            .from("topics")
+            .update({
+              title: n.title,
+              description: n.description || null,
+              title_member_count: stale[i].members,
+            })
+            .eq("id", stale[i].id);
+          retitled++;
+        }
+      }
+    }
+  } catch { /* a stale title is cosmetic; never fail the cluster run over it */ }
+
+  return json({ suggested, attached, merged, retitled });
 }
 
 async function handleReviewAction(supabase: any, action: string, body: any): Promise<Response> {
