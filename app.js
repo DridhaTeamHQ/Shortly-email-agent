@@ -2339,10 +2339,6 @@ function generatePreviewHtml() {
     return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#3979ff"><tr><td style="padding:8px 24px;color:#ffffff;font:12px/22px Roboto,Arial,sans-serif;letter-spacing:.02em">From the Dailymattr Team</td><td style="padding:8px 24px;color:#ffffff;font:12px/22px Roboto,Arial,sans-serif;text-align:right">${today}</td></tr></table>`;
   }
 
-  function renderHero() {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#3979ff url('${previewBannerUrl}') center/cover no-repeat"><tr><td style="background:rgba(0,0,0,.68);padding:36px 24px 40px;text-align:center;color:#ffffff"><div style="font:700 24px/1 'Roboto Serif',Georgia,serif;margin-bottom:18px">Dailymattr<sup style="font-size:10px">®</sup></div><div style="font:900 54px/.95 Georgia,'Times New Roman',serif;letter-spacing:-.04em">DAILYMATTR</div><div style="margin-top:14px;font:700 12px/1.2 Roboto,Arial,sans-serif;letter-spacing:.28em;text-transform:uppercase">Stories that matter</div></td></tr></table>`;
-  }
-
   function renderSection(label, items, kind = "daily", color = "#111111") {
     if (items.length === 0) return "";
     return `${renderLabelBar(label, color)}<div style="margin-bottom:22px;border-radius:22px;background:transparent">
