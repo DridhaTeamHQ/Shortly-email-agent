@@ -67,6 +67,12 @@
           <button class="nav-item" data-section="topics" data-workspace="cases" data-label="Case Drafts" aria-label="Case Drafts" title="Case Drafts">
             <i class="ph ph-article" aria-hidden="true"></i><span class="nav-label">Case Drafts</span><span class="badge" id="badgeTopics">0</span>
           </button>
+          <button class="nav-item" data-section="cases-approved" data-workspace="cases" data-label="Approved Cases" aria-label="Approved Cases" title="Approved Cases">
+            <i class="ph ph-check-circle" aria-hidden="true"></i><span class="nav-label">Approved Cases</span><span class="badge accent" id="badgeCasesApprovedReview">0</span>
+          </button>
+          <button class="nav-item" data-section="cases-rejected" data-workspace="cases" data-label="Rejected Cases" aria-label="Rejected Cases" title="Rejected Cases">
+            <i class="ph ph-x-circle" aria-hidden="true"></i><span class="nav-label">Rejected Cases</span><span class="badge" id="badgeCasesRejected">0</span>
+          </button>
           <button class="nav-item" data-section="cases-send" data-workspace="cases" data-label="Case Email" aria-label="Case Email" title="Case Email">
             <i class="ph ph-envelope-simple" aria-hidden="true"></i><span class="nav-label">Case Email</span><span class="badge accent" id="badgeCasesApproved">0</span>
           </button>
@@ -242,6 +248,18 @@
             Hybrid topics are split into individual article-style cards, so each brief can be reviewed like a normal article.
           </p>
           <div class="list" id="topicDraftList"><div class="skeleton skeleton-card"></div></div>
+        </section>
+
+        <!-- APPROVED CASES -->
+        <section class="section" data-section="cases-approved" data-workspace="cases">
+          <p class="muted" style="margin:0 0 12px;font-size:13px">All active approved case studies, ready for editorial review or delivery.</p>
+          <div class="list" id="casesApprovedReviewList"><div class="skeleton skeleton-card"></div></div>
+        </section>
+
+        <!-- REJECTED CASES -->
+        <section class="section" data-section="cases-rejected" data-workspace="cases">
+          <p class="muted" style="margin:0 0 12px;font-size:13px">Rejected case studies stay here for review and can be approved again when needed.</p>
+          <div class="list" id="casesRejectedList"><div class="skeleton skeleton-card"></div></div>
         </section>
 
         <!-- APPROVED CASES + SEND -->

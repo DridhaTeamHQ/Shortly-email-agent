@@ -926,7 +926,7 @@ function refreshChrome() {
   const rejected = state.articles.filter((a) => a.status === "rejected").length;
   const subs = state.subscribers.filter((s) => s.status === "subscribed").length;
   const dailyWrapSubs = dailyWrapSubscriberCount();
-  const topicDrafts = state.editorialDrafts.length;
+  const caseDrafts = state.editorialDrafts.filter((draft) => (draft.status || "draft") === "draft").length;
 
   // Per-category counts when a category tab is active in Short Articles.
   const cat = state.shortCategory;
@@ -938,8 +938,11 @@ function refreshChrome() {
   if ($("#badgeEmailBuilder")) $("#badgeEmailBuilder").textContent = emailSelectedCount;
   $("#badgeRejected").textContent = rejected;
   $("#badgeSubs").textContent = subs;
-  $("#badgeTopics").textContent = topicDrafts;
-  const approvedCases = state.editorialDrafts.filter((d) => (d.status || "draft") === "approved").length;
+  $("#badgeTopics").textContent = caseDrafts;
+  const approvedCases = state.editorialDrafts.filter((draft) => (draft.status || "draft") === "approved").length;
+  const rejectedCases = state.editorialDrafts.filter((draft) => (draft.status || "draft") === "rejected").length;
+  if ($("#badgeCasesApprovedReview")) $("#badgeCasesApprovedReview").textContent = approvedCases;
+  if ($("#badgeCasesRejected")) $("#badgeCasesRejected").textContent = rejectedCases;
   if ($("#badgeCasesApproved")) $("#badgeCasesApproved").textContent = approvedCases;
 
   const send = $("#sendDigest");
@@ -996,7 +999,9 @@ function refreshChrome() {
     trending: ["Trending Topics", `${state.trending.topics.filter((t) => (t.status || "suggested") === state.trending.filter).length} ${state.trending.filter} topic${state.trending.topics.filter((t) => (t.status || "suggested") === state.trending.filter).length === 1 ? "" : "s"}`],
     approved: ["Approved Pool", `${approvedHere} website-ready approved item${approvedHere === 1 ? "" : "s"}`],
     "email-builder": ["Email Builder", `${digestPlan.dailyArticles.length} selected for today's email`],
-    topics: ["Case Drafts", `${topicLabel(state.activeTopicDraft)} drafts in article-card format`],
+    topics: ["Case Drafts", `${topicLabel(state.activeTopicDraft)} case drafts in article-card format`],
+    "cases-approved": ["Approved Cases", `${approvedCases} approved case stud${approvedCases === 1 ? "y" : "ies"}`],
+    "cases-rejected": ["Rejected Cases", `${rejectedCases} rejected case stud${rejectedCases === 1 ? "y" : "ies"}`],
     "cases-send": ["Case Email", `${topicLabel(state.casesApprovedTopic)} approved & ready to send`],
     rejected: ["Rejected", `${rejected} articles removed from queue`],
     history: ["Digest History", "All past digests and delivery stats"],
@@ -1390,13 +1395,27 @@ function renderTopicDrafts() {
     });
   }
   const list = $("#topicDraftList");
-  const cards = topicDraftCards();
+  const cards = topicDraftCards(state.activeTopicDraft, "draft");
   const label = topicLabel(state.activeTopicDraft);
   $("#topicDraftHint").textContent =
     `${label} drafts use article-style cards. Hybrid topics split five briefs and the feature/take into separate cards.`;
   list.innerHTML = cards.length
     ? cards.map(topicDraftCardHtml).join("")
     : `<p class="muted">No ${esc(label)} drafts yet. Use "Scrape" to create one.</p>`;
+}
+
+function renderCaseStatusLists() {
+  const views = [
+    { status: "approved", node: $("#casesApprovedReviewList"), label: "approved" },
+    { status: "rejected", node: $("#casesRejectedList"), label: "rejected" }
+  ];
+  for (const view of views) {
+    if (!view.node) continue;
+    const cards = topicDraftCards("all-topics", view.status);
+    view.node.innerHTML = cards.length
+      ? cards.map(topicDraftCardHtml).join("")
+      : `<p class="muted">No ${view.label} case studies.</p>`;
+  }
 }
 
 // ---------- Trending topics (clustered) ----------
@@ -1752,6 +1771,7 @@ function renderAll() {
   renderEmailBuilder();
   renderTrending();
   renderTopicDrafts();
+  renderCaseStatusLists();
   renderCasesApproved();
   renderCasesSendControls();
   renderRejected();
@@ -2694,6 +2714,16 @@ $("#topicDraftList").addEventListener("click", (e) => {
   const card = btn.closest(".topic-draft-card");
   if (!card) return;
   handleTopicDraftAction(card, btn.dataset.action);
+});
+
+["#casesApprovedReviewList", "#casesRejectedList"].forEach((selector) => {
+  $(selector)?.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-action]");
+    if (!btn) return;
+    const card = btn.closest(".topic-draft-card");
+    if (!card) return;
+    handleTopicDraftAction(card, btn.dataset.action);
+  });
 });
 
 // Trending: status tab switching
