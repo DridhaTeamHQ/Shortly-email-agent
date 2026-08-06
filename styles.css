@@ -1840,7 +1840,17 @@ select:focus {
   color: #fff;
 }
 
-[data-theme="dark"] .nav-item .badge { border-color: #151c26; }
+[data-theme="dark"] .nav-item .badge {
+  border-color: #0b1220;
+  background: #e9f0ff;
+  color: #245fe8;
+}
+
+[data-theme="dark"] .nav-item.active .badge,
+[data-theme="dark"] .nav-item .badge.accent {
+  background: #fff;
+  color: #245fe8;
+}
 
 /* Keep late glass-dashboard styles readable against the dark canvas. */
 [data-theme="dark"] .topic-tab {
