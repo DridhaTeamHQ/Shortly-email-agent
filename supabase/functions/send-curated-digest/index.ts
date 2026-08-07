@@ -16,6 +16,7 @@ type DailyArticle = {
   source: string | null;
   topic: string | null;
   category: string | null;
+  fact_notes: { sources?: Array<{ source?: string; url?: string }> } | null;
   rank_score: number | null;
   scraped_at: string;
   reviewed_at: string | null;
@@ -37,7 +38,10 @@ const BANNER_URL =
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/figma-email-banner.png";
 const FOOTER_LOGO_URL =
   Deno.env.get("SHORTLY_FOOTER_LOGO_URL") ??
-  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/footer-logo.png";
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/dailymattr-primary-logo.svg";
+const INSTAGRAM_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-instagram.svg";
+const GOOGLE_PLAY_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-google-play.svg";
+const APP_STORE_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-app-store.svg";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
 const FORMATS = {
   "daily-wrap-10": { dailyLimit: 5, caseLimit: 0, label: "General 5 Articles" },
@@ -238,7 +242,7 @@ async function resolveSelectedArticles(supabase: any, articleIds: string[], limi
   if (articleIds.length === 0) return [];
   const { data, error } = await supabase
     .from("articles")
-    .select("id,title,edited_title,summary,edited_summary,url,source,topic,category,rank_score,scraped_at,reviewed_at")
+    .select("id,title,edited_title,summary,edited_summary,url,source,topic,category,fact_notes,rank_score,scraped_at,reviewed_at")
     .in("id", articleIds)
     .eq("status", "approved");
   if (error) throw new Error(error.message);
@@ -341,17 +345,27 @@ function renderHero(): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#3979ff"><tr><td><img src="${BANNER_URL}" alt="Dailymattr - Stories that matter" width="1280" style="display:block;width:100%;height:auto;border:0" /></td></tr></table>`;
 }
 
-function renderFooterBrand(): string {
+function renderLegacyFooterBrand(): string {
   return `<div style="text-align:center;padding:24px 20px 8px;background:#fff"><div style="margin:0 0 10px;color:#3979ff;font:700 24px/1 'Roboto Serif',Georgia,serif">Dailymattr<sup style="font-size:10px">Â®</sup></div><p style="margin:0 0 8px;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Curated news, summarized daily.<br>You're receiving this because you subscribed to <span style="color:#3979ff">Dailymattr</span></p><p style="margin:0;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Can be <u>forwarded</u> to others.</p></div>`;
 }
 
-function renderFooter(subscribeUrl: string, twitterUrl: string, linkedinUrl: string, privacyFooter: string): string {
+function renderLegacyFooter(subscribeUrl: string, twitterUrl: string, linkedinUrl: string, privacyFooter: string): string {
   const icon = (href: string, label: string) => `<a href="${href}" style="display:inline-block;width:28px;height:28px;line-height:28px;margin-right:10px;border-radius:50%;background:#000;color:#fff;text-align:center;text-decoration:none;font:700 14px/28px Arial,sans-serif">${label}</a>`;
   return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:28px"><tr><td style="padding:18px 28px 14px;background:#fff"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td>${icon("https://www.instagram.com/dailymattr", "?")}${icon(twitterUrl, "X")}${icon(linkedinUrl, "in")}</td><td style="text-align:right"><a href="${subscribeUrl}" style="display:inline-block;background:#3979ff;color:#fff;border-radius:24px;padding:12px 20px;text-decoration:none;font:700 15px/1 Roboto,Arial,sans-serif">Subscribe&nbsp; ?</a></td></tr></table></td></tr><tr><td style="background:#3979ff;color:#fff;padding:16px 28px"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td style="font:700 15px/1.2 Roboto,Arial,sans-serif">Read from anywhere</td><td style="text-align:right"><a href="#" style="display:inline-block;background:#3979ff;border:1px solid #333;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif">?&nbsp; Google Play</a>&nbsp; <a href="#" style="display:inline-block;background:#3979ff;border:1px solid #333;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif">?&nbsp; App Store</a></td></tr></table></td></tr></table>${privacyFooter}`;
 }
 
 function normalizeStoreLinks(html: string): string {
   return html.replace('href="#"', 'href="https://play.google.com/store"').replace('href="#"', 'href="https://www.apple.com/app-store/"');
+}
+
+function renderFooterBrand(): string {
+  return `<div style="text-align:center;padding:24px 20px 8px;background:#fff"><img src="${FOOTER_LOGO_URL}" alt="Dailymattr" width="210" style="display:block;width:210px;max-width:100%;height:auto;margin:0 auto 12px;border:0" /><p style="margin:0 0 8px;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Curated news, summarized daily.<br>You're receiving this because you subscribed to <span style="color:#3979ff">Dailymattr</span></p><p style="margin:0;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Can be <u>forwarded</u> to others.</p></div>`;
+}
+
+function renderFooter(subscribeUrl: string, twitterUrl: string, linkedinUrl: string, privacyFooter: string): string {
+  const icon = (href: string, imageUrl: string, alt: string, label: string) => `<a href="${href}" style="display:inline-block;width:28px;height:28px;line-height:28px;margin-right:10px;border-radius:50%;background:#000;color:#fff;text-align:center;text-decoration:none;font:700 14px/28px Arial,sans-serif">${imageUrl ? `<img src="${imageUrl}" alt="${alt}" width="15" height="15" style="display:inline-block;vertical-align:middle;border:0" />` : label}</a>`;
+  const storeButton = (href: string, imageUrl: string, label: string) => `<a href="${href}" style="display:inline-block;background:#3979ff;border:1px solid #1f3155;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif"><img src="${imageUrl}" alt="" width="14" height="14" style="display:inline-block;vertical-align:middle;margin-right:5px;border:0" />${label}</a>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:28px"><tr><td style="padding:18px 28px 14px;background:#fff"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td>${icon("https://www.instagram.com/dailymattr", INSTAGRAM_ICON_URL, "Instagram", "Instagram")}${icon(twitterUrl, "", "X", "X")}${icon(linkedinUrl, "", "LinkedIn", "in")}</td><td style="text-align:right"><a href="${subscribeUrl}" style="display:inline-block;background:#3979ff;color:#fff;border-radius:24px;padding:12px 20px;text-decoration:none;font:700 15px/1 Roboto,Arial,sans-serif">Subscribe&nbsp;&rarr;</a></td></tr></table></td></tr><tr><td style="background:#3979ff;color:#fff;padding:16px 28px"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td style="font:700 15px/1.2 Roboto,Arial,sans-serif">Read from anywhere</td><td style="text-align:right">${storeButton("https://play.google.com/store", GOOGLE_PLAY_ICON_URL, "Google Play")}&nbsp;${storeButton("https://www.apple.com/app-store/", APP_STORE_ICON_URL, "App Store")}</td></tr></table></td></tr></table>${privacyFooter}`;
 }
 
 function renderSection(label: string, items: Array<{ headline: string; body: string; category?: string; sourceCount?: string }>, color = "#111111"): string {
@@ -369,6 +383,16 @@ function renderRealCards(items: Array<{ headline: string; body: string; category
     <p style="font-size:13px;line-height:1.55;color:#686868;margin:0 0 12px;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(item.body)}</p>
     ${item.sourceCount ? `<p style="font-size:11px;line-height:1.3;color:#777777;margin:0;font-family:Roboto,Arial,sans-serif">${item.sourceCount}</p>` : ""}
   </div></td></tr>`).join("");
+}
+
+function renderSourceMeta(article: DailyArticle): string {
+  const sources = Array.isArray(article.fact_notes?.sources)
+    ? article.fact_notes.sources.filter((source) => source?.url && source?.source).slice(0, 5)
+    : [];
+  if (sources.length === 0 && article.url) sources.push({ source: article.source || "Read source", url: article.url });
+  return sources
+    .map((source) => `<a href="${escapeHtml(source.url || "")}" style="color:#555555;text-decoration:none">${escapeHtml(source.source || "Read source")}</a>`)
+    .join(`<span aria-hidden="true" style="color:#777777">&nbsp;|&nbsp;</span>`);
 }
 
 function renderCaseStudies(items: CorporateCase[]): string {
@@ -412,9 +436,7 @@ async function renderDigest(input: {
     headline: article.edited_title || article.title,
     body: article.edited_summary || article.summary || "",
     category: input.category || article.category || "General",
-    sourceCount: article.url
-      ? `<a href="${escapeHtml(article.url)}" style="color:#555555;text-decoration:none;margin-right:8px">${escapeHtml(article.source || "Read source")}</a>`
-      : escapeHtml(article.source || "")
+    sourceCount: renderSourceMeta(article)
   }));
   const dailyLabel = input.format === "category-5-case-1" && input.category
     ? `Quick Hits. ${input.category}`

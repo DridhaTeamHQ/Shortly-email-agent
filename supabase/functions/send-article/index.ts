@@ -21,6 +21,12 @@ type Subscriber = {
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner.jpg";
+const FOOTER_LOGO_URL =
+  Deno.env.get("SHORTLY_FOOTER_LOGO_URL") ??
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/dailymattr-primary-logo.svg";
+const INSTAGRAM_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-instagram.svg";
+const GOOGLE_PLAY_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-google-play.svg";
+const APP_STORE_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-app-store.svg";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -137,11 +143,15 @@ async function renderEmail(article: ArticlePayload, subscriber: Subscriber): Pro
         <h1 style="font-size:32px;line-height:1.12;margin:0 0 16px;color:#191919;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(article.title)}</h1>
         <p style="font-size:16px;line-height:1.7;color:#3f3f46;margin:0 0 24px">${escapeHtml(article.summary)}</p>
         <a href="${escapeHtml(article.url)}" style="display:inline-block;background:#3979ff;color:#ffffff;text-decoration:none;font-weight:700;border-radius:10px;padding:13px 18px">Read article</a>
-        ${footer}
+        ${renderArticleFooter()}
         ${privacyFooter}
       </div>
     </div>
   `;
+}
+
+function renderArticleFooter(): string {
+  return `<div style="margin:28px -30px -30px;background:#ffffff;text-align:center;font:13px/1.5 Roboto,Arial,sans-serif"><div style="padding:24px 20px 18px"><img src="${FOOTER_LOGO_URL}" alt="Dailymattr" width="210" style="display:block;width:210px;max-width:100%;height:auto;margin:0 auto 12px;border:0" />Curated news, summarized daily.<br><a href="https://www.instagram.com/dailymattr" style="display:inline-block;width:28px;height:28px;line-height:28px;margin:12px 10px 0 0;border-radius:50%;background:#000;text-align:center"><img src="${INSTAGRAM_ICON_URL}" alt="Instagram" width="15" height="15" style="display:inline-block;vertical-align:middle;border:0" /></a><a href="https://longmattr.com/" style="display:inline-block;margin-top:12px;background:#3979ff;color:#ffffff;border-radius:22px;padding:10px 18px;text-decoration:none;font-weight:700">Subscribe&nbsp;&rarr;</a></div><div style="padding:16px 24px;background:#3979ff;color:#ffffff;text-align:left"><strong>Read from anywhere</strong><span style="float:right"><a href="https://play.google.com/store" style="color:#ffffff;text-decoration:none"><img src="${GOOGLE_PLAY_ICON_URL}" alt="" width="14" height="14" style="vertical-align:middle;border:0" /> Google Play</a>&nbsp;&nbsp;<a href="https://www.apple.com/app-store/" style="color:#ffffff;text-decoration:none"><img src="${APP_STORE_ICON_URL}" alt="" width="14" height="14" style="vertical-align:middle;border:0" /> App Store</a></span></div></div>`;
 }
 
 function escapeHtml(value = "") {
