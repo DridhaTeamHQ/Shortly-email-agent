@@ -111,6 +111,7 @@ begin
     'shortly-scrape-news',
     'shortly-summarize-articles',
     'shortly-summarize-articles-2',
+    'shortly-auto-approve-morning-general',
     'shortly-corporate-case-agent',
     'shortly-editorial-real-estate',
     'shortly-editorial-automobile',
@@ -158,6 +159,11 @@ select cron.schedule('shortly-summarize-articles', '45 0 * * *',
 
 select cron.schedule('shortly-summarize-articles-2', '5 1 * * *',
   $job$ select public.invoke_edge('summarize-articles', '{}'::jsonb, 300000); $job$);
+
+-- 2b) Approve the five strongest completed General stories at 07:10 IST,
+-- leaving enough time for both summary passes before the 09:00 IST send.
+select cron.schedule('shortly-auto-approve-morning-general', '40 1 * * *',
+  $job$ select public.invoke_edge('auto-approve-general', '{"scheduled":true}'::jsonb, 300000); $job$);
 
 -- 3) Category agents. Each run creates:
 --    - up to 25 short articles for that category review pool
