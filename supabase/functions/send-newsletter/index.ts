@@ -476,7 +476,7 @@ function buildAccountEmails(
     const selection: Selection = { wrap, shorts: [], caseStudy: null, shortsCategory: null };
     return [{
       // One fixed subject line every day â€” no "Breaking:" variant.
-      subject: `${subjectDate} - Your daily wrap is here`,
+      subject: `${subjectDate} - Your Dailymattr Wrap is here!`,
       intro: `Here are today's ${wrap.length} biggest stories, minus the noise. You'll be caught up Dailymattr!`,
       sections: renderWrapSections(wrap),
       selection,
@@ -593,7 +593,7 @@ function buildSubject(plan: string, category: string | null, subjectDate: string
   if (plan === "category-case" && category) return `${subjectDate} - Your Dailymattr ${category} brief`;
   if (plan === "wrap-category" && category) return `${subjectDate} - Dailymattr Daily Wrap + ${category}`;
   // Daily wrap â€” same fixed subject as the account path (buildAccountEmails).
-  return `${subjectDate} - Your daily wrap is here`;
+  return `${subjectDate} - Your Dailymattr Wrap is here!`;
 }
 
 // ---------- rendering ----------

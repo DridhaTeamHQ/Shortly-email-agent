@@ -149,7 +149,7 @@ Deno.serve(async (request) => {
 
   const subjectDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
   const subject = format === "daily-wrap-10"
-    ? `${subjectDate} - Dailymattr Wrap is here!`
+    ? `${subjectDate} - Your Dailymattr Wrap is here!`
     : format === "category-5-case-1"
       ? `${subjectDate} - ${category} from Dailymattr`
       : `${subjectDate} - Dailymattr Case Study`;

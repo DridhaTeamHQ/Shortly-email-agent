@@ -189,7 +189,7 @@ Deno.serve(async (request) => {
   const digestId = digest!.id as string;
 
   const subjectDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
-  const subject = `${subjectDate} - Dailymattr Wrap is here!`;
+  const subject = `${subjectDate} - Your Dailymattr Wrap is here!`;
 
   let sent = 0;
   let failed = 0;
