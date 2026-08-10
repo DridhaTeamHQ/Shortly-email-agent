@@ -69,10 +69,10 @@ const BANNER_URL =
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/figma-email-banner.png";
 const FOOTER_LOGO_URL =
   Deno.env.get("SHORTLY_FOOTER_LOGO_URL") ??
-  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/dailymattr-primary-logo.svg";
-const INSTAGRAM_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-instagram.svg";
-const GOOGLE_PLAY_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-google-play.svg";
-const APP_STORE_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-app-store.svg";
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/dailymattr-primary-logo.png";
+const INSTAGRAM_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-instagram.png";
+const GOOGLE_PLAY_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-google-play.png";
+const APP_STORE_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-app-store.png";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
 const AUTO_TOPIC_DIGEST_ENABLED = (Deno.env.get("SHORTLY_AUTO_TOPIC_DIGEST_ENABLED") ?? "false").toLowerCase() === "true";
 

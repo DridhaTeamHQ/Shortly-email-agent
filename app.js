@@ -2295,10 +2295,10 @@ function generatePreviewHtml() {
       ? `${window.location.origin}/`
       : new URL(".", window.location.href).href;
   const previewBannerUrl = `${new URL("assets/figma-email-banner.png", previewBaseUrl).href}?v=${Date.now()}`;
-  const previewFooterLogoUrl = `${new URL("assets/dailymattr-primary-logo.svg", previewBaseUrl).href}?v=${Date.now()}`;
-  const previewInstagramIconUrl = new URL("assets/icon-instagram.svg", previewBaseUrl).href;
-  const previewGooglePlayIconUrl = new URL("assets/icon-google-play.svg", previewBaseUrl).href;
-  const previewAppStoreIconUrl = new URL("assets/icon-app-store.svg", previewBaseUrl).href;
+  const previewFooterLogoUrl = `${new URL("assets/dailymattr-primary-logo.png", previewBaseUrl).href}?v=${Date.now()}`;
+  const previewInstagramIconUrl = new URL("assets/icon-instagram.png", previewBaseUrl).href;
+  const previewGooglePlayIconUrl = new URL("assets/icon-google-play.png", previewBaseUrl).href;
+  const previewAppStoreIconUrl = new URL("assets/icon-app-store.png", previewBaseUrl).href;
 
   const shareBase = (cfg.siteUrl || window.location.origin || "").replace(/\/+$/, "");
   const shareUrl = shareBase ? `${shareBase}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
