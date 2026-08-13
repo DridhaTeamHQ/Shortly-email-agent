@@ -49,14 +49,36 @@ Deno.serve(async (request) => {
   // beyond the cap is picked up on the next run or ages out of the 24h window.
   const MAX_PER_RUN = 40;
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data: pending, error } = await supabase
-    .from("articles")
-    .select("id,title,url,raw_content,source,rank_score,scraped_at")
-    .eq("status", "pending")
-    .gte("scraped_at", since)
-    .order("rank_score", { ascending: false })
-    .order("scraped_at", { ascending: false })
-    .limit(MAX_PER_RUN);
+
+  // RESTYLE MODE: re-summarize articles that were ALREADY summarized, so a style
+  // change can be applied to the existing pool instead of waiting for the next
+  // scrape. Rewrites the summary in place and leaves status, reviewed_at, topic
+  // and embeddings alone — an approved article stays approved and stays on the
+  // site, it just reads differently. articles_summary_backup holds the originals.
+  const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
+  const restyle = body?.restyle === true;
+  const restyleLimit = Math.min(40, Math.max(1, Number(body?.limit) || 20));
+  // Restyle defaults to the simplified voice; the scheduled pending runs pass
+  // nothing and keep the newsroom style.
+  const styleOverride = restyle ? String(body?.style ?? "simple") : undefined;
+
+  const { data: pending, error } = restyle
+    ? await supabase
+        .from("articles")
+        .select("id,title,url,raw_content,source,rank_score,scraped_at")
+        .in("status", ["approved", "sent", "summarized"])
+        .not("summary", "is", null)
+        .gte("scraped_at", new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
+        .order("reviewed_at", { ascending: false, nullsFirst: false })
+        .limit(restyleLimit)
+    : await supabase
+        .from("articles")
+        .select("id,title,url,raw_content,source,rank_score,scraped_at")
+        .eq("status", "pending")
+        .gte("scraped_at", since)
+        .order("rank_score", { ascending: false })
+        .order("scraped_at", { ascending: false })
+        .limit(MAX_PER_RUN);
 
   if (error) return json({ error: error.message }, 500);
 
@@ -78,7 +100,7 @@ Deno.serve(async (request) => {
     const settled = await Promise.all(
       batch.map(async (a) => {
         try {
-          const result = await summarize(supabase, openAiKey, model, a, embeddingById.get(a.id) ?? null);
+          const result = await summarize(supabase, openAiKey, model, a, embeddingById.get(a.id) ?? null, styleOverride);
           return { id: a.id, summary: result.summary, section: result.section, prominence: result.prominence, topic: result.topic, fact: result.fact };
         } catch (e) {
           return { id: a.id, summary: null, section: "wrapped", prominence: 2, topic: null, fact: null, error: String(e) };
@@ -119,6 +141,19 @@ Deno.serve(async (request) => {
 
   // Update in chunks
   for (const row of updates) {
+    // Restyle only rewrites the prose (and the fact score, which was graded
+    // against the OLD wording). Status, reviewed_at, topic, rank and embedding
+    // stay exactly as they were, so nothing moves in or out of the site or the
+    // send queue because of a style change.
+    if (restyle) {
+      await supabase.from("articles").update({
+        summary: row.summary,
+        fact_score: row.fact_score,
+        fact_label: row.fact_label,
+        fact_notes: row.fact_notes,
+      }).eq("id", row.id);
+      continue;
+    }
     const embedding = embeddingById.get(row.id);
     const classified = results.find((r) => r.id === row.id)?.topic ?? null;
     await supabase.from("articles").update({
@@ -148,13 +183,15 @@ Deno.serve(async (request) => {
 
   const failed = results.filter((r) => !r.summary);
   return json({
+    mode: restyle ? "restyle" : "pending",
+    style: styleOverride ?? Deno.env.get("SUMMARY_STYLE") ?? "editor",
     summarized: updates.length,
     failed: failed.length,
     failures: failed.slice(0, 5)
   });
 });
 
-async function summarize(supabase: any, apiKey: string, model: string, article: Article, embedding: number[] | null = null): Promise<{ summary: string; section: string; prominence: number; fact: FactCheckResult | null }> {
+async function summarize(supabase: any, apiKey: string, model: string, article: Article, embedding: number[] | null = null, styleOverride?: string): Promise<{ summary: string; section: string; prominence: number; fact: FactCheckResult | null }> {
   let fullText = cleanArticleText(article.raw_content || "");
 
   // Fetch the readable article body when the RSS excerpt is thin. Raised the
@@ -180,7 +217,7 @@ async function summarize(supabase: any, apiKey: string, model: string, article: 
     source: article.source,
     url: article.url,
     excerpt: summaryExcerpt
-  });
+  }, styleOverride);
   if (!result.summary) throw new Error("empty summary after cleaning");
 
   // Corroboration: other outlets in our scrape pool that ran the same story, so
