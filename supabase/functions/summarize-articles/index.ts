@@ -60,7 +60,10 @@ Deno.serve(async (request) => {
   const restyleLimit = Math.min(40, Math.max(1, Number(body?.limit) || 20));
   // Restyle defaults to the simplified voice; the scheduled pending runs pass
   // nothing and keep the newsroom style.
-  const styleOverride = restyle ? String(body?.style ?? "simple") : undefined;
+  // An explicit {"style":"simple"} works on the normal pending path too, so a
+  // fresh scrape can be summarized in the experimental voice. The scheduled cron
+  // posts no body at all, so it always keeps the newsroom style.
+  const styleOverride = body?.style ? String(body.style) : (restyle ? "simple" : undefined);
 
   const { data: pending, error } = restyle
     ? await supabase
