@@ -86,42 +86,78 @@ async function processUnsubscribe(
     requiredEnv("SUPABASE_URL"),
     serviceKey,
   );
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const { data: profiles, error: profileError } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("email", normalizedEmail);
+  if (profileError) {
+    return { ok: false, error: "Database error. Please try again later." };
+  }
+  const accountIds = (profiles ?? []).map((profile) => profile.id as string);
 
   // Check subscriber exists
   const { data: subscriber, error: fetchError } = await supabase
     .from("subscribers")
     .select("id,status")
-    .eq("email", email.trim())
+    .eq("email", normalizedEmail)
     .maybeSingle();
 
   if (fetchError) {
     return { ok: false, error: "Database error. Please try again later." };
   }
 
-  if (!subscriber) {
+  if (!subscriber && accountIds.length === 0) {
     return { ok: false, error: "Email address not found in our subscriber list." };
   }
 
-  if (action !== "delete" && subscriber.status === "unsubscribed") {
+  if (action !== "delete" && subscriber?.status === "unsubscribed" && accountIds.length === 0) {
     // Already unsubscribed — treat as success
     return { ok: true };
   }
 
   if (action === "delete") {
+    if (accountIds.length > 0) {
+      const { error: accountDeleteError } = await supabase
+        .from("newsletter_subscriptions")
+        .delete()
+        .in("user_id", accountIds);
+      if (accountDeleteError) {
+        return { ok: false, error: "Failed to delete your data. Please try again later." };
+      }
+    }
     // Remove delivery rows first so the subscriber's personal data is not
     // retained through a recipient-linked record.
-    await supabase.from("article_deliveries").delete().eq("subscriber_id", subscriber.id);
+    await supabase.from("article_deliveries").delete().eq("email", normalizedEmail);
     const { error: deleteError } = await supabase
       .from("subscribers")
       .delete()
-      .eq("id", subscriber.id);
+      .eq("email", normalizedEmail);
     if (deleteError) {
       return { ok: false, error: "Failed to delete your data. Please try again later." };
     }
     return { ok: true };
   }
 
-  // Mark as unsubscribed
+  // Account subscriptions are sent directly from this table, so deactivate
+  // them before changing the legacy subscriber mirror.
+  if (accountIds.length > 0) {
+    const { error: accountUpdateError } = await supabase
+      .from("newsletter_subscriptions")
+      .update({ status: "unsubscribed" })
+      .in("user_id", accountIds)
+      .eq("status", "active");
+    if (accountUpdateError) {
+      return { ok: false, error: "Failed to update subscription. Please try again later." };
+    }
+  }
+
+  if (!subscriber || subscriber.status === "unsubscribed") {
+    return { ok: true };
+  }
+
+  // Mark the legacy subscriber as unsubscribed.
   const { error: updateError } = await supabase
     .from("subscribers")
     .update({ status: "unsubscribed", unsubscribed_at: new Date().toISOString(), updated_at: new Date().toISOString() })

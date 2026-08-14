@@ -77,6 +77,7 @@ const WRAP_COUNT = 5;
 const WRAP_SPLIT = 5;
 const CATEGORY_SPLIT = 5;
 const CATEGORY_CASE_SHORTS = 5;
+const MAX_EMAIL_BREAKING = 3;
 
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
@@ -87,6 +88,10 @@ const FOOTER_LOGO_URL =
 const INSTAGRAM_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-instagram.png";
 const GOOGLE_PLAY_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-google-play.png";
 const APP_STORE_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-app-store.png";
+const INSTAGRAM_URL = "https://www.instagram.com/dailymattr/";
+const X_URL = "https://x.com/dailymattr_news";
+const LINKEDIN_URL = "https://www.linkedin.com/company/https-www.dailymattr.com-/";
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.dailymattr";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
 
 function istDayWindow() {
@@ -240,7 +245,7 @@ Deno.serve(async (request) => {
     flagByUrl,
     dupPairs,
   });
-  wrapPool = wrapOrder.pool as Article[];
+  wrapPool = limitBreakingStories(wrapOrder.pool as Article[]);
 
   // Explicit one-recipient tests may intentionally use an approved case from
   // the active pool even when it was approved before today's scrape window.
@@ -434,6 +439,17 @@ function normalizeEmail(email: string): string {
   return String(email ?? "").trim().toLowerCase();
 }
 
+// Editorial ordering prioritises breaking stories, but each outgoing email
+// must retain room for the rest of the day's important coverage.
+function limitBreakingStories(pool: Article[]): Article[] {
+  let breakingCount = 0;
+  return pool.filter((article) => {
+    if (!article.is_breaking) return true;
+    breakingCount += 1;
+    return breakingCount <= MAX_EMAIL_BREAKING;
+  });
+}
+
 const SLUG_TO_CATEGORY: Record<string, string> = {
   "real-estate": "Real Estate",
   "automobile": "Automobile",
@@ -477,7 +493,7 @@ function buildAccountEmails(
     return [{
       // One fixed subject line every day â€” no "Breaking:" variant.
       subject: `${subjectDate} - Your Dailymattr Wrap is here!`,
-      intro: `Here are today's ${wrap.length} biggest stories, minus the noise. You'll be caught up Dailymattr!`,
+      intro: "Here are 5 stories that deserve your attention. Grab your coffee - and we'll get you informed.",
       sections: renderWrapSections(wrap),
       selection,
       tally: "daily-headlines",
@@ -634,13 +650,13 @@ function normalizeStoreLinks(html: string): string {
 }
 
 function renderFooterBrand(): string {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff"><tr><td align="center" style="padding:24px 20px 8px;text-align:center"><img src="${FOOTER_LOGO_URL}" alt="Dailymattr" width="210" align="center" style="display:block;width:210px;max-width:100%;height:auto;margin:0 auto 12px;border:0" /><p style="margin:0 0 8px;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Curated news, summarized daily.<br>You're receiving this because you subscribed to <span style="color:#3979ff">Dailymattr</span>.</p><p style="margin:0;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Can be <u>forwarded</u> to others.</p></td></tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff"><tr><td align="center" style="padding:24px 20px 16px;text-align:center"><img src="${FOOTER_LOGO_URL}" alt="dailymattr" width="210" align="center" style="display:block;width:210px;max-width:100%;height:auto;margin:0 auto 12px;border:0" /><p style="margin:0;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Can be forwarded to others.</p></td></tr></table>`;
 }
 
 function renderFooter(subscribeUrl: string, twitterUrl: string, linkedinUrl: string, privacyFooter: string): string {
   const icon = (href: string, imageUrl: string, alt: string, label: string) => `<a href="${href}" style="display:inline-block;width:28px;height:28px;line-height:28px;margin:0 5px;border-radius:50%;background:#000;color:#fff;text-align:center;text-decoration:none;font:700 14px/28px Arial,sans-serif">${imageUrl ? `<img src="${imageUrl}" alt="${alt}" width="15" height="15" style="display:inline-block;vertical-align:middle;border:0" />` : label}</a>`;
   const storeButton = (href: string, imageUrl: string, label: string) => `<a href="${href}" style="display:inline-block;background:#3979ff;border:1px solid #1f3155;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif"><img src="${imageUrl}" alt="" width="14" height="14" style="display:inline-block;vertical-align:middle;margin-right:5px;border:0" />${label}</a>`;
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:18px"><tr><td align="center" style="padding:16px 20px 18px;background:#fff;text-align:center">${icon("https://www.instagram.com/dailymattr", INSTAGRAM_ICON_URL, "Instagram", "Instagram")}${icon(twitterUrl, "", "X", "X")}${icon(linkedinUrl, "", "LinkedIn", "in")}<br><a href="${subscribeUrl}" style="display:inline-block;margin-top:14px;background:#3979ff;color:#fff;border-radius:24px;padding:12px 20px;text-decoration:none;font:700 15px/1 Roboto,Arial,sans-serif">Subscribe&nbsp;&rarr;</a></td></tr><tr><td align="center" style="background:#3979ff;color:#fff;padding:16px 20px;text-align:center"><div style="font:700 15px/1.2 Roboto,Arial,sans-serif;margin:0 0 12px">Read from anywhere</div>${storeButton("https://play.google.com/store", GOOGLE_PLAY_ICON_URL, "Google Play")}&nbsp;${storeButton("https://www.apple.com/app-store/", APP_STORE_ICON_URL, "App Store")}</td></tr></table>${privacyFooter}`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:18px"><tr><td align="center" style="padding:16px 20px 18px;background:#fff;text-align:center">${icon(INSTAGRAM_URL, INSTAGRAM_ICON_URL, "Instagram", "Instagram")}${icon(twitterUrl, "", "X", "X")}${icon(linkedinUrl, "", "LinkedIn", "in")}</td></tr><tr><td align="center" style="background:#3979ff;color:#fff;padding:16px 20px;text-align:center"><div style="font:700 15px/1.2 Roboto,Arial,sans-serif;margin:0 0 12px">Read from anywhere</div>${storeButton(PLAY_STORE_URL, GOOGLE_PLAY_ICON_URL, "Google Play")}&nbsp;${storeButton("https://www.apple.com/app-store/", APP_STORE_ICON_URL, "App Store")}</td></tr></table>${privacyFooter}`;
 }
 
 function renderLegacyDesktopFooter(subscribeUrl: string, twitterUrl: string, linkedinUrl: string, privacyFooter: string): string {
@@ -751,10 +767,8 @@ async function renderShell(fullName: string | null, email: string, intro: string
   const greeting = fullName ? `Hi ${escapeHtml(fullName)},` : "Hi there,";
   const shareUrl = SITE_URL ? `${SITE_URL}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
   const shareMessage = "Click here to subscribe to Dailymattr:";
-  const twitterUrl = shareUrl
-    ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`
-    : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}`;
-  const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl || BANNER_URL)}`;
+  const twitterUrl = X_URL;
+  const linkedinUrl = LINKEDIN_URL;
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`.trim())}`;
   const privacyFooter = await renderPrivacyFooter(email);
 
@@ -798,6 +812,6 @@ function introFor(plan: string, selection: Selection): string {
     case "case-only":
       return `Today's ${escapeHtml(cat)} case study - one story worth understanding properly.`;
     default:
-      return `Here are ${selection.wrap.length} things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up Dailymattr!`;
+      return "Here are 5 stories that deserve your attention. Grab your coffee - and we'll get you informed.";
   }
 }
