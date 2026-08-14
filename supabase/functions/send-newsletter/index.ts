@@ -650,7 +650,7 @@ function normalizeStoreLinks(html: string): string {
 }
 
 function renderFooterBrand(): string {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff"><tr><td align="center" style="padding:24px 20px 16px;text-align:center"><img src="${FOOTER_LOGO_URL}" alt="dailymattr" width="210" align="center" style="display:block;width:210px;max-width:100%;height:auto;margin:0 auto 12px;border:0" /><p style="margin:0;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Can be forwarded to others.</p></td></tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff"><tr><td align="center" style="padding:24px 20px 16px;text-align:center"><img src="${FOOTER_LOGO_URL}" alt="dailymattr" width="210" align="center" style="display:block;width:210px;max-width:100%;height:auto;margin:0 auto 12px;border:0" /><p style="margin:0 0 14px;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Can be forwarded to others.</p><a href="https://longmattr.com/general" style="display:inline-block;background:#3979ff;color:#ffffff;border-radius:22px;padding:10px 18px;text-decoration:none;font:700 14px/1 Roboto,Arial,sans-serif">More news</a></td></tr></table>`;
 }
 
 function renderFooter(subscribeUrl: string, twitterUrl: string, linkedinUrl: string, privacyFooter: string): string {
