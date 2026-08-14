@@ -2289,7 +2289,14 @@ function generatePreviewHtml() {
   const approved = state.articles.filter(isApprovedToday);
   if (state.section !== "email-builder" && approved.length === 0) return "<p>No articles approved yet.</p>";
 
-  const wrapped = state.section === "email-builder" ? plan.dailyArticles : approved.slice(0, DAILY_CAP);
+  const unfilteredWrapped = state.section === "email-builder" ? plan.dailyArticles : approved.slice(0, DAILY_CAP);
+  let previewBreakingCount = 0;
+  const wrapped = unfilteredWrapped.filter((article) => {
+    const isBreaking = Boolean(article?.is_breaking) || (state.breaking || []).some((hit) => hit.id === article?.id);
+    if (!isBreaking) return true;
+    previewBreakingCount += 1;
+    return previewBreakingCount <= 3;
+  });
   const previewBaseUrl =
     window.location.origin && window.location.origin !== "null"
       ? `${window.location.origin}/`
@@ -2303,10 +2310,10 @@ function generatePreviewHtml() {
   const shareBase = (cfg.siteUrl || window.location.origin || "").replace(/\/+$/, "");
   const shareUrl = shareBase ? `${shareBase}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
   const shareMessage = "Click here to subscribe to Dailymattr:";
-  const twitterUrl = shareUrl
-    ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`
-    : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}`;
-  const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl || window.location.href)}`;
+  const twitterUrl = "https://x.com/dailymattr_news";
+  const linkedinUrl = "https://www.linkedin.com/company/https-www.dailymattr.com-/";
+  const instagramUrl = "https://www.instagram.com/dailymattr/";
+  const playStoreUrl = "https://play.google.com/store/apps/details?id=com.dailymattr";
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`.trim())}`;
   const xIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.901 2H21.98l-6.73 7.693L23.167 22h-6.197l-4.85-7.356L5.68 22H2.6l7.2-8.23L1.5 2h6.355l4.384 6.689L18.901 2Zm-1.087 18.145h1.706L6.93 3.759H5.1l12.714 16.386Z" fill="#111111"/></svg>`;
   const linkedinIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.94 8.5H3.56V20h3.38V8.5Zm.22-3.56C7.15 3.77 6.3 3 5.26 3S3.38 3.77 3.38 4.94s.83 1.94 1.85 1.94h.03c1.06 0 1.9-.77 1.9-1.94ZM20.62 12.65c0-3.46-1.85-5.07-4.32-5.07-1.99 0-2.88 1.1-3.37 1.87V8.5H9.55c.04.63 0 11.5 0 11.5h3.38v-6.42c0-.34.02-.68.12-.92.27-.68.88-1.39 1.9-1.39 1.34 0 1.88 1.02 1.88 2.52V20H20.2v-6.35Z" fill="#111111"/></svg>`;
@@ -2371,11 +2378,11 @@ function generatePreviewHtml() {
 
   const introText = state.section === "email-builder"
     ? {
-        "daily-wrap-10": "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up Dailymattr!",
+        "daily-wrap-10": "Here are 5 stories that deserve your attention. Grab your coffee - and we'll get you informed.",
         "category-5-case-1": `Here are 5 stories from ${esc(plan.category || "today's focus")}. The biggest updates from this bucket, minus the noise.`,
         "case-study-only": "Here is today's Dailymattr case study, designed as one focused long-form read."
       }[state.digestFormat]
-    : "Here are 5 things that deserve your attention. The biggest stories, minus the noise. Grab your coffee &mdash; you'll be caught up Dailymattr!";
+    : "Here are 5 stories that deserve your attention. Grab your coffee - and we'll get you informed.";
 
   const allText = [...wrapped, ...plan.caseStudies]
     .map((a) => {
@@ -2394,7 +2401,7 @@ function generatePreviewHtml() {
   function renderFooter() {
     const socialIcon = (href, imageUrl, alt, label) => `<a href="${href}" style="display:inline-block;width:28px;height:28px;line-height:28px;margin-right:10px;border-radius:50%;background:#000;color:#fff;text-align:center;text-decoration:none;font:700 14px/28px Arial,sans-serif">${imageUrl ? `<img src="${imageUrl}" alt="${alt}" width="15" height="15" style="display:inline-block;vertical-align:middle;border:0" />` : label}</a>`;
     const storeButton = (href, imageUrl, label) => `<a href="${href}" style="display:inline-block;background:#3979ff;border:1px solid #1f3155;border-radius:20px;color:#fff;padding:9px 14px;text-decoration:none;font:600 11px/1 Roboto,Arial,sans-serif"><img src="${imageUrl}" alt="" width="14" height="14" style="display:inline-block;vertical-align:middle;margin-right:5px;border:0" />${label}</a>`;
-    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:28px"><tr><td style="padding:22px 28px 18px;background:#fff"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td align="center" style="padding-bottom:16px;text-align:center"><img src="${previewFooterLogoUrl}" alt="Dailymattr" width="210" align="center" style="display:block;width:210px;max-width:100%;height:auto;margin:0 auto 12px;border:0" /><p style="margin:0 0 8px;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Curated news, summarized daily.<br>You're receiving this because you subscribed to <span style="color:#3979ff">Dailymattr</span>.</p><p style="margin:0;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Can be <u>forwarded</u> to others.</p></td></tr><tr><td style="padding-top:16px;text-align:center">${socialIcon("https://www.instagram.com/dailymattr", previewInstagramIconUrl, "Instagram", "Instagram")}${socialIcon(twitterUrl, "", "X", "X")}${socialIcon(linkedinUrl, "", "LinkedIn", "in")}<a href="https://longmattr.com/" style="display:inline-block;background:#3979ff;color:#fff;border-radius:24px;padding:12px 20px;text-decoration:none;font:700 15px/1 Roboto,Arial,sans-serif">Subscribe&nbsp;&rarr;</a></td></tr></table></td></tr><tr><td align="center" style="background:#3979ff;color:#fff;padding:16px 28px;text-align:center"><div style="font:700 15px/1.2 Roboto,Arial,sans-serif;margin:0 0 12px">Read from anywhere</div>${storeButton("https://play.google.com/store", previewGooglePlayIconUrl, "Google Play")}&nbsp;${storeButton("https://www.apple.com/app-store/", previewAppStoreIconUrl, "App Store")}</td></tr></table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin-top:28px"><tr><td style="padding:22px 28px 18px;background:#fff"><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td align="center" style="padding-bottom:16px;text-align:center"><img src="${previewFooterLogoUrl}" alt="dailymattr" width="210" align="center" style="display:block;width:210px;max-width:100%;height:auto;margin:0 auto 12px;border:0" /><p style="margin:0;color:#70707c;font:16px/1.5 Roboto,Arial,sans-serif">Can be forwarded to others.</p></td></tr><tr><td style="padding-top:16px;text-align:center">${socialIcon(instagramUrl, previewInstagramIconUrl, "Instagram", "Instagram")}${socialIcon(twitterUrl, "", "X", "X")}${socialIcon(linkedinUrl, "", "LinkedIn", "in")}</td></tr></table></td></tr><tr><td align="center" style="background:#3979ff;color:#fff;padding:16px 28px;text-align:center"><div style="font:700 15px/1.2 Roboto,Arial,sans-serif;margin:0 0 12px">Read from anywhere</div>${storeButton(playStoreUrl, previewGooglePlayIconUrl, "Google Play")}&nbsp;${storeButton("https://www.apple.com/app-store/", previewAppStoreIconUrl, "App Store")}</td></tr></table>`;
   }
 
   function renderHero() {
@@ -2433,7 +2440,7 @@ function generatePreviewHtml() {
             </div>
           </td></tr>
         </table>
-      ${renderFooter().replace('href="#"', 'href="https://play.google.com/store"').replace('href="#"', 'href="https://www.apple.com/app-store/"')}
+      ${renderFooter()}
     </div>
   </body></html>`;
 }
