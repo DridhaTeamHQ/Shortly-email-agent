@@ -347,7 +347,10 @@ Deno.serve(async (request) => {
       }));
     }
 
-    const { data: remaining } = await supabase
+    // head:true returns NO rows, so the total lives in `count`, not in `data`.
+    // Reading data.length here always yielded null, which would tell a watchdog
+    // "nothing left to send" forever while the queue was still full.
+    const { count: remaining } = await supabase
       .from("email_outbox")
       .select("id", { count: "exact", head: true })
       .eq("status", "queued");
@@ -356,7 +359,8 @@ Deno.serve(async (request) => {
       claimed: rows.length,
       sent: dSent,
       failed: dFailed,
-      queuedRemaining: (remaining as unknown as { length?: number })?.length ?? null,
+      queuedRemaining: remaining ?? 0,
+      done: (remaining ?? 0) === 0,
     });
   }
 
@@ -366,12 +370,41 @@ Deno.serve(async (request) => {
   // and each can yield two different products, so they are not the scaling
   // problem and not worth encoding into the queue yet.
   if (planOnly) {
-    const { data: digestRow, error: dErr } = await supabase
+    // ONE digest per IST day, reused on re-plan.
+    //
+    // The outbox unique index spans (digest_id, email), so it can only suppress
+    // a duplicate WITHIN a digest. Minting a fresh digest on every call made the
+    // index useless: a second plan run enqueued all 23 people again and would
+    // have double-sent. On a cron that is a daily double-send, which is exactly
+    // the failure the queue was built to prevent.
+    //
+    // digests.scheduled_key is unique, so claiming 'outbox:<IST date>' makes the
+    // day's digest idempotent. A distinct prefix from the scheduled send's
+    // 'newsletter:<IST date>' keeps the two from stealing each other's row.
+    const istDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+    const outboxKey = `outbox:${istDate}`;
+    let digestRow: { id: string } | null = null;
+
+    const { data: created, error: dErr } = await supabase
       .from("digests")
-      .insert({ article_ids: [], recipients: 0 })
+      .insert({ article_ids: [], recipients: 0, scheduled_key: outboxKey })
       .select("id")
       .single();
-    if (dErr) return json({ error: dErr.message }, 500);
+    if (dErr && dErr.code !== "23505") return json({ error: dErr.message }, 500);
+    if (created) {
+      digestRow = created as { id: string };
+    } else {
+      // Someone already planned today; reuse that digest so the unique index
+      // sees the existing rows and this run becomes a genuine no-op.
+      const { data: existing, error: exErr } = await supabase
+        .from("digests")
+        .select("id")
+        .eq("scheduled_key", outboxKey)
+        .maybeSingle();
+      if (exErr) return json({ error: exErr.message }, 500);
+      if (!existing) return json({ error: "could not resolve today's outbox digest" }, 500);
+      digestRow = existing as { id: string };
+    }
 
     const { data: accountRows } = await supabase
       .from("newsletter_subscriptions").select("user_id").eq("status", "active");
@@ -404,19 +437,28 @@ Deno.serve(async (request) => {
         .map((s) => ({
           digest_id: digestRow!.id,
           subscriber_id: s.id,
-          email: s.email,
+          // Normalized on the way in: the unique index ON CONFLICT infers below
+          // is on the raw column, so the stored value has to already be
+          // lower-cased for a re-planned run to recognise the same person.
+          email: normalizeEmail(s.email),
           full_name: s.full_name,
           plan: (s.plan ?? "daily-wrap").trim(),
           category: s.category,
           payload: {},
         }));
       if (rows.length > 0) {
-        // The unique index on (digest_id, lower(email)) makes a retried plan
-        // run a no-op instead of a double-enqueue.
-        const { data: ins } = await supabase
+        // The unique index on (digest_id, email) makes a retried plan run a
+        // no-op instead of a double-enqueue. It must be a plain-column index:
+        // PostgREST's onConflict takes column names only, so it cannot infer an
+        // expression index like (digest_id, lower(email)).
+        const { data: ins, error: insErr } = await supabase
           .from("email_outbox")
           .upsert(rows, { onConflict: "digest_id,email", ignoreDuplicates: true })
           .select("id");
+        // Never swallow this. Discarding it meant a rejected insert still
+        // returned 200 with enqueued:0 -- at 50k/day a cron planner would
+        // report success every morning while queueing nobody.
+        if (insErr) return json({ error: insErr.message }, 500);
         enqueued += ins?.length ?? 0;
       }
       if (page.length < PAGE) break;
