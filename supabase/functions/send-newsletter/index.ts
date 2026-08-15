@@ -19,6 +19,7 @@ import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
 import { buildWrapOrder } from "../_shared/editorial-picks.ts";
+import { renderIntroEmail, INTRO_SUBJECT } from "../_shared/intro-email.ts";
 
 type Article = {
   id: string;
@@ -141,6 +142,13 @@ Deno.serve(async (request) => {
   let planOnly = false;
   let drain = false;
   let drainLimit = 500;
+  // One-off announcement to people who were ADDED to the list rather than
+  // signing up. {"intro_to":"a@b.com"} sends a single preview; {"intro":true}
+  // sends to every subscribed address. Runs BEFORE the content pools are
+  // loaded, because it carries no articles and must not depend on the day
+  // having any approved content.
+  let intro = false;
+  let introTo: string | null = null;
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     subscriberIds = Array.isArray(body?.subscriber_ids)
@@ -154,12 +162,69 @@ Deno.serve(async (request) => {
     planOnly = body?.plan === true;
     drain = body?.drain === true;
     drainLimit = Math.min(1000, Math.max(1, Number(body?.limit) || 500));
+    intro = body?.intro === true;
+    introTo = typeof body?.intro_to === "string" && body.intro_to.includes("@") ? body.intro_to : null;
   }
 
   // A test address is a single-recipient override. Never route it through the
   // normal subscriber loops, which would send one copy per subscriber.
   if (testEmail && recipients.length === 0) {
     recipients = [{ email: testEmail, plan: "daily-wrap" }];
+  }
+
+  // ---- INTRO: one-off announcement, no articles involved -------------------
+  if (intro || introTo) {
+    // Preview to one address first. This is a one-shot broadcast that every
+    // colleague sees once, so there is no second chance to fix a typo.
+    const targets: Array<{ id: string | null; email: string; full_name: string | null }> = [];
+    if (introTo) {
+      targets.push({ id: null, email: introTo, full_name: null });
+    } else {
+      // Page it: a bare select is capped by PostgREST max-rows, which would
+      // silently mail only the first page and report success.
+      const PAGE = 1000;
+      for (let from = 0; ; from += PAGE) {
+        const { data: subs, error: sErr } = await supabase
+          .from("subscribers")
+          .select("id,email,full_name")
+          .eq("status", "subscribed")
+          .order("id")
+          .range(from, from + PAGE - 1);
+        if (sErr) return json({ error: sErr.message }, 500);
+        const page = (subs ?? []) as Array<{ id: string; email: string; full_name: string | null }>;
+        if (page.length === 0) break;
+        for (const s of page) targets.push({ id: s.id, email: s.email, full_name: s.full_name });
+        if (page.length < PAGE) break;
+      }
+    }
+    if (targets.length === 0) return json({ mode: "intro", sent: 0, failed: 0, reason: "no subscribers" });
+
+    let iSent = 0;
+    let iFailed = 0;
+    const failures: Array<Record<string, unknown>> = [];
+    // Same grouping the drain path uses: bursting is what got 67/100 delivered
+    // in the load test.
+    const GROUP = 10;
+    for (let i = 0; i < targets.length; i += GROUP) {
+      const group = targets.slice(i, i + GROUP);
+      await Promise.all(group.map(async (t) => {
+        try {
+          const html = await renderIntroEmail(t.email, t.full_name);
+          const result = await sendEmail({ to: t.email, subject: INTRO_SUBJECT, html, provider });
+          if (result.ok) iSent++; else { iFailed++; failures.push({ email: t.email, error: result.error }); }
+        } catch (e) {
+          iFailed++;
+          failures.push({ email: t.email, error: String(e).slice(0, 200) });
+        }
+      }));
+    }
+    return json({
+      mode: introTo ? "intro-preview" : "intro",
+      recipients: targets.length,
+      sent: iSent,
+      failed: iFailed,
+      failures: failures.slice(0, 5),
+    });
   }
 
   const { start: istStart, end: istEnd } = istDayWindow();
