@@ -381,7 +381,16 @@ Deno.serve(async (request) => {
   const subscribers = ((subs ?? []) as Subscriber[])
     .filter((s) => subscriberIds.length > 0 || !accountEmails.has(normalizeEmail(s.email)));
 
-  const batchSize = 5;
+  // Concurrency per batch. Measured 2026-08-15: a batch takes ~855ms
+  // regardless of size, so throughput = batchSize / 0.855s. At 5 that is
+  // ~5.8 emails/sec, which puts a 150s edge-function budget at ~850
+  // recipients. 10 gives ~11.7/sec (ceiling ~1700) and stays clear of the
+  // default SES rate limit of 14/sec. Override with SEND_BATCH_SIZE if the
+  // account's SES quota is raised.
+  const batchSize = (() => {
+    const v = Number(Deno.env.get("SEND_BATCH_SIZE"));
+    return Number.isFinite(v) && v > 0 ? Math.min(Math.floor(v), 25) : 10;
+  })();
   for (let i = 0; i < subscribers.length; i += batchSize) {
     const batch = subscribers.slice(i, i + batchSize);
     const results = await Promise.all(batch.map(async (sub) => {
