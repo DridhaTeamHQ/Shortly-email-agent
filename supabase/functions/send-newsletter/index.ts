@@ -122,6 +122,25 @@ Deno.serve(async (request) => {
   let testEmail: string | null = null;
   let provider: "ses" | "brevo" | undefined;
   let recipients: Array<Record<string, unknown>> = [];
+  // ---- HIGH-VOLUME MODES ----
+  // The default path sends inside the request. Measured at ~11.7 emails/sec,
+  // that tops out near 1,700 recipients before the edge budget expires -- and it
+  // dies with no resume point, so a retry re-sends whoever already got one.
+  //
+  // At 50k these two modes replace it:
+  //   {"plan":true}            -> write one email_outbox row per recipient and
+  //                               return. One bulk insert, finishes in seconds.
+  //   {"drain":true,"limit":N} -> claim N rows via claim_email_batch(), render
+  //                               and send them, record the outcome per row.
+  // Progress then lives in rows, so a crash resumes exactly where it stopped and
+  // FOR UPDATE SKIP LOCKED stops two workers taking the same recipient.
+  //
+  // Both live in THIS function on purpose: the templates are here, and a worker
+  // in a separate function would either duplicate them or need the renderer
+  // extracted, which is a much riskier change to the live send path.
+  let planOnly = false;
+  let drain = false;
+  let drainLimit = 500;
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     subscriberIds = Array.isArray(body?.subscriber_ids)
@@ -132,6 +151,9 @@ Deno.serve(async (request) => {
     testEmail = typeof body?.test_email === "string" && body.test_email.includes("@") ? body.test_email : null;
     provider = body?.provider === "brevo" ? "brevo" : body?.provider === "ses" ? "ses" : undefined;
     recipients = Array.isArray(body?.recipients) ? body.recipients : [];
+    planOnly = body?.plan === true;
+    drain = body?.drain === true;
+    drainLimit = Math.min(1000, Math.max(1, Number(body?.limit) || 500));
   }
 
   // A test address is a single-recipient override. Never route it through the
@@ -250,6 +272,158 @@ Deno.serve(async (request) => {
   // Explicit one-recipient tests may intentionally use an approved case from
   // the active pool even when it was approved before today's scrape window.
   const caseStudies = await loadCaseStudies(supabase, istStart, istEnd, recipients.length > 0);
+
+  // ---- DRAIN: send a slice of the outbox ----------------------------------
+  // Claims via claim_email_batch(), which uses FOR UPDATE SKIP LOCKED, so this
+  // is safe to run many times concurrently. Each row is marked individually,
+  // so a timeout mid-batch loses nothing: unfinished rows stay 'sending' and
+  // are re-claimed after the stale window.
+  if (drain) {
+    const { data: claimed, error: claimErr } = await supabase
+      .rpc("claim_email_batch", { p_limit: drainLimit, p_stale_minutes: 10 });
+    if (claimErr) return json({ error: claimErr.message }, 500);
+    const rows = (claimed ?? []) as Array<Record<string, any>>;
+    if (rows.length === 0) return json({ mode: "drain", claimed: 0, sent: 0, failed: 0, done: true });
+
+    let dSent = 0;
+    let dFailed = 0;
+    const sd = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+    // Small parallel groups: fast enough to clear the slice, slow enough to stay
+    // under the provider's per-second rate. Bursting is what got 67/100
+    // delivered in the 2026-08-15 load test.
+    const GROUP = 10;
+    for (let i = 0; i < rows.length; i += GROUP) {
+      const group = rows.slice(i, i + GROUP);
+      await Promise.all(group.map(async (row) => {
+        try {
+          const plan = String(row.plan ?? "daily-wrap");
+          const cat = row.category as string | null;
+          const selection = selectFor(plan, cat, cat, wrapPool, categoryPool, caseStudies);
+          if (selection.wrap.length === 0 && selection.shorts.length === 0 && !selection.caseStudy) {
+            await supabase.from("email_outbox")
+              .update({ status: "skipped", error: "no matching approved content" })
+              .eq("id", row.id);
+            return;
+          }
+          const html = await renderEmail(
+            { id: row.subscriber_id ?? "", email: row.email, full_name: row.full_name ?? null, plan, category: cat },
+            plan,
+            selection,
+          );
+          const result = await sendEmail({
+            to: row.email,
+            subject: buildSubject(plan, cat, sd),
+            html,
+            provider,
+          });
+          await supabase.from("email_outbox").update({
+            status: result.ok ? "sent" : "failed",
+            provider: result.ok ? (provider ?? "ses") : null,
+            provider_message_id: result.messageId ?? null,
+            error: result.error ?? null,
+            sent_at: result.ok ? new Date().toISOString() : null,
+          }).eq("id", row.id);
+
+          // Same delivery log the normal path writes, so email-events can join
+          // provider_message_id back to a row and stamp delivered/bounced.
+          if (row.digest_id) {
+            await supabase.from("article_deliveries").insert({
+              digest_id: row.digest_id,
+              subscriber_id: row.subscriber_id ?? null,
+              email: row.email,
+              status: result.ok ? "sent" : "failed",
+              provider_message_id: result.messageId ?? null,
+              error: result.error ?? null,
+            });
+          }
+          if (result.ok) dSent++; else dFailed++;
+        } catch (e) {
+          dFailed++;
+          await supabase.from("email_outbox")
+            .update({ status: "failed", error: String(e).slice(0, 300) })
+            .eq("id", row.id);
+        }
+      }));
+    }
+
+    const { data: remaining } = await supabase
+      .from("email_outbox")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "queued");
+    return json({
+      mode: "drain",
+      claimed: rows.length,
+      sent: dSent,
+      failed: dFailed,
+      queuedRemaining: (remaining as unknown as { length?: number })?.length ?? null,
+    });
+  }
+
+  // ---- PLAN: enqueue one row per recipient, send nothing ------------------
+  // Enqueues the legacy `subscribers` table, which is where volume lives.
+  // Account subscribers keep the in-request path below: there are only a handful
+  // and each can yield two different products, so they are not the scaling
+  // problem and not worth encoding into the queue yet.
+  if (planOnly) {
+    const { data: digestRow, error: dErr } = await supabase
+      .from("digests")
+      .insert({ article_ids: [], recipients: 0 })
+      .select("id")
+      .single();
+    if (dErr) return json({ error: dErr.message }, 500);
+
+    const { data: accountRows } = await supabase
+      .from("newsletter_subscriptions").select("user_id").eq("status", "active");
+    const uids = [...new Set((accountRows ?? []).map((r: any) => r.user_id))];
+    const accountEmailSet = new Set<string>();
+    if (uids.length > 0) {
+      const { data: profs } = await supabase.from("profiles").select("email").in("id", uids);
+      for (const p of (profs ?? []) as Array<{ email: string }>) {
+        if (p.email) accountEmailSet.add(normalizeEmail(p.email));
+      }
+    }
+
+    // Page through subscribers: a bare select is capped by PostgREST's max-rows,
+    // which would silently enqueue only the first page and look like a success.
+    const PAGE = 1000;
+    let enqueued = 0;
+    for (let from = 0; ; from += PAGE) {
+      const { data: subs, error: sErr } = await supabase
+        .from("subscribers")
+        .select("id,email,full_name,plan,category")
+        .eq("status", "subscribed")
+        .order("id")
+        .range(from, from + PAGE - 1);
+      if (sErr) return json({ error: sErr.message }, 500);
+      const page = (subs ?? []) as Subscriber[];
+      if (page.length === 0) break;
+
+      const rows = page
+        .filter((s) => !accountEmailSet.has(normalizeEmail(s.email)))
+        .map((s) => ({
+          digest_id: digestRow!.id,
+          subscriber_id: s.id,
+          email: s.email,
+          full_name: s.full_name,
+          plan: (s.plan ?? "daily-wrap").trim(),
+          category: s.category,
+          payload: {},
+        }));
+      if (rows.length > 0) {
+        // The unique index on (digest_id, lower(email)) makes a retried plan
+        // run a no-op instead of a double-enqueue.
+        const { data: ins } = await supabase
+          .from("email_outbox")
+          .upsert(rows, { onConflict: "digest_id,email", ignoreDuplicates: true })
+          .select("id");
+        enqueued += ins?.length ?? 0;
+      }
+      if (page.length < PAGE) break;
+    }
+
+    return json({ mode: "plan", digestId: digestRow!.id, enqueued });
+  }
 
   // ---- Test/recipients override: explicit recipients with independent shorts/case
   // categories. Sends real emails, logs nothing, and never marks content as sent. ----
