@@ -35,7 +35,7 @@ function escapeHtml(value = "") {
     .replaceAll("'", "&#039;");
 }
 
-export const INTRO_SUBJECT = "You're in the dailymattr club and here's what that means.";
+export const INTRO_SUBJECT = "Wohooo! dailymattr is here and you're a part of the club";
 
 export async function renderIntroEmail(email: string, name: string | null): Promise<string> {
   const greeting = name ? `Hey ${escapeHtml(String(name).split(" ")[0])},` : "Hey there,";
