@@ -1831,12 +1831,12 @@ async function loadTrending() {
   }
 }
 
-async function reload() {
+async function reload({ silent = false } = {}) {
   try {
     await Promise.all([loadArticles(), loadSubscribers(), loadDigests(), loadTopicDrafts(), loadTrending()]);
     renderAll();
   } catch (e) {
-    toast(`Load failed: ${e.message}`);
+    if (!silent) toast(`Load failed: ${e.message}`);
   }
 }
 
@@ -2083,8 +2083,9 @@ async function handleSubscriberAction(row, action) {
     } else {
       const status = action === "subscribe" ? "subscribed" : "unsubscribed";
       await api("POST", cfg.subscribers, { action: "update", id, status });
+      toast(status === "subscribed" ? "Subscriber re-subscribed." : "Subscriber unsubscribed.");
     }
-    await reload();
+    await reload({ silent: true });
   } catch (e) {
     toast(`Failed: ${e.message}`);
   }
