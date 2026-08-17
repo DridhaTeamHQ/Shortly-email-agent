@@ -37,7 +37,12 @@ export type PickArticle = {
   rank_score?: number | null;
   fact_score?: number | null;
   fact_notes?: { source_count?: number; sources?: Array<{ source: string; url: string }> } | null;
+  // When the STORY happened, per the source feed. Null on rows scraped before
+  // the column existed and on feeds that publish no date, hence the fallback
+  // chain in publishedAt().
+  published_at?: string | null;
   scraped_at?: string | null;
+  // Deliberately absent from the age calculation -- see publishedAt().
   reviewed_at?: string | null;
   // Set by send-newsletter from the breaking_news view (prominence >= 4 and
   // 2+ outlets, fact-gated). Treated here as one breaking FLAG among others.
@@ -65,9 +70,28 @@ const CLASSIFY_LIMIT = () => num("WRAP_CLASSIFY_LIMIT", 24);
 
 // ---- deterministic signals -------------------------------------------------
 
+// How old the NEWS is -- not how recently we touched the row.
+//
+// This used to read `reviewed_at || scraped_at`, which measured age from the
+// moment WE approved the article. The effect was backwards: an article that sat
+// in the backlog for three days and was approved minutes before the send scored
+// as ZERO hours old and took maximum freshness in strength(). The staler a
+// story got, the fresher it looked. That is how the 2026-08-17 wrap shipped
+// five stories averaging 52.9h old -- including an Independence Day explainer
+// delivered on 17 August -- against a 3-10h norm on every other day.
+//
+// Order is now oldest-truth-first: the publisher's own date if we have it, then
+// when we first saw the story. reviewed_at is never consulted.
 export function publishedAt(a: PickArticle): number {
-  const t = new Date(a.reviewed_at || a.scraped_at || 0).getTime();
-  return Number.isFinite(t) && t > 0 ? t : Date.now();
+  for (const candidate of [a.published_at, a.scraped_at]) {
+    if (!candidate) continue;
+    const t = new Date(candidate).getTime();
+    if (Number.isFinite(t) && t > 0) return t;
+  }
+  // Unreachable in practice -- scraped_at defaults to now() on insert. Treating
+  // an undated row as brand new is the same mistake as above, so assume it is
+  // old enough to lose a tie rather than win one.
+  return 0;
 }
 
 export function ageHours(a: PickArticle, now = Date.now()): number {

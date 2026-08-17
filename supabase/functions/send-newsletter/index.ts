@@ -38,6 +38,7 @@ type Article = {
   fact_label: string | null;
   fact_notes: { source_count?: number; sources?: Array<{ source: string; url: string }> } | null;
   scraped_at: string;
+  published_at: string | null;
   reviewed_at: string | null;
   // Scrape-time breaking marker (Latest/Live/Breaking section, headline or URL).
   breaking_flag?: boolean | null;
@@ -258,7 +259,7 @@ Deno.serve(async (request) => {
   // ---- 1. Load approved (unsent) content pools ----
   const { data: approvedArticles, error: articlesError } = await supabase
     .from("articles")
-    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,prominence,fact_score,fact_label,fact_notes,scraped_at,reviewed_at,breaking_flag")
+    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,prominence,fact_score,fact_label,fact_notes,published_at,scraped_at,reviewed_at,breaking_flag")
     .eq("status", "approved")
     .gte("reviewed_at", istStart)
     .lt("reviewed_at", istEnd)

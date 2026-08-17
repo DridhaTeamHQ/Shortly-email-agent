@@ -100,6 +100,24 @@ function extractSectionLinks(html: string, baseUrl: string): Array<{ url: string
   return [...byUrl.entries()].map(([url, title]) => ({ url, title }));
 }
 
+// When the story was actually published, per the feed. Feeds hand back every
+// date format imaginable and some hand back junk, so this is deliberately
+// strict: anything unparseable, in the future, or absurdly old is discarded
+// rather than stored. A NULL here is honest -- consumers fall back to
+// scraped_at -- whereas a wrong date silently corrupts every freshness ranking
+// that reads it.
+function parseFeedDate(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const t = new Date(String(raw).trim()).getTime();
+  if (!Number.isFinite(t) || t <= 0) return null;
+  const now = Date.now();
+  // Clock skew between publishers is normal; a day into the future is not.
+  if (t > now + 24 * 60 * 60 * 1000) return null;
+  // Older than a year means a parse that landed on the wrong century.
+  if (t < now - 365 * 24 * 60 * 60 * 1000) return null;
+  return new Date(t).toISOString();
+}
+
 // BREAKING SIGNAL: does this item carry a breaking marker at scrape time?
 // Three equivalent markers, per the newsroom rule that a source "flagging it
 // breaking" includes a Latest/Live section, a LIVE/BREAKING headline prefix, or
@@ -171,6 +189,7 @@ Deno.serve(async (request) => {
               source: src.name,
               topic: src.topic ?? null,
               image_url: null,
+              published_at: null,
               rank_score: Number(src.weight) * qualityScore(link.title, link.url),
               status: "pending",
               breaking_flag: sectionSignal.flagged,
@@ -195,6 +214,7 @@ Deno.serve(async (request) => {
               source: src.name,
               topic: src.topic ?? null,
               image_url: item.image ?? null,
+              published_at: parseFeedDate(item.publishedAt),
               rank_score: Number(src.weight) * qualityScore(item.title, item.url),
               status: "pending",
               breaking_flag: feedSignal.flagged,
@@ -291,6 +311,9 @@ Deno.serve(async (request) => {
         if (meta.title && meta.title.length >= 20) row.title = meta.title.slice(0, 500);
         if (meta.description) row.raw_content = cleanArticleText(meta.description).slice(0, 4000);
         if (meta.image) row.image_url = meta.image;
+        // JSON-LD datePublished is the most reliable date on a news page --
+        // it is what Google News reads.
+        if (meta.publishedAt) row.published_at = parseFeedDate(meta.publishedAt);
         sectionEnriched++;
       } catch {
         // keep the anchor-text version; the summarizer's full-article fallback
