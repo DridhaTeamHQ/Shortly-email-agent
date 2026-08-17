@@ -15,9 +15,13 @@
 
 import { renderPrivacyFooter } from "./privacy.ts";
 
+// Versioned filename rather than overwriting intro-banner.png: raw.github
+// caches aggressively, so replacing a file in place can keep serving the old
+// image to some recipients for a while. A new path is served correctly the
+// moment it exists.
 const BANNER_URL =
   Deno.env.get("SHORTLY_INTRO_BANNER_URL") ??
-  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/intro-banner.png";
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/intro-banner-v2.jpg";
 const LOGO_URL =
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/dailymattr-primary-logo.png";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "https://longmattr.com").replace(/\/+$/, "");
