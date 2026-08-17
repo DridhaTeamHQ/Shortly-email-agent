@@ -60,7 +60,7 @@ export async function renderIntroEmail(email: string, name: string | null): Prom
         <p style="margin:0 0 14px;color:#191919;font-size:20px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,serif">${greeting}</p>
 
         <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:#333">
-          Welcome to the <strong>dailymattr</strong> club - a group of smart, busy people who either don't have the time to stay updated, or whose algorithms simply aren't showing them what matters. Either way, you're covered now.
+          Welcome to the <strong>dailymattr</strong> club — a group of smart, busy people who either don't have the time to stay updated, or whose algorithms simply aren't showing them what matters. Either way, you're covered now.
         </p>
 
         <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#333">
@@ -72,7 +72,7 @@ export async function renderIntroEmail(email: string, name: string | null): Prom
             <p style="margin:0 0 10px;font:700 13px/1.2 Roboto,Arial,sans-serif;color:#3979ff;letter-spacing:.06em;text-transform:uppercase">What to expect</p>
             <p style="margin:0 0 8px;font-size:15px;line-height:1.55;color:#333">📩 <strong>One email, five stories.</strong> Every morning.</p>
             <p style="margin:0 0 8px;font-size:15px;line-height:1.55;color:#333">✅ <strong>Handpicked and fact-checked.</strong> Straight to the point.</p>
-            <p style="margin:0;font-size:15px;line-height:1.55;color:#333">☕ <strong>A habit worth keeping.</strong> 30 seconds, done before your first coffee.</p>
+            <p style="margin:0;font-size:15px;line-height:1.55;color:#333">☕ <strong>A habit worth keeping</strong> — 30 seconds, done before your first coffee.</p>
           </td></tr>
         </table>
 
@@ -81,14 +81,18 @@ export async function renderIntroEmail(email: string, name: string | null): Prom
         </p>
 
         <p style="margin:0 0 6px;font-size:15px;line-height:1.6;color:#333">Want to see our standards first? Take a look at our <a href="${SITE_URL}/general" style="color:#3979ff;text-decoration:underline;font-weight:700">newsstudio</a>.</p>
-        <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333">- Team dailymattr</p>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333">— Team dailymattr</p>
       </div>
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff">
         <tr><td align="center" style="padding:18px 20px 8px;text-align:center;border-top:1px solid #e6e6e6">
           <img src="${LOGO_URL}" alt="dailymattr" width="180" style="display:block;width:180px;max-width:100%;height:auto;margin:0 auto 10px;border:0" />
           <p style="margin:0 0 4px;color:#70707c;font:14px/1.5 Roboto,Arial,sans-serif">Curated news, summarized daily.</p>
-          <p style="margin:0;color:#9a9ab0;font:13px/1.5 Roboto,Arial,sans-serif">You're receiving this because you're part of the Dridha team.</p>
+          <!-- Kept true for BOTH audiences: the imported colleagues and external
+               recipients like tamadamedia.com. "Part of the Dridha team" was
+               false for the latter, and a footer that misstates why someone is
+               receiving mail is precisely what earns a spam complaint. -->
+          <p style="margin:0;color:#9a9ab0;font:13px/1.5 Roboto,Arial,sans-serif">You're receiving this because you were added to the dailymattr list.</p>
           ${privacyFooter}
         </td></tr>
       </table>
