@@ -35,10 +35,10 @@ function escapeHtml(value = "") {
     .replaceAll("'", "&#039;");
 }
 
-export const INTRO_SUBJECT = "You're on the Dailymattr list — here's what that means";
+export const INTRO_SUBJECT = "You're in the dailymattr club and here's what that means.";
 
 export async function renderIntroEmail(email: string, name: string | null): Promise<string> {
-  const greeting = name ? `Hi ${escapeHtml(String(name).split(" ")[0])},` : "Hi there,";
+  const greeting = name ? `Hey ${escapeHtml(String(name).split(" ")[0])},` : "Hey there,";
   const privacyFooter = await renderPrivacyFooter(email);
 
   return `
@@ -60,7 +60,11 @@ export async function renderIntroEmail(email: string, name: string | null): Prom
         <p style="margin:0 0 14px;color:#191919;font-size:20px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,serif">${greeting}</p>
 
         <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:#333">
-          Welcome to the <strong>dailymattr</strong> club — a group of smart, busy people who either don't have the time to stay updated, or whose algorithms simply aren't showing them what matters. Either way, you're covered now.
+          Welcome to the <strong>dailymattr club</strong> — a group of smart, busy people who either don't have the time to stay updated, or whose algorithms simply aren't showing them what mattrs.
+        </p>
+
+        <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:#333">
+          Either way, we've got you covered now.
         </p>
 
         <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#333">
@@ -81,7 +85,6 @@ export async function renderIntroEmail(email: string, name: string | null): Prom
         </p>
 
         <p style="margin:0 0 6px;font-size:15px;line-height:1.6;color:#333">Want to see our standards first? Take a look at our <a href="${SITE_URL}/general" style="color:#3979ff;text-decoration:underline;font-weight:700">newsstudio</a>.</p>
-        <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333">— Team dailymattr</p>
       </div>
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff">
