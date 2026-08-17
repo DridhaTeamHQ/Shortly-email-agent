@@ -11,7 +11,10 @@ function escapeHtml(value = "") {
 }
 
 /** Secure, per-recipient links for the email footer. */
-export async function renderPrivacyFooter(email: string): Promise<string> {
+export async function renderPrivacyFooter(
+  email: string,
+  { includeDelete = true }: { includeDelete?: boolean } = {},
+): Promise<string> {
   const normalizedEmail = email.trim().toLowerCase();
   const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
   const base = `${requiredEnv("SUPABASE_URL")}/functions/v1/unsubscribe`;
@@ -19,10 +22,14 @@ export async function renderPrivacyFooter(email: string): Promise<string> {
   const query = `email=${encodeURIComponent(normalizedEmail)}&token=${encodeURIComponent(token)}`;
   const unsubscribeUrl = `${base}?${query}&action=unsubscribe`;
   const deleteUrl = `${base}?${query}&action=delete`;
+  const deleteLink = includeDelete
+    ? `
+    <span style="color:#c4c4cf">&nbsp;|&nbsp;</span>
+    <a href="${escapeHtml(deleteUrl)}" style="color:#8b8b9d;text-decoration:underline">Delete my data</a>`
+    : "";
 
   return `<p style="margin:12px 0 0;color:#8b8b9d;font-size:12px;line-height:1.5;font-family:Roboto,Arial,sans-serif">
     <a href="${escapeHtml(unsubscribeUrl)}" style="color:#3979ff;text-decoration:underline">Unsubscribe</a>
-    <span style="color:#c4c4cf">&nbsp;|&nbsp;</span>
-    <a href="${escapeHtml(deleteUrl)}" style="color:#8b8b9d;text-decoration:underline">Delete my data</a>
+    ${deleteLink}
   </p>`;
 }

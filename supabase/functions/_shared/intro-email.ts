@@ -39,7 +39,7 @@ export const INTRO_SUBJECT = "Wohooo! dailymattr is here and you're a part of th
 
 export async function renderIntroEmail(email: string, name: string | null): Promise<string> {
   const greeting = name ? `Hey ${escapeHtml(String(name).split(" ")[0])},` : "Hey there,";
-  const privacyFooter = await renderPrivacyFooter(email);
+  const privacyFooter = await renderPrivacyFooter(email, { includeDelete: false });
 
   return `
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -84,7 +84,7 @@ export async function renderIntroEmail(email: string, name: string | null): Prom
           The first one lands tomorrow morning. If it turns out not to be for you, the unsubscribe link below works instantly and nobody will think anything of it.
         </p>
 
-        <p style="margin:0 0 6px;font-size:15px;line-height:1.6;color:#333">Want to see our standards first? Take a look at our <a href="${SITE_URL}/general" style="color:#3979ff;text-decoration:underline;font-weight:700">newsstudio</a>.</p>
+        <p style="margin:0 0 6px;font-size:15px;line-height:1.6;color:#333">Want to see our standards first? Take a look at our <a href="${SITE_URL}/general" style="color:#3979ff;text-decoration:underline;font-weight:700">NewsStudio</a>.</p>
       </div>
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff">
