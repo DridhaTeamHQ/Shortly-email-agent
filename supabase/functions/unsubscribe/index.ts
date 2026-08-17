@@ -60,9 +60,15 @@ function htmlPage(title: string, message: string, success: boolean): Response {
 </body>
 </html>`;
 
-  return new Response(html, {
+  // Use a typed Blob so the edge gateway preserves the HTML response instead
+  // of showing the confirmation markup as plain text in the browser.
+  const headers = new Headers(corsHeaders);
+  headers.set("Content-Type", "text/html; charset=utf-8");
+  headers.set("Content-Disposition", "inline");
+
+  return new Response(new Blob([html], { type: "text/html; charset=utf-8" }), {
     status: success ? 200 : 400,
-    headers: { ...corsHeaders, "Content-Type": "text/html; charset=utf-8" },
+    headers,
   });
 }
 
@@ -76,8 +82,9 @@ async function processUnsubscribe(
     return { ok: false, error: "Missing email or token parameter." };
   }
 
+  const normalizedEmail = email.trim().toLowerCase();
   const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const valid = await verifyUnsubToken(email, token, serviceKey);
+  const valid = await verifyUnsubToken(normalizedEmail, token, serviceKey);
   if (!valid) {
     return { ok: false, error: "Invalid or expired unsubscribe link." };
   }
@@ -86,12 +93,13 @@ async function processUnsubscribe(
     requiredEnv("SUPABASE_URL"),
     serviceKey,
   );
-  const normalizedEmail = email.trim().toLowerCase();
-
   const { data: profiles, error: profileError } = await supabase
     .from("profiles")
     .select("id")
-    .eq("email", normalizedEmail);
+    // Email templates always normalize addresses, but profile rows may retain
+    // the subscriber's original casing. Match without case sensitivity so the
+    // related account subscriptions are reliably deactivated.
+    .ilike("email", normalizedEmail);
   if (profileError) {
     return { ok: false, error: "Database error. Please try again later." };
   }
