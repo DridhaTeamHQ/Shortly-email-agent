@@ -202,6 +202,7 @@ Deno.serve(async (request) => {
     let iSent = 0;
     let iFailed = 0;
     const failures: Array<Record<string, unknown>> = [];
+    const messageIds: Array<{ email: string; messageId: string | null }> = [];
     // Same grouping the drain path uses: bursting is what got 67/100 delivered
     // in the load test.
     const GROUP = 10;
@@ -211,6 +212,12 @@ Deno.serve(async (request) => {
         try {
           const html = await renderIntroEmail(t.email, t.full_name);
           const result = await sendEmail({ to: t.email, subject: INTRO_SUBJECT, html, provider });
+          // Record the provider message id. Without it an intro send is
+          // untraceable: "sent: 1" only means SES accepted the call, and when a
+          // recipient says it never arrived there is no id to look up in the
+          // SES console and nothing for the bounce webhook to attach to. The
+          // wrap path has always written this row; the intro path did not.
+          messageIds.push({ email: t.email, messageId: result.messageId ?? null });
           if (result.ok) iSent++; else { iFailed++; failures.push({ email: t.email, error: result.error }); }
         } catch (e) {
           iFailed++;
@@ -224,6 +231,9 @@ Deno.serve(async (request) => {
       sent: iSent,
       failed: iFailed,
       failures: failures.slice(0, 5),
+      // Returned for single-recipient previews so the id can be looked up in the
+      // SES console; truncated on bulk sends to keep the response small.
+      messageIds: messageIds.slice(0, 10),
     });
   }
 
