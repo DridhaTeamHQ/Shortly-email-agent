@@ -1,0 +1,6 @@
+project_id = "ygxdrphajvrbjcaxhvcn"
+
+# Email clients open unsubscribe links without a Supabase JWT. The endpoint
+# validates a signed, per-recipient token before any account status is changed.
+[functions.unsubscribe]
+verify_jwt = false
