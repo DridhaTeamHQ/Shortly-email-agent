@@ -24,6 +24,30 @@ async function sendWelcome(email: string, name: string | null) {
   }
 }
 
+// Website accounts are sent from newsletter_subscriptions, while the email
+// agent manages the mirrored subscribers row. Keep both stores aligned when
+// an agent re-subscribes or unsubscribes a reader.
+async function setLinkedAccountSubscriptionStatus(
+  supabase: ReturnType<typeof createClient>,
+  email: string,
+  status: "subscribed" | "unsubscribed",
+) {
+  const { data: profiles, error: profileError } = await supabase
+    .from("profiles")
+    .select("id")
+    .ilike("email", email.trim().toLowerCase());
+  if (profileError) throw new Error(profileError.message);
+
+  const accountIds = (profiles ?? []).map((profile) => profile.id as string);
+  if (accountIds.length === 0) return;
+
+  const { error } = await supabase
+    .from("newsletter_subscriptions")
+    .update({ status: status === "subscribed" ? "active" : "unsubscribed" })
+    .in("user_id", accountIds);
+  if (error) throw new Error(error.message);
+}
+
 // ---------- legacy plan model (kept for the old QA dashboard form) ----------
 const VALID_TOPICS = new Set([
   "daily-wrap",
@@ -338,8 +362,24 @@ Deno.serve(async (request) => {
     if (action === "update") {
       const { id, status } = body;
       if (!id) return json({ error: "id is required" }, 400);
+      const { data: subscriber, error: subscriberError } = await supabase
+        .from("subscribers")
+        .select("id,email")
+        .eq("id", id)
+        .maybeSingle();
+      if (subscriberError) return json({ error: subscriberError.message }, 500);
+      if (!subscriber) return json({ error: "Subscriber not found." }, 404);
+
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (status) {
+        if (status !== "subscribed" && status !== "unsubscribed") {
+          return json({ error: "Unsupported subscriber status." }, 400);
+        }
+        try {
+          await setLinkedAccountSubscriptionStatus(supabase, subscriber.email, status);
+        } catch (error) {
+          return json({ error: error instanceof Error ? error.message : "Failed to update account subscription." }, 500);
+        }
         patch.status = status;
         patch.unsubscribed_at = status === "unsubscribed" || status === "bounced"
           ? new Date().toISOString()
