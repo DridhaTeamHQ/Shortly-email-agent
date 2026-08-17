@@ -60,34 +60,28 @@ export async function renderIntroEmail(email: string, name: string | null): Prom
         <p style="margin:0 0 14px;color:#191919;font-size:20px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,serif">${greeting}</p>
 
         <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:#333">
-          We've added you to <strong>Dailymattr</strong>, the daily news briefing we've been building here at Dridha. You're getting this because you're on the team — you didn't sign up, and we'd rather say that plainly than pretend otherwise.
+          Welcome to the <strong>dailymattr</strong> club - a group of smart, busy people who either don't have the time to stay updated, or whose algorithms simply aren't showing them what matters. Either way, you're covered now.
         </p>
 
         <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#333">
-          It's the day's news, minus the noise. Five stories that actually matter, each in a few sentences, with the sources listed so you can go deeper if you want to.
+          We bring you the day's news, minus the noise. Five stories that actually mattr, with context, summary and source.
         </p>
 
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px;background:#f5f7fb;border-radius:10px">
           <tr><td style="padding:18px 20px">
             <p style="margin:0 0 10px;font:700 13px/1.2 Roboto,Arial,sans-serif;color:#3979ff;letter-spacing:.06em;text-transform:uppercase">What to expect</p>
-            <p style="margin:0 0 8px;font-size:15px;line-height:1.55;color:#333"><strong>Every morning at 9am IST.</strong> One email, five stories.</p>
-            <p style="margin:0 0 8px;font-size:15px;line-height:1.55;color:#333"><strong>Picked, not scraped.</strong> Stories are chosen on how widely they're being reported and how much they actually affect you — not on what's loudest.</p>
-            <p style="margin:0;font-size:15px;line-height:1.55;color:#333"><strong>Checked.</strong> Every summary is fact-scored against its sources before it reaches you.</p>
+            <p style="margin:0 0 8px;font-size:15px;line-height:1.55;color:#333">📩 <strong>One email, five stories.</strong> Every morning.</p>
+            <p style="margin:0 0 8px;font-size:15px;line-height:1.55;color:#333">✅ <strong>Handpicked and fact-checked.</strong> Straight to the point.</p>
+            <p style="margin:0;font-size:15px;line-height:1.55;color:#333">☕ <strong>A habit worth keeping.</strong> 30 seconds, done before your first coffee.</p>
           </td></tr>
         </table>
 
         <p style="margin:0 0 22px;font-size:16px;line-height:1.6;color:#333">
-          The first one lands tomorrow morning. If it isn't for you, the unsubscribe link below works immediately and nobody will think anything of it.
+          The first one lands tomorrow morning. If it turns out not to be for you, the unsubscribe link below works instantly and nobody will think anything of it.
         </p>
 
-        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 26px">
-          <tr><td>
-            <a href="${SITE_URL}/general" style="display:inline-block;background:#3979ff;color:#ffffff;border-radius:22px;padding:12px 22px;text-decoration:none;font:700 15px/1 Roboto,Arial,sans-serif">Read today's stories</a>
-          </td></tr>
-        </table>
-
-        <p style="margin:0 0 6px;font-size:15px;line-height:1.6;color:#333">Tell us what's working and what isn't — we're still shaping this.</p>
-        <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333">— Team Dailymattr</p>
+        <p style="margin:0 0 6px;font-size:15px;line-height:1.6;color:#333">Want to see our standards first? Take a look at our <a href="${SITE_URL}/general" style="color:#3979ff;text-decoration:underline;font-weight:700">newsstudio</a>.</p>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333">- Team dailymattr</p>
       </div>
 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff">
