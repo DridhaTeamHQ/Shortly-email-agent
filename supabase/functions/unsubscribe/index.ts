@@ -29,72 +29,140 @@ function escapeHtml(v = "") {
 //
 // So the function does the work and hands the reader to a page on our own
 // Vercel origin, which serves real text/html.
-const APP_URL = (Deno.env.get("SHORTLY_AGENT_APP_URL") ?? "https://shortlyagents.vercel.app").replace(/\/+$/, "");
+// Unset by default. Both existing Vercel deployments answer every path with
+// their SPA shell, so a redirect would land the reader on the agents dashboard
+// rather than a confirmation -- worse than the bug being fixed. Point this at a
+// host that serves real files and the redirect takes over.
+const PAGE_URL = (Deno.env.get("UNSUB_PAGE_URL") ?? "").replace(/\/+$/, "");
 
 /** Send the reader to the confirmation page with the outcome in the query. */
 function redirectToPage(params: Record<string, string>): Response {
   const query = new URLSearchParams(params).toString();
   const headers = new Headers(corsHeaders);
-  headers.set("Location", `${APP_URL}/unsubscribed.html?${query}`);
+  headers.set("Location", `${PAGE_URL}?${query}`);
   // 303: the browser must follow with GET regardless of how it arrived here.
   return new Response(null, { status: 303, headers });
 }
 
-/** Dailymattr-branded HTML confirmation page (purple theme). */
-function htmlPage(title: string, message: string, success: boolean): Response {
-  const accentColor = success ? "#3979ff" : "#dc2626";
+/**
+ * The confirmation page, served by this function.
+ *
+ * CONTENT TYPE, and why it is shouted:
+ * The edge gateway rewrites `text/html` to `text/plain` and adds nosniff, so a
+ * page returned with the normal casing is displayed to the reader as raw
+ * markup -- the reported bug. Measured against this project:
+ *
+ *     text/html              -> text/plain      application/json   -> kept
+ *     application/xhtml+xml  -> text/plain      image/svg+xml      -> kept
+ *     TEXT/HTML              -> kept
+ *
+ * The rewrite is case-sensitive; HTTP content types are not, so browsers treat
+ * `TEXT/HTML` as HTML and the page renders. This is a gap in a deliberate
+ * platform guard against serving HTML from supabase.co, so treat it as a
+ * STOPGAP: set UNSUB_PAGE_URL to a page on a host you control and this function
+ * redirects there instead, which is the durable arrangement. Supabase Storage
+ * is not an option -- it applies the same rewrite.
+ */
+function htmlPage(
+  title: string,
+  message: string,
+  success: boolean,
+  resubscribe?: { email: string; token: string },
+): Response {
   const icon = success
-    ? `<div style="width:64px;height:64px;border-radius:50%;background:#eaf1ff;margin:0 auto 20px;display:flex;align-items:center;justify-content:center">
-         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3979ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-           <polyline points="20 6 9 17 4 12"/>
-         </svg>
-       </div>`
-    : `<div style="width:64px;height:64px;border-radius:50%;background:#fee2e2;margin:0 auto 20px;display:flex;align-items:center;justify-content:center">
-         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-         </svg>
-       </div>`;
+    ? `<div class="mark ok"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3979ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>`
+    : `<div class="mark bad"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>`;
 
-  const html = `<!DOCTYPE html>
+  // Values are escaped for the HTML body AND JSON-encoded for the script, so
+  // an address can never break out of either context.
+  const button = resubscribe
+    ? `
+      <div class="actions">
+        <button id="again" type="button">Subscribe again</button>
+        <div class="note" id="note" role="status" aria-live="polite"></div>
+      </div>
+      <script>
+        (function () {
+          var email = ${JSON.stringify(resubscribe.email)};
+          var token = ${JSON.stringify(resubscribe.token)};
+          var btn = document.getElementById("again");
+          var note = document.getElementById("note");
+          btn.addEventListener("click", function () {
+            btn.disabled = true;
+            note.className = "note";
+            note.textContent = "Working...";
+            // POST returns JSON, which the gateway passes through untouched.
+            fetch(location.pathname, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: email, token: token, action: "resubscribe" })
+            })
+              .then(function (r) { return r.json().catch(function () { return {}; }); })
+              .then(function (d) {
+                if (d && d.ok) {
+                  note.className = "note ok";
+                  note.textContent = "You're subscribed again. Your next wrap arrives tomorrow morning.";
+                  btn.textContent = "Subscribed";
+                } else {
+                  note.className = "note bad";
+                  note.textContent = (d && d.error) || "Could not re-subscribe. Please try again later.";
+                  btn.disabled = false;
+                }
+              })
+              .catch(function () {
+                note.className = "note bad";
+                note.textContent = "Network error. Please try again.";
+                btn.disabled = false;
+              });
+          });
+        })();
+      </script>`
+    : "";
+
+  const html = `<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>${escapeHtml(title)} - Dailymattr</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Inter','Helvetica Neue',Arial,sans-serif;background:#f4f8ff;color:#1a1a2e;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
-    .header{font-size:28px;font-weight:800;color:#3979ff;letter-spacing:-0.5px;margin-bottom:40px}
-    .card{background:#ffffff;border-radius:16px;padding:48px 40px;max-width:480px;width:100%;text-align:center;border:1px solid #d7e5ff;box-shadow:0 4px 24px rgba(57,121,255,0.12)}
-    .card h1{font-size:22px;font-weight:700;color:${accentColor};margin-bottom:12px;letter-spacing:-0.3px}
-    .card p{font-size:15px;line-height:1.6;color:#6b6b8a}
-    .footer{margin-top:40px;text-align:center;color:#9a9ab0;font-size:12px;line-height:1.5}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="robots" content="noindex"/>
+<title>${escapeHtml(title)} - dailymattr</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Inter,'Helvetica Neue',Arial,sans-serif;background:#f4f8ff;color:#1a1a2e;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.header{font-size:28px;font-weight:800;color:#3979ff;letter-spacing:-0.5px;margin-bottom:40px}
+.card{background:#fff;border-radius:16px;padding:48px 40px;max-width:480px;width:100%;text-align:center;border:1px solid #d7e5ff;box-shadow:0 4px 24px rgba(57,121,255,0.12)}
+.mark{width:56px;height:56px;border-radius:50%;margin:0 auto 20px;display:flex;align-items:center;justify-content:center}
+.mark.ok{background:#eaf1ff}.mark.bad{background:#fee2e2}
+h1{font-size:22px;font-weight:700;margin-bottom:12px;letter-spacing:-0.3px}
+p.msg{font-size:15px;line-height:1.6;color:#6b6b8a}
+.addr{display:block;margin-top:10px;font-size:14px;color:#1a1a2e;font-weight:600;word-break:break-all}
+.actions{margin-top:28px}
+button{font:600 15px/1 Inter,Arial,sans-serif;padding:13px 26px;border-radius:10px;border:0;background:#3979ff;color:#fff;cursor:pointer}
+button:hover:not(:disabled){background:#2f6ae6}
+button:disabled{opacity:.55;cursor:default}
+.note{margin-top:14px;font-size:14px;line-height:1.5;min-height:20px}
+.note.ok{color:#1a7f43}.note.bad{color:#dc2626}
+.footer{margin-top:40px;text-align:center;color:#9a9ab0;font-size:12px;line-height:1.5}
+</style>
 </head>
 <body>
-  <div class="header">Dailymattr</div>
-  <div class="card">
-    ${icon}
-    <h1>${escapeHtml(title)}</h1>
-    <p>${message}</p>
-  </div>
-  <div class="footer">
-    Curated news, summarized daily.<br>
-    &copy; ${new Date().getFullYear()} Dailymattr
-  </div>
+<div class="header">dailymattr</div>
+<div class="card">
+  ${icon}
+  <h1>${escapeHtml(title)}</h1>
+  <p class="msg">${escapeHtml(message)}${
+    resubscribe ? `<span class="addr">${escapeHtml(resubscribe.email)}</span>` : ""
+  }</p>
+  ${button}
+</div>
+<div class="footer">Curated news, summarized daily.<br>&copy; ${new Date().getFullYear()} dailymattr</div>
 </body>
 </html>`;
 
-  // Use a typed Blob so the edge gateway preserves the HTML response instead
-  // of showing the confirmation markup as plain text in the browser.
   const headers = new Headers(corsHeaders);
-  headers.set("Content-Type", "text/html; charset=utf-8");
+  headers.set("Content-Type", "TEXT/HTML; charset=utf-8");
   headers.set("Content-Disposition", "inline");
-
-  return new Response(new Blob([html], { type: "text/html; charset=utf-8" }), {
-    status: success ? 200 : 400,
-    headers,
-  });
+  return new Response(html, { status: success ? 200 : 400, headers });
 }
 
 /** Core unsubscribe logic shared by GET and POST handlers. */
@@ -248,16 +316,35 @@ Deno.serve(async (request) => {
 
     const result = await processUnsubscribe(email, token, action);
 
-    // The token is already in the reader's address bar -- it arrived in the
-    // emailed link -- so forwarding it costs no additional exposure and lets
-    // the page offer "subscribe again" without a second round trip to email.
-    return redirectToPage({
-      status: result.ok ? "ok" : "error",
-      action,
-      email: email ?? "",
-      token: token ?? "",
-      ...(result.ok ? {} : { reason: result.error ?? "Something went wrong." }),
-    });
+    // Prefer an external page when one is configured -- see htmlPage(). The
+    // token is already in the reader's address bar, having arrived in the
+    // emailed link, so forwarding it costs no additional exposure.
+    if (PAGE_URL) {
+      return redirectToPage({
+        status: result.ok ? "ok" : "error",
+        action,
+        email: email ?? "",
+        token: token ?? "",
+        ...(result.ok ? {} : { reason: result.error ?? "Something went wrong." }),
+      });
+    }
+
+    if (!result.ok) return htmlPage("Unsubscribe failed", result.error!, false);
+
+    if (action === "delete") {
+      return htmlPage(
+        "Your data has been deleted",
+        "Your dailymattr subscriber record and delivery history have been removed.",
+        true,
+      );
+    }
+
+    return htmlPage(
+      "You have unsubscribed successfully",
+      "You will no longer receive emails from dailymattr.",
+      true,
+      email && token ? { email, token } : undefined,
+    );
   }
 
   // ── POST: Programmatic unsubscribe ──

@@ -4,10 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Unsubscribed - Dailymattr</title>
-    <!-- This page exists on the Vercel origin rather than inside the
-         unsubscribe edge function because the Supabase gateway rewrites
-         text/html to text/plain, which made the old confirmation page render
-         to readers as raw markup. -->
+    <!-- NOT SERVED BY DEFAULT. The unsubscribe function renders its own copy
+         of this page inline, because neither Vercel deployment serves static
+         files (both answer every path with their SPA shell) and Supabase
+         rewrites text/html on both functions and storage.
+
+         This file is the durable replacement: host it anywhere that serves
+         real text/html, set UNSUB_PAGE_URL on the unsubscribe function to its
+         URL, and the function will 303 here instead of rendering inline. It
+         reads status / action / email / token from the query string. -->
     <meta name="robots" content="noindex" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
