@@ -15,6 +15,31 @@ function escapeHtml(v = "") {
     .replaceAll("'", "&#039;");
 }
 
+// Where the confirmation page lives. It CANNOT live in this function.
+//
+// The Supabase edge gateway rewrites `Content-Type: text/html` to `text/plain`
+// and adds `X-Content-Type-Options: nosniff`, so a page returned from here is
+// displayed to the reader as raw markup -- which is exactly what the reported
+// screenshot shows. Verified directly against this project: text/html and
+// application/xhtml+xml are both rewritten, application/json and image/svg+xml
+// are passed through. (An uppercase `TEXT/HTML` slips past the rewrite, but
+// that is a case-sensitivity gap in a deliberate platform guard against
+// serving HTML from supabase.co -- it would break silently the day they fix
+// it, and the failure mode is this exact bug returning.)
+//
+// So the function does the work and hands the reader to a page on our own
+// Vercel origin, which serves real text/html.
+const APP_URL = (Deno.env.get("SHORTLY_AGENT_APP_URL") ?? "https://shortlyagents.vercel.app").replace(/\/+$/, "");
+
+/** Send the reader to the confirmation page with the outcome in the query. */
+function redirectToPage(params: Record<string, string>): Response {
+  const query = new URLSearchParams(params).toString();
+  const headers = new Headers(corsHeaders);
+  headers.set("Location", `${APP_URL}/unsubscribed.html?${query}`);
+  // 303: the browser must follow with GET regardless of how it arrived here.
+  return new Response(null, { status: 303, headers });
+}
+
 /** Dailymattr-branded HTML confirmation page (purple theme). */
 function htmlPage(title: string, message: string, success: boolean): Response {
   const accentColor = success ? "#3979ff" : "#dc2626";
@@ -78,6 +103,7 @@ async function processUnsubscribe(
   token: string | null,
   action = "unsubscribe",
 ): Promise<{ ok: boolean; error?: string }> {
+  // action is one of: unsubscribe | delete | resubscribe
   if (!email?.trim() || !token?.trim()) {
     return { ok: false, error: "Missing email or token parameter." };
   }
@@ -118,6 +144,34 @@ async function processUnsubscribe(
 
   if (!subscriber && accountIds.length === 0) {
     return { ok: false, error: "Email address not found in our subscriber list." };
+  }
+
+  // ---- resubscribe: the "changed my mind" path from the confirmation page --
+  // Deliberately NOT a generic re-activation: it needs the same HMAC token as
+  // the unsubscribe it reverses, so only the holder of that emailed link can
+  // put an address back on the list.
+  if (action === "resubscribe") {
+    if (accountIds.length > 0) {
+      const { error: reactErr } = await supabase
+        .from("newsletter_subscriptions")
+        .update({ status: "active" })
+        .in("user_id", accountIds)
+        .eq("status", "unsubscribed");
+      if (reactErr) return { ok: false, error: "Failed to update subscription. Please try again later." };
+    }
+    if (!subscriber) return { ok: accountIds.length > 0 };
+    if (subscriber.status === "subscribed") return { ok: true }; // already back
+    // A hard bounce is a delivery fact, not a preference -- re-subscribing an
+    // address the provider rejected would just book another bounce.
+    if (subscriber.status === "bounced") {
+      return { ok: false, error: "This address was disabled after our emails bounced. Please sign up again from the website." };
+    }
+    const { error: reErr } = await supabase
+      .from("subscribers")
+      .update({ status: "subscribed", unsubscribed_at: null, updated_at: new Date().toISOString() })
+      .eq("id", subscriber.id);
+    if (reErr) return { ok: false, error: "Failed to update subscription. Please try again later." };
+    return { ok: true };
   }
 
   if (action !== "delete" && subscriber?.status === "unsubscribed" && accountIds.length === 0) {
@@ -189,21 +243,21 @@ Deno.serve(async (request) => {
     const url = new URL(request.url);
     const email = url.searchParams.get("email");
     const token = url.searchParams.get("token");
-    const action = url.searchParams.get("action") === "delete" ? "delete" : "unsubscribe";
+    const requested = url.searchParams.get("action");
+    const action = requested === "delete" ? "delete" : requested === "resubscribe" ? "resubscribe" : "unsubscribe";
 
     const result = await processUnsubscribe(email, token, action);
 
-    if (result.ok) {
-      return htmlPage(
-        action === "delete" ? "Your data has been deleted" : "You've been unsubscribed",
-        action === "delete"
-          ? "Your Dailymattr subscriber record and delivery history have been deleted."
-          : "You will no longer receive emails from Dailymattr. If this was a mistake, you can re-subscribe anytime.",
-        true,
-      );
-    }
-
-    return htmlPage("Unsubscribe failed", result.error!, false);
+    // The token is already in the reader's address bar -- it arrived in the
+    // emailed link -- so forwarding it costs no additional exposure and lets
+    // the page offer "subscribe again" without a second round trip to email.
+    return redirectToPage({
+      status: result.ok ? "ok" : "error",
+      action,
+      email: email ?? "",
+      token: token ?? "",
+      ...(result.ok ? {} : { reason: result.error ?? "Something went wrong." }),
+    });
   }
 
   // ── POST: Programmatic unsubscribe ──
@@ -211,11 +265,18 @@ Deno.serve(async (request) => {
     try {
       const body = await request.json();
       const { email, token } = body;
-      const action = body.action === "delete" ? "delete" : "unsubscribe";
+      const action = body.action === "delete" ? "delete" : body.action === "resubscribe" ? "resubscribe" : "unsubscribe";
       const result = await processUnsubscribe(email, token, action);
 
       if (result.ok) {
-        return json({ ok: true, message: action === "delete" ? "Your data was deleted." : "Successfully unsubscribed." });
+        return json({
+          ok: true,
+          message: action === "delete"
+            ? "Your data was deleted."
+            : action === "resubscribe"
+            ? "You're subscribed again."
+            : "Successfully unsubscribed.",
+        });
       }
 
       return json({ ok: false, error: result.error }, 400);

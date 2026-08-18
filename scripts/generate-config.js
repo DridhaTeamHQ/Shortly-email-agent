@@ -34,6 +34,7 @@ window.SHORTLY = {
   trending:    "${functionsBase}/trending-topics",
   generateFromUrl: "${functionsBase}/generate-from-url",
   verifyToken: "${functionsBase}/verify-agent-token",
+  unsubscribe: "${functionsBase}/unsubscribe",
   siteUrl:     "${siteUrl}",
   twitterUrl:  "${twitterUrl}",
   linkedinUrl: "${linkedinUrl}",

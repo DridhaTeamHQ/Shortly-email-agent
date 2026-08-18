@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Unsubscribed - Dailymattr</title>
+    <!-- This page exists on the Vercel origin rather than inside the
+         unsubscribe edge function because the Supabase gateway rewrites
+         text/html to text/plain, which made the old confirmation page render
+         to readers as raw markup. -->
+    <meta name="robots" content="noindex" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script src="./config.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: Inter, "Helvetica Neue", Arial, sans-serif;
+        background: #f4f8ff;
+        color: #1a1a2e;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .header { font-size: 28px; font-weight: 800; color: #3979ff; letter-spacing: -0.5px; margin-bottom: 40px; }
+      .card {
+        background: #fff;
+        border-radius: 16px;
+        padding: 48px 40px;
+        max-width: 480px;
+        width: 100%;
+        text-align: center;
+        border: 1px solid #d7e5ff;
+        box-shadow: 0 4px 24px rgba(57, 121, 255, 0.12);
+      }
+      .mark { width: 56px; height: 56px; border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; }
+      .mark.ok { background: #eaf1ff; }
+      .mark.bad { background: #fee2e2; }
+      h1 { font-size: 22px; font-weight: 700; color: #1a1a2e; margin-bottom: 12px; letter-spacing: -0.3px; }
+      p.msg { font-size: 15px; line-height: 1.6; color: #6b6b8a; }
+      .addr { display: block; margin-top: 10px; font-size: 14px; color: #1a1a2e; font-weight: 600; word-break: break-all; }
+      .actions { margin-top: 28px; }
+      button {
+        font: 600 15px/1 Inter, Arial, sans-serif;
+        padding: 13px 26px;
+        border-radius: 10px;
+        border: 0;
+        background: #3979ff;
+        color: #fff;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: #2f6ae6; }
+      button:disabled { opacity: 0.55; cursor: default; }
+      .note { margin-top: 14px; font-size: 14px; line-height: 1.5; min-height: 20px; }
+      .note.ok { color: #1a7f43; }
+      .note.bad { color: #dc2626; }
+      .footer { margin-top: 40px; text-align: center; color: #9a9ab0; font-size: 12px; line-height: 1.5; }
+      .footer a { color: #3979ff; }
+    </style>
+  </head>
+  <body>
+    <div class="header">dailymattr</div>
+
+    <div class="card">
+      <div class="mark ok" id="mark" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3979ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </div>
+      <h1 id="title">You have unsubscribed successfully</h1>
+      <p class="msg" id="message">
+        You will no longer receive emails from dailymattr.
+        <span class="addr" id="addr"></span>
+      </p>
+      <div class="actions" id="actions" hidden>
+        <button id="resubscribe" type="button">Subscribe again</button>
+        <div class="note" id="note" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div class="footer">
+      Curated news, summarized daily.<br />
+      &copy; <span id="year"></span> dailymattr
+    </div>
+
+    <script>
+      (function () {
+        var q = new URLSearchParams(location.search);
+        var status = q.get("status") || "ok";
+        var action = q.get("action") || "unsubscribe";
+        var email = q.get("email") || "";
+        var token = q.get("token") || "";
+
+        var el = function (id) { return document.getElementById(id); };
+        el("year").textContent = new Date().getFullYear();
+
+        // textContent, never innerHTML: email and reason arrive from the query
+        // string and must never be able to inject markup into this page.
+        if (email) el("addr").textContent = email;
+
+        var CROSS =
+          '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" ' +
+          'stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/>' +
+          '<line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+        function fail(title, msg) {
+          el("mark").className = "mark bad";
+          el("mark").innerHTML = CROSS;
+          el("title").textContent = title;
+          el("message").textContent = msg;
+        }
+
+        if (status === "error") {
+          fail("Unsubscribe failed", q.get("reason") || "Please try again later.");
+        } else if (action === "delete") {
+          el("title").textContent = "Your data has been deleted";
+          el("message").textContent =
+            "Your dailymattr subscriber record and delivery history have been removed.";
+          // No way back: the record this token described no longer exists.
+        } else {
+          // Only offer the button when we hold the token that authorises it.
+          if (email && token) el("actions").hidden = false;
+        }
+
+        // Resolve the function URL from the generated config, falling back to
+        // deriving it from a sibling endpoint so the page still works if
+        // config.js is served from an older build.
+        function endpoint() {
+          var c = window.SHORTLY || {};
+          if (c.unsubscribe) return c.unsubscribe;
+          if (c.subscribers) return c.subscribers.replace(/\/subscribers$/, "/unsubscribe");
+          return "";
+        }
+
+        el("resubscribe").addEventListener("click", function () {
+          var btn = el("resubscribe");
+          var note = el("note");
+          var url = endpoint();
+          if (!url) {
+            note.className = "note bad";
+            note.textContent = "Something went wrong. Please subscribe from the website.";
+            return;
+          }
+          btn.disabled = true;
+          note.className = "note";
+          note.textContent = "Working...";
+
+          // POST returns JSON, which the edge gateway passes through untouched.
+          fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email, token: token, action: "resubscribe" }),
+          })
+            .then(function (r) { return r.json().catch(function () { return {}; }); })
+            .then(function (data) {
+              if (data && data.ok) {
+                note.className = "note ok";
+                note.textContent = "You're subscribed again. Your next wrap arrives tomorrow morning.";
+                btn.textContent = "Subscribed";
+              } else {
+                note.className = "note bad";
+                note.textContent = (data && data.error) || "Could not re-subscribe. Please try again later.";
+                btn.disabled = false;
+              }
+            })
+            .catch(function () {
+              note.className = "note bad";
+              note.textContent = "Network error. Please try again.";
+              btn.disabled = false;
+            });
+        });
+      })();
+    </script>
+  </body>
+</html>
