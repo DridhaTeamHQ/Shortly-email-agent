@@ -48,6 +48,29 @@ async function setLinkedAccountSubscriptionStatus(
   if (error) throw new Error(error.message);
 }
 
+function normalizeGroupIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((id) => String(id ?? "").trim()).filter(Boolean))];
+}
+
+async function replaceSubscriberGroups(
+  supabase: ReturnType<typeof createClient>,
+  subscriberId: string,
+  groupIds: string[],
+) {
+  const { error: removeError } = await supabase
+    .from("subscriber_group_members")
+    .delete()
+    .eq("subscriber_id", subscriberId);
+  if (removeError) throw new Error(removeError.message);
+
+  if (groupIds.length === 0) return;
+  const { error: addError } = await supabase
+    .from("subscriber_group_members")
+    .insert(groupIds.map((groupId) => ({ subscriber_id: subscriberId, group_id: groupId })));
+  if (addError) throw new Error(addError.message);
+}
+
 // ---------- legacy plan model (kept for the old QA dashboard form) ----------
 const VALID_TOPICS = new Set([
   "daily-wrap",
@@ -185,17 +208,63 @@ Deno.serve(async (request) => {
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
 
   if (request.method === "GET") {
-    const { data, error } = await supabase
-      .from("subscribers")
-      .select("id,email,full_name,phone_number,topics,plan,category,rhythm,send_days,news_categories,source_preference,status,created_at")
-      .order("created_at", { ascending: false });
+    const [subscriberResult, groupResult, membershipResult] = await Promise.all([
+      supabase
+        .from("subscribers")
+        .select("id,email,full_name,phone_number,topics,plan,category,rhythm,send_days,news_categories,source_preference,status,created_at")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("subscriber_groups")
+        .select("id,name,created_at")
+        .order("name", { ascending: true }),
+      supabase
+        .from("subscriber_group_members")
+        .select("subscriber_id,group_id"),
+    ]);
+    const error = subscriberResult.error || groupResult.error || membershipResult.error;
     if (error) return json({ error: error.message }, 500);
-    return json({ subscribers: data });
+    return json({
+      subscribers: subscriberResult.data,
+      groups: groupResult.data,
+      memberships: membershipResult.data,
+    });
   }
 
   if (request.method === "POST") {
     const body = await request.json();
     const { action } = body;
+
+    if (action === "create-group") {
+      const name = String(body.name ?? "").trim().replace(/\s+/g, " ");
+      if (!name || name.length > 80) return json({ error: "Group names must be between 1 and 80 characters." }, 400);
+      const { data, error } = await supabase
+        .from("subscriber_groups")
+        .insert({ name })
+        .select("id,name,created_at")
+        .single();
+      if (error) return json({ error: error.code === "23505" ? "A group with that name already exists." : error.message }, 400);
+      return json({ ok: true, group: data });
+    }
+
+    if (action === "set-subscriber-groups") {
+      const subscriberId = String(body.subscriber_id ?? "").trim();
+      if (!subscriberId) return json({ error: "subscriber_id is required" }, 400);
+      const groupIds = normalizeGroupIds(body.group_ids);
+      if (groupIds.length > 0) {
+        const { data: validGroups, error } = await supabase
+          .from("subscriber_groups")
+          .select("id")
+          .in("id", groupIds);
+        if (error) return json({ error: error.message }, 500);
+        if ((validGroups ?? []).length !== groupIds.length) return json({ error: "One or more selected groups no longer exist." }, 400);
+      }
+      try {
+        await replaceSubscriberGroups(supabase, subscriberId, groupIds);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "Failed to update subscriber groups." }, 500);
+      }
+      return json({ ok: true });
+    }
 
     if (action === "send-welcome") {
       const emails = Array.isArray(body.emails)
@@ -418,3 +487,4 @@ Deno.serve(async (request) => {
 
   return json({ error: "Method not allowed" }, 405);
 });
+

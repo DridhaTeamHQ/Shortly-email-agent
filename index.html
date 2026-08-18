@@ -375,6 +375,14 @@
             <button id="importCsvBtn" class="btn-ghost" type="button">Upload File</button>
             <span class="muted">Accepted columns: name, email, phone number, topics/category. Supported files: CSV, XLSX, XLS.</span>
           </div>
+          <div class="subscriber-tools" aria-label="Subscriber search and groups">
+            <label class="subscriber-search" for="subSearch"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input id="subSearch" type="search" placeholder="Search name, email, phone, or group" /></label>
+            <select id="subGroupFilter" aria-label="Filter subscribers by group"><option value="">All groups</option></select>
+            <form id="subGroupForm" class="subscriber-group-create">
+              <input id="subGroupName" type="text" maxlength="80" placeholder="New group name" aria-label="New group name" />
+              <button class="btn-ghost" type="submit"><i class="ph ph-plus" aria-hidden="true"></i> Create group</button>
+            </form>
+          </div>
           <div class="subscriber-bulk-bar" id="subscriberBulkBar">
             <label class="subscriber-select-all">
               <input type="checkbox" id="subSelectAll" />
@@ -385,7 +393,7 @@
           </div>
           <div class="table-wrap">
             <table class="data-table">
-              <thead><tr><th></th><th>Email</th><th>Name</th><th>Phone</th><th>Topics</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th></th><th>Email</th><th>Name</th><th>Phone</th><th>Topics</th><th>Groups</th><th>Status</th><th>Actions</th></tr></thead>
               <tbody id="subRows"></tbody>
             </table>
           </div>
@@ -442,3 +450,4 @@
     <script src="./app.js" type="module"></script>
   </body>
 </html>
+

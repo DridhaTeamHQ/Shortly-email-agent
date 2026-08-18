@@ -558,6 +558,10 @@ const isDraftActiveToday = (draft) =>
 const state = {
   articles: [],
   subscribers: [],
+  subscriberGroups: [],
+  subscriberGroupMemberships: [],
+  subscriberSearch: "",
+  subscriberGroupFilter: "",
   digests: [],
   editorialDrafts: [],
   trending: { topics: [], filter: "suggested" },
@@ -1542,14 +1546,51 @@ function selectedSubscriberTopics() {
   return normalizeTopicList(checked);
 }
 
+function groupIdsForSubscriber(subscriberId) {
+  return state.subscriberGroupMemberships
+    .filter((membership) => membership.subscriber_id === subscriberId)
+    .map((membership) => membership.group_id);
+}
+
+function groupsForSubscriber(subscriberId) {
+  const memberIds = new Set(groupIdsForSubscriber(subscriberId));
+  return state.subscriberGroups.filter((group) => memberIds.has(group.id));
+}
+
+function visibleSubscribers() {
+  const query = state.subscriberSearch.trim().toLowerCase();
+  return state.subscribers.filter((subscriber) => {
+    const groups = groupsForSubscriber(subscriber.id);
+    if (state.subscriberGroupFilter && !groups.some((group) => group.id === state.subscriberGroupFilter)) return false;
+    if (!query) return true;
+    return [subscriber.email, subscriber.full_name, subscriber.phone_number, ...groups.map((group) => group.name)]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+  });
+}
+
+function renderSubscriberGroupControls() {
+  const filter = $("#subGroupFilter");
+  if (!filter) return;
+  const selected = state.subscriberGroupFilter;
+  filter.innerHTML = `<option value="">All groups</option>${state.subscriberGroups
+    .map((group) => `<option value="${esc(group.id)}">${esc(group.name)}</option>`)
+    .join("")}`;
+  filter.value = state.subscriberGroups.some((group) => group.id === selected) ? selected : "";
+  state.subscriberGroupFilter = filter.value;
+}
+
 function renderSubscribers() {
   syncSelectedSubscribersForAudience();
-  const subscribed = state.subscribers.filter((s) => subscriberMatchesCurrentAudience(s));
+  renderSubscriberGroupControls();
+  const visible = visibleSubscribers();
+  const subscribed = visible.filter((s) => subscriberMatchesCurrentAudience(s));
   const allChecked = subscribed.length > 0 && subscribed.every((s) => state.selectedSubscribers.has(s.id));
-  const rows = state.subscribers
+  const rows = visible
     .map(
       (s) => {
         const eligible = subscriberMatchesCurrentAudience(s);
+        const assignedGroupIds = new Set(groupIdsForSubscriber(s.id));
+        const groups = groupsForSubscriber(s.id);
         const checkbox = s.status === "subscribed"
           ? `<input type="checkbox" class="sub-check" data-id="${s.id}" ${state.selectedSubscribers.has(s.id) ? "checked" : ""} ${eligible ? "" : "disabled"}>`
           : "";
@@ -1560,6 +1601,17 @@ function renderSubscribers() {
         <td>${esc(s.full_name || "")}</td>
         <td>${esc(s.phone_number || "")}</td>
         <td class="topic-cell">${normalizeTopicList(s.topics).map((topic) => `<span class="topic-chip">${esc(topicLabel(topic))}</span>`).join("")}</td>
+        <td class="subscriber-groups-cell">
+          <details class="subscriber-group-menu">
+            <summary>${groups.length ? groups.map((group) => esc(group.name)).join(", ") : "Add to group"}</summary>
+            <div class="subscriber-group-options">
+              ${state.subscriberGroups.length
+                ? state.subscriberGroups.map((group) => `<label><input type="checkbox" data-group-id="${esc(group.id)}" ${assignedGroupIds.has(group.id) ? "checked" : ""}>${esc(group.name)}</label>`).join("")
+                : `<span class="muted">Create a group first.</span>`}
+            </div>
+            ${state.subscriberGroups.length ? `<button class="btn-ghost subscriber-group-save" data-action="save-groups" type="button">Save groups</button>` : ""}
+          </details>
+        </td>
         <td><span class="dot ${s.status}"></span>${esc(s.status)}</td>
         <td class="row-actions">
           ${s.status === "subscribed"
@@ -1571,7 +1623,7 @@ function renderSubscribers() {
       }
     )
     .join("");
-  $("#subRows").innerHTML = rows || `<tr><td colspan="7" class="muted" style="padding:18px">No subscribers yet.</td></tr>`;
+  $("#subRows").innerHTML = rows || `<tr><td colspan="8" class="muted" style="padding:18px">No subscribers match this search or group.</td></tr>`;
   const selectAll = $("#subSelectAll");
   if (selectAll) {
     selectAll.checked = allChecked;
@@ -1771,6 +1823,8 @@ async function loadArticles() {
 async function loadSubscribers() {
   const data = await api("GET", cfg.subscribers);
   state.subscribers = data.subscribers || [];
+  state.subscriberGroups = data.groups || [];
+  state.subscriberGroupMemberships = data.memberships || [];
   const validIds = new Set(state.subscribers.filter((s) => s.status === "subscribed").map((s) => s.id));
   state.selectedSubscribers.forEach((id) => {
     if (!validIds.has(id)) state.selectedSubscribers.delete(id);
@@ -2080,6 +2134,10 @@ async function handleSubscriberAction(row, action) {
   try {
     if (action === "delete") {
       await api("POST", cfg.subscribers, { action: "delete", id });
+    } else if (action === "save-groups") {
+      const groupIds = [...row.querySelectorAll(".subscriber-group-options input:checked")].map((input) => input.dataset.groupId);
+      await api("POST", cfg.subscribers, { action: "set-subscriber-groups", subscriber_id: id, group_ids: groupIds });
+      toast("Subscriber groups saved.");
     } else {
       const status = action === "subscribe" ? "subscribed" : "unsubscribed";
       await api("POST", cfg.subscribers, { action: "update", id, status });
@@ -2795,7 +2853,7 @@ $("#subRows").addEventListener("change", (e) => {
 
 $("#subSelectAll").addEventListener("change", (e) => {
   const checked = e.target.checked;
-  state.subscribers
+  visibleSubscribers()
     .filter((s) => subscriberMatchesCurrentAudience(s))
     .forEach((s) => {
       if (checked) state.selectedSubscribers.add(s.id);
@@ -2809,6 +2867,31 @@ $("#clearRecipientSelection").addEventListener("click", () => {
   state.selectedSubscribers.clear();
   refreshChrome();
   renderSubscribers();
+});
+
+$("#subSearch").addEventListener("input", (e) => {
+  state.subscriberSearch = e.target.value;
+  renderSubscribers();
+});
+
+$("#subGroupFilter").addEventListener("change", (e) => {
+  state.subscriberGroupFilter = e.target.value;
+  renderSubscribers();
+});
+
+$("#subGroupForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = $("#subGroupName");
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    await api("POST", cfg.subscribers, { action: "create-group", name });
+    input.value = "";
+    await reload({ silent: true });
+    toast("Subscriber group created.");
+  } catch (error) {
+    toast(`Failed: ${error.message}`);
+  }
 });
 
 // Add subscriber form
@@ -3107,3 +3190,4 @@ document.addEventListener("keydown", (e) => {
 // Initial load
 renderSubscriberTopicPicker();
 bootAuth();
+

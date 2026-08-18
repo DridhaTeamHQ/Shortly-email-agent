@@ -715,6 +715,25 @@ a:hover { text-decoration-color: var(--ink); }
 .sub-import-row .muted {
   flex: 1 1 320px;
 }
+.subscriber-tools {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--panel-border);
+  border-radius: 18px; background: var(--surface-glass);
+}
+.subscriber-search { display: flex; align-items: center; gap: 8px; flex: 1 1 270px; min-width: 220px; }
+.subscriber-search i { color: var(--brand); font-size: 18px; }
+.subscriber-search input { width: 100%; }
+#subGroupFilter { flex: 0 1 200px; min-width: 160px; }
+.subscriber-group-create { display: flex; gap: 8px; flex: 1 1 310px; }
+.subscriber-group-create input { min-width: 160px; flex: 1; }
+.subscriber-group-create .btn-ghost { white-space: nowrap; }
+.subscriber-groups-cell { min-width: 180px; }
+.subscriber-group-menu { position: relative; }
+.subscriber-group-menu summary { cursor: pointer; color: var(--brand-deep); font-weight: 700; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subscriber-group-menu[open] { z-index: 3; }
+.subscriber-group-options { display: grid; gap: 7px; margin: 9px 0; min-width: 190px; padding: 10px; border: 1px solid var(--panel-border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-md); }
+.subscriber-group-options label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink); }
+.subscriber-group-save { font-size: 12px; padding: 7px 10px; }
 .topic-picker {
   display: flex; gap: 7px; flex-wrap: wrap; align-items: center;
   min-height: 46px;
@@ -986,6 +1005,8 @@ a:hover { text-decoration-color: var(--ink); }
   .sub-contact-fields { grid-template-columns: 1fr; }
   .sub-submit { grid-column: 1; grid-row: auto; width: 100%; }
   .sub-form button { width: 100%; }
+  .subscriber-tools, .subscriber-group-create { align-items: stretch; flex-direction: column; }
+  #subGroupFilter { width: 100%; max-width: none; }
   .subscriber-bulk-bar { flex-direction: column; align-items: stretch; border-radius: var(--radius); }
   .fetch-today-card { flex-direction: column; text-align: center; padding: 18px; }
   .btn-fetch { width: 100%; min-width: unset; }
@@ -2111,3 +2132,4 @@ select:focus {
   .topbar-actions .btn-primary,
   .topbar-actions .btn-ghost { flex: 1 1 auto; }
 }
+
