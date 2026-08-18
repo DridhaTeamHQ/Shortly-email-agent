@@ -94,13 +94,13 @@ Rate the article's prominence on a scale of 1 to 5:
 
 Classify the article's SUBJECT into exactly one of these topics (judge by what the story is ABOUT, never by which outlet published it):
 "India" — Indian national news: governance, courts, crime, infrastructure, society, states.
-"Politics" — party politics and elections (Indian or foreign): leaders, alliances, campaigns, cabinet moves.
-"World" — international news whose primary subject is outside India.
+"Politics" - INDIAN party politics and elections ONLY: Indian parties, leaders, alliances, campaigns, Parliament, state assemblies, Indian cabinet moves.
+"World" - international news whose primary subject is outside India. This INCLUDES all foreign politics: foreign elections, foreign leaders, foreign parliaments, opposition figures and party politics in other countries.
 "Business" — markets, economy, companies, deals, startups, RBI/SEBI, personal finance.
 "Sports" — any sport: cricket, football, the World Cup, tennis, athletes, matches, tournaments.
 "Science" — research, health, space, climate, environment.
 "Technology" — tech products, AI, internet platforms, telecom, gadgets.
-A sports story from an Indian newspaper is still "Sports". An Indian company story is "Business". An election story is "Politics" even when it is also Indian news.
+An Indian election story is "Politics"; a foreign election or foreign leader story is "World", NEVER "Politics". A sports story from an Indian newspaper is still "Sports". An Indian company story is "Business".
 
 == OUTPUT ==
 
@@ -183,7 +183,8 @@ Rate 1 to 5:
 
 Exactly one, judged by what the story is ABOUT (never by which outlet published it):
 "India", "Politics", "World", "Business", "Sports", "Science", "Technology".
-A sports story in an Indian paper is still "Sports". An Indian company story is "Business". An election story is "Politics".
+"Politics" is INDIAN politics only. Foreign politics - a foreign election, leader, or opposition figure - is "World".
+A sports story in an Indian paper is still "Sports". An Indian company story is "Business".
 
 == OUTPUT ==
 

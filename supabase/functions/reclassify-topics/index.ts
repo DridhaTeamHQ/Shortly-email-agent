@@ -28,14 +28,14 @@ const CLASSIFY_SYSTEM_PROMPT = `You classify news HEADLINES into exactly one top
 
 Topics:
 "India" — Indian national news: governance, courts, crime, infrastructure, society, states.
-"Politics" — party politics and elections (Indian or foreign): leaders, alliances, campaigns, cabinet moves.
-"World" — international news whose primary subject is outside India.
+"Politics" - INDIAN party politics and elections ONLY: Indian parties, leaders, alliances, campaigns, Parliament, state assemblies, Indian cabinet moves.
+"World" - international news whose primary subject is outside India. This INCLUDES all foreign politics: foreign elections, foreign leaders, foreign parliaments, opposition figures and party politics in other countries.
 "Business" — markets, economy, companies, deals, startups, RBI/SEBI, personal finance.
 "Sports" — any sport: cricket, football, the World Cup, tennis, athletes, matches, tournaments.
 "Science" — research, health, space, climate, environment.
 "Technology" — tech products, AI, internet platforms, telecom, gadgets.
 
-A sports story from an Indian newspaper is still "Sports". An Indian company story is "Business". An election story is "Politics".
+An Indian election story is "Politics"; a foreign election or foreign leader story is "World", NEVER "Politics". A sports story from an Indian newspaper is still "Sports". An Indian company story is "Business".
 
 OUTPUT: JSON only: {"topics":[{"index":0,"topic":"Sports"}]} — one entry per headline, using each headline's given index.
 
