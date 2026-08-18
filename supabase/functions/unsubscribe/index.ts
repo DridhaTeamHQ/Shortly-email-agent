@@ -5,6 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { verifyUnsubToken } from "../_shared/unsub.ts";
+import { logoSvg } from "../_shared/brand.ts";
 
 function escapeHtml(v = "") {
   return v
@@ -59,9 +60,11 @@ function redirectToPage(params: Record<string, string>): Response {
  * The rewrite is case-sensitive; HTTP content types are not, so browsers treat
  * `TEXT/HTML` as HTML and the page renders. This is a gap in a deliberate
  * platform guard against serving HTML from supabase.co, so treat it as a
- * STOPGAP: set UNSUB_PAGE_URL to a page on a host you control and this function
- * redirects there instead, which is the durable arrangement. Supabase Storage
- * is not an option -- it applies the same rewrite.
+ * STOPGAP: set UNSUB_PAGE_URL to a page on a host that serves real files and
+ * this function 303s there instead, which is the durable arrangement. That page
+ * receives status / action / email / token as query parameters; the markup
+ * below is the reference for what it should show. Supabase Storage is not an
+ * option -- it applies the same rewrite.
  */
 function htmlPage(
   title: string,
@@ -69,17 +72,20 @@ function htmlPage(
   success: boolean,
   resubscribe?: { email: string; token: string },
 ): Response {
-  const icon = success
-    ? `<div class="mark ok"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3979ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>`
-    : `<div class="mark bad"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>`;
+  // The state mark. A ring rather than a filled disc: at this size a solid
+  // block of brand colour competes with the button for attention, and the
+  // button is the only thing here anyone needs to act on.
+  const mark = success
+    ? `<div class="mark ok"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>`
+    : `<div class="mark bad"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>`;
 
-  // Values are escaped for the HTML body AND JSON-encoded for the script, so
-  // an address can never break out of either context.
+  // Escaped for the HTML body and JSON-encoded for the script, so an address
+  // can never break out of either context.
   const button = resubscribe
     ? `
       <div class="actions">
         <button id="again" type="button">Subscribe again</button>
-        <div class="note" id="note" role="status" aria-live="polite"></div>
+        <p class="note" id="note" role="status" aria-live="polite"></p>
       </div>
       <script>
         (function () {
@@ -101,7 +107,7 @@ function htmlPage(
               .then(function (d) {
                 if (d && d.ok) {
                   note.className = "note ok";
-                  note.textContent = "You're subscribed again. Your next wrap arrives tomorrow morning.";
+                  note.textContent = "You're back on the list. Your next wrap arrives tomorrow morning.";
                   btn.textContent = "Subscribed";
                 } else {
                   note.className = "note bad";
@@ -125,37 +131,85 @@ function htmlPage(
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="robots" content="noindex"/>
+<meta name="color-scheme" content="light dark"/>
 <title>${escapeHtml(title)} - dailymattr</title>
 <style>
+/* System stack: this page is opened from a mail client, often on a phone with
+   no network to spare. A webfont would block the render it is decorating. */
+:root{
+  --bg:#f6f8fc; --card:#ffffff; --ink:#0f1729; --muted:#5b6478;
+  --line:#e4e9f2; --brand:#3979ff; --brand-ink:#2f66e0;
+  --ok-bg:#eaf1ff; --bad:#dc2626; --bad-bg:#fee2e2; --chip:#f4f6fb;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0d1220; --card:#141b2d; --ink:#eef2fb; --muted:#9aa4bd;
+    --line:#243049; --ok-bg:#17264a; --bad-bg:#3a1a1e; --chip:#1b2438;
+  }
+}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Inter,'Helvetica Neue',Arial,sans-serif;background:#f4f8ff;color:#1a1a2e;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
-.header{font-size:28px;font-weight:800;color:#3979ff;letter-spacing:-0.5px;margin-bottom:40px}
-.card{background:#fff;border-radius:16px;padding:48px 40px;max-width:480px;width:100%;text-align:center;border:1px solid #d7e5ff;box-shadow:0 4px 24px rgba(57,121,255,0.12)}
-.mark{width:56px;height:56px;border-radius:50%;margin:0 auto 20px;display:flex;align-items:center;justify-content:center}
-.mark.ok{background:#eaf1ff}.mark.bad{background:#fee2e2}
-h1{font-size:22px;font-weight:700;margin-bottom:12px;letter-spacing:-0.3px}
-p.msg{font-size:15px;line-height:1.6;color:#6b6b8a}
-.addr{display:block;margin-top:10px;font-size:14px;color:#1a1a2e;font-weight:600;word-break:break-all}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;
+  background:var(--bg); color:var(--ink);
+  min-height:100vh; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; padding:32px 20px;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{width:100%;max-width:460px;text-align:center}
+.logo{color:var(--brand);margin-bottom:36px;display:inline-block;line-height:0}
+.logo svg{max-width:100%;height:auto}
+.card{
+  background:var(--card); border:1px solid var(--line); border-radius:18px;
+  padding:44px 36px 40px; box-shadow:0 1px 2px rgba(15,23,41,.04),0 12px 32px -12px rgba(15,23,41,.12);
+}
+.mark{
+  width:56px;height:56px;border-radius:50%;margin:0 auto 22px;
+  display:flex;align-items:center;justify-content:center;
+}
+.mark.ok{background:var(--ok-bg);color:var(--brand)}
+.mark.bad{background:var(--bad-bg);color:var(--bad)}
+h1{font-size:23px;line-height:1.3;font-weight:700;letter-spacing:-.02em;margin-bottom:10px}
+p.msg{font-size:15px;line-height:1.6;color:var(--muted)}
+/* The address is evidence, not decoration: readers check it to be sure the
+   right inbox was affected, so it gets its own quiet block. */
+.addr{
+  display:inline-block;margin-top:18px;padding:9px 14px;border-radius:9px;
+  background:var(--chip);border:1px solid var(--line);
+  font-size:13.5px;font-weight:600;color:var(--ink);
+  word-break:break-all;line-height:1.4;
+}
 .actions{margin-top:28px}
-button{font:600 15px/1 Inter,Arial,sans-serif;padding:13px 26px;border-radius:10px;border:0;background:#3979ff;color:#fff;cursor:pointer}
-button:hover:not(:disabled){background:#2f6ae6}
-button:disabled{opacity:.55;cursor:default}
-.note{margin-top:14px;font-size:14px;line-height:1.5;min-height:20px}
-.note.ok{color:#1a7f43}.note.bad{color:#dc2626}
-.footer{margin-top:40px;text-align:center;color:#9a9ab0;font-size:12px;line-height:1.5}
+button{
+  font:600 15px/1 inherit;font-family:inherit;
+  min-height:46px;padding:0 26px;border:0;border-radius:11px;
+  background:var(--brand);color:#fff;cursor:pointer;
+  transition:background .15s ease;
+}
+button:hover:not(:disabled){background:var(--brand-ink)}
+button:focus-visible{outline:2px solid var(--brand);outline-offset:3px}
+button:disabled{opacity:.5;cursor:default}
+.note{margin-top:14px;font-size:14px;line-height:1.5;min-height:20px;color:var(--muted)}
+.note.ok{color:#15803d}
+.note.bad{color:var(--bad)}
+.footer{margin-top:28px;font-size:12.5px;line-height:1.6;color:var(--muted);opacity:.85}
+@media (max-width:420px){
+  .card{padding:36px 22px 32px;border-radius:16px}
+  h1{font-size:21px}
+}
 </style>
 </head>
 <body>
-<div class="header">dailymattr</div>
-<div class="card">
-  ${icon}
-  <h1>${escapeHtml(title)}</h1>
-  <p class="msg">${escapeHtml(message)}${
-    resubscribe ? `<span class="addr">${escapeHtml(resubscribe.email)}</span>` : ""
-  }</p>
-  ${button}
+<div class="wrap">
+  <span class="logo">${logoSvg(188)}</span>
+  <div class="card">
+    ${mark}
+    <h1>${escapeHtml(title)}</h1>
+    <p class="msg">${escapeHtml(message)}</p>
+    ${resubscribe ? `<span class="addr">${escapeHtml(resubscribe.email)}</span>` : ""}
+    ${button}
+  </div>
+  <p class="footer">Curated news, summarized daily.<br>&copy; ${new Date().getFullYear()} dailymattr</p>
 </div>
-<div class="footer">Curated news, summarized daily.<br>&copy; ${new Date().getFullYear()} dailymattr</div>
 </body>
 </html>`;
 
