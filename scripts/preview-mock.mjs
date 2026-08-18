@@ -64,7 +64,7 @@ const store = {
   editorialDrafts: [DRAFT("real-estate", "Real Estate", "hybrid", "approved"), DRAFT("money-matters", "Money Matters", "hybrid", "draft"), DRAFT("policy-partner", "Policy Partner", "single", "approved"), DRAFT("wellness-daily", "Wellness Daily", "single", "draft")],
   // Mixed statuses on purpose: the dashboard's status filter cannot be tested
   // against an all-"subscribed" fixture, and unsubscribed/bounced rows are
-  // exactly the ones the send path hides.
+  // exactly the ones every send path hides.
   subscribers: [
     { id: SUB_IDS[0], email: "reader@example.com", full_name: "Reader", phone_number: null, topics: ["daily-wrap"], status: "subscribed", created_at: now() },
     { id: SUB_IDS[1], email: "analyst@example.com", full_name: "Analyst", phone_number: null, topics: ["corporate-case", "money-matters"], status: "subscribed", created_at: now() },
@@ -72,8 +72,8 @@ const store = {
     { id: SUB_IDS[3], email: "dead@example.com", full_name: "Hard Bounce", phone_number: null, topics: ["daily-wrap"], status: "bounced", created_at: now() }
   ],
   // The real /subscribers function returns groups + memberships alongside the
-  // rows; the mock predates that feature and the dashboard renders group chips
-  // from it.
+  // rows; this mock predates that feature and the dashboard renders group
+  // chips from it.
   subscriberGroups: [
     { id: GROUP_IDS[0], name: "monday batch", created_at: now() },
     { id: GROUP_IDS[1], name: "tuesday batch", created_at: now() }

@@ -563,7 +563,7 @@ const state = {
   subscriberSearch: "",
   subscriberGroupFilter: "",
   // "" = every status. Unsubscribed and bounced rows are already in the table
-  // but were only findable by scrolling; the send path filters on
+  // but were only findable by scrolling; every send path filters on
   // status = 'subscribed', so this is how you see who is NOT receiving mail.
   subscriberStatusFilter: "",
   digests: [],
