@@ -150,11 +150,21 @@ Deno.serve(async (request) => {
   // having any approved content.
   let intro = false;
   let introTo: string | null = null;
-  // {"intro":true,"intro_batch":"tuesday-2026-08-18"} announces to ONE intake.
+  // {"intro":true,"intro_group":"tuesday batch"} announces to ONE group.
   // An announcement belongs to the people who just arrived, not to the whole
   // list -- without this the only choices were one address or all of them, and
   // re-announcing to everyone is how a list earns spam complaints.
-  let introBatch: string | null = null;
+  //
+  // Targets subscriber_groups, the same groups the dashboard manages, rather
+  // than a private column: two places recording "which intake is this" drift
+  // the moment someone edits a group in the UI, and the send would quietly
+  // miss them.
+  let introGroup: string | null = null;
+  // {"dry_run":true} resolves the audience and returns it WITHOUT sending.
+  // A broadcast cannot be recalled, and the only way to learn who a filter
+  // actually selected used to be to mail them. Targeting bugs fail loudly here
+  // instead of in someone's inbox.
+  let dryRun = false;
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     subscriberIds = Array.isArray(body?.subscriber_ids)
@@ -170,9 +180,10 @@ Deno.serve(async (request) => {
     drainLimit = Math.min(1000, Math.max(1, Number(body?.limit) || 500));
     intro = body?.intro === true;
     introTo = typeof body?.intro_to === "string" && body.intro_to.includes("@") ? body.intro_to : null;
-    introBatch = typeof body?.intro_batch === "string" && body.intro_batch.trim().length > 0
-      ? body.intro_batch.trim()
+    introGroup = typeof body?.intro_group === "string" && body.intro_group.trim().length > 0
+      ? body.intro_group.trim()
       : null;
+    dryRun = body?.dry_run === true;
   }
 
   // A test address is a single-recipient override. Never route it through the
@@ -189,15 +200,33 @@ Deno.serve(async (request) => {
     if (introTo) {
       targets.push({ id: null, email: introTo, full_name: null });
     } else {
+      // Resolve the group NAME to an id first. Names are unique on lower(name),
+      // so match case-insensitively -- "Tuesday Batch" and "tuesday batch" are
+      // the same group, and silently mailing nobody because of a capital letter
+      // would look identical to success.
+      let groupId: string | null = null;
+      if (introGroup) {
+        const { data: g, error: gErr } = await supabase
+          .from("subscriber_groups")
+          .select("id,name")
+          .ilike("name", introGroup)
+          .maybeSingle();
+        if (gErr) return json({ error: gErr.message }, 500);
+        if (!g) return json({ error: `No subscriber group named "${introGroup}".` }, 400);
+        groupId = g.id as string;
+      }
+
       // Page it: a bare select is capped by PostgREST max-rows, which would
       // silently mail only the first page and report success.
       const PAGE = 1000;
       for (let from = 0; ; from += PAGE) {
+        // !inner turns the embed into a JOIN, so this filters subscribers by
+        // membership without shipping hundreds of ids through the query string.
         let sq = supabase
           .from("subscribers")
-          .select("id,email,full_name")
+          .select(groupId ? "id,email,full_name,subscriber_group_members!inner(group_id)" : "id,email,full_name")
           .eq("status", "subscribed");
-        if (introBatch) sq = sq.eq("import_batch", introBatch);
+        if (groupId) sq = sq.eq("subscriber_group_members.group_id", groupId);
         const { data: subs, error: sErr } = await sq
           .order("id")
           .range(from, from + PAGE - 1);
@@ -209,6 +238,16 @@ Deno.serve(async (request) => {
       }
     }
     if (targets.length === 0) return json({ mode: "intro", sent: 0, failed: 0, reason: "no subscribers" });
+
+    if (dryRun) {
+      return json({
+        mode: "intro-dry-run",
+        group: introGroup,
+        wouldSend: targets.length,
+        sample: targets.slice(0, 5).map((t) => t.email),
+        sent: 0,
+      });
+    }
 
     let iSent = 0;
     let iFailed = 0;
@@ -237,8 +276,8 @@ Deno.serve(async (request) => {
       }));
     }
     return json({
-      mode: introTo ? "intro-preview" : introBatch ? `intro-batch:${introBatch}` : "intro",
-      batch: introBatch,
+      mode: introTo ? "intro-preview" : introGroup ? `intro-group:${introGroup}` : "intro",
+      group: introGroup,
       recipients: targets.length,
       sent: iSent,
       failed: iFailed,
