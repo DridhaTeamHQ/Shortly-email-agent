@@ -24,6 +24,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
+import { DESKS, DESK_TOPICS, isDesk } from "../_shared/desks.ts";
 
 const SHORT_CATEGORIES = ["Real Estate", "Automobile", "Health & Wellness", "Tech & AI", "Markets & Startups"];
 const CATEGORY_SLUG: Record<string, string> = {
@@ -134,11 +135,35 @@ async function handle(supabase: any): Promise<Response> {
     // Pull a generous candidate window (recent summarized General), then filter
     // out topic members in code and take the top `need` by rank.
     const { data: cands } = await supabase.from("articles")
-      .select("id,rank_score")
+      .select("id,rank_score,topic")
       .is("category", null).eq("status", "summarized")
       .order("rank_score", { ascending: false, nullsFirst: false })
-      .limit(generalNeed + topicMemberIds.size + 20);
-    const pick = (cands ?? []).filter((a: any) => !topicMemberIds.has(a.id)).slice(0, generalNeed).map((a: any) => a.id);
+      .limit(generalNeed + topicMemberIds.size + 60);
+    const eligible = (cands ?? []).filter((a: any) => !topicMemberIds.has(a.id));
+    const pick = (eligible.slice(0, generalNeed).map((a: any) => a.id)) as string[];
+
+    // ---- reserved approvals for the guaranteed desks -------------------------
+    // The wrap can only choose from what is APPROVED, so a finance or tech
+    // story that never clears this quota is invisible to it no matter how the
+    // selection rules are written. Tech ranks last here for the same structural
+    // reason it ranks last everywhere: lowest source weights, fewest feeds.
+    //
+    // If the day's approvals contain nothing from a desk, promote that desk's
+    // best candidate in place of the weakest general pick. The quota total is
+    // unchanged -- this decides the MIX, never the volume.
+    const chosen = new Set(pick);
+    for (const desk of DESKS) {
+      const alreadyToday = await countApprovedToday(
+        supabase, dayStart, (q) => q.is("category", null).in("topic", DESK_TOPICS[desk]),
+      );
+      const inThisBatch = eligible.some((a: any) => chosen.has(a.id) && isDesk(desk, a.topic));
+      if (alreadyToday > 0 || inThisBatch) continue;
+      const best = eligible.find((a: any) => !chosen.has(a.id) && isDesk(desk, a.topic));
+      if (!best) continue; // nothing from that desk today -- nothing to force
+      if (pick.length >= generalNeed) pick.pop(); // drop the weakest, keep the total
+      pick.push(best.id);
+      chosen.add(best.id);
+    }
     if (pick.length) {
       const { data: upd } = await supabase.from("articles")
         .update({ status: "approved", reviewed_at: nowIso, reviewed_by: REVIEWER })

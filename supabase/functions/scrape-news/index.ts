@@ -19,6 +19,7 @@ import { SOURCES as STATIC_SOURCES } from "../_shared/sources.ts";
 import { parseFeed } from "../_shared/rss.ts";
 import { looksLikeJunk, qualityScore } from "../_shared/quality.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
+import { DESK_TOPIC_LIST } from "../_shared/desks.ts";
 
 type RegistrySource = {
   name: string;
@@ -273,7 +274,42 @@ Deno.serve(async (request) => {
   let worldUsed = 0;
   const ranked: Array<Record<string, unknown>> = [];
   const takenUrls = new Set<string>();
+
+  // ---- reserved intake for the guaranteed desks -----------------------------
+  // rank_score is source.weight x qualityScore, and the tech feeds carry the
+  // lowest weights in the registry (0.75-0.80, against 0.95-1.00 for the big
+  // India desks) from only four sources against fourteen. On a 1,800-item day
+  // the global top-120 cut is decided entirely by the India/Politics/Business
+  // feeds, so tech is not merely under-represented -- it is absent. Measured
+  // 2026-08-18: six tech/science sources all fetching cleanly, zero failures,
+  // ONE article ingested in three days.
+  //
+  // So take the best few from those topics BEFORE the open contest rather than
+  // asking them to win it. This is a floor, not a boost: they keep their real
+  // rank_score everywhere downstream, and a topic with nothing to offer simply
+  // contributes nothing here.
+  const DESK_FLOOR = (() => {
+    const v = Number(Deno.env.get("SCRAPE_DESK_FLOOR"));
+    return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 8;
+  })();
+  for (const topic of DESK_TOPIC_LIST) {
+    let taken = 0;
+    for (const item of sorted) {
+      if (taken >= DESK_FLOOR || ranked.length >= SCRAPE_LIMIT) break;
+      if (String(item.topic ?? "") !== topic) continue;
+      if (takenUrls.has(item.url as string)) continue;
+      const src = String(item.source ?? "unknown");
+      const used = perSource.get(src) ?? 0;
+      if (used >= PER_SOURCE_CAP) continue;
+      perSource.set(src, used + 1);
+      ranked.push(item);
+      takenUrls.add(item.url as string);
+      taken++;
+    }
+  }
+
   for (const item of sorted) {
+    if (takenUrls.has(item.url as string)) continue;
     if (ranked.length >= SCRAPE_LIMIT) break;
     const src = String(item.source ?? "unknown");
     const used = perSource.get(src) ?? 0;

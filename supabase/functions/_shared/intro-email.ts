@@ -21,7 +21,7 @@ import { renderPrivacyFooter } from "./privacy.ts";
 // moment it exists.
 const BANNER_URL =
   Deno.env.get("SHORTLY_INTRO_BANNER_URL") ??
-  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/intro-banner-v2.jpg";
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner-v3.jpg";
 const LOGO_URL =
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/dailymattr-primary-logo.png";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "https://longmattr.com").replace(/\/+$/, "");

@@ -24,6 +24,7 @@
 
 import { chatCompletionRaw } from "./summary-clean.ts";
 import { mediaGroupOf } from "./trending.ts";
+import { DESKS, type Desk, isDesk, POLITICS_TOPIC } from "./desks.ts";
 
 export type PickArticle = {
   id: string;
@@ -62,6 +63,10 @@ function num(name: string, fallback: number): number {
 const MAX_CLASS_A = () => num("WRAP_MAX_BREAKING", 3);
 const MAX_CLASS_B = () => num("WRAP_MAX_EXPLAINER", 1);
 const MAX_PER_TOPIC = () => num("WRAP_MAX_PER_TOPIC", 2);
+// Politics is allowed three of the five slots. Every other topic keeps the
+// normal cap -- three politics stories is a decision about politics, not a
+// general loosening.
+const MAX_POLITICS = () => num("WRAP_MAX_POLITICS", 3);
 // Saturation: distinct independent media GROUPS carrying the story. Groups, not
 // feed names — TOI and Economic Times are one owner and must not double-count.
 const SATURATION_GROUPS = () => num("WRAP_SATURATION_GROUPS", 3);
@@ -306,6 +311,7 @@ function sameEvent(
 }
 
 const topicOf = (a: PickArticle) => (a.topic || "General").trim();
+const isDeskArticle = (d: Desk, a: PickArticle) => isDesk(d, a.topic);
 
 /**
  * Order the day's General pool so the first `slots` entries are the wrap.
@@ -343,11 +349,28 @@ export function orderWrapPool(
   // actually produced three or more independently-corroborated breaking stories.
   const megaDay = breaking.length >= 3;
   const topicCap = () => (megaDay ? MAX_PER_TOPIC() + 1 : MAX_PER_TOPIC());
-  const topicOk = (a: PickArticle) => (topicCount.get(topicOf(a)) ?? 0) < topicCap();
+  // Politics carries its own, higher cap: three of five is an accepted mix for
+  // this wrap, whereas three of anything else still reads as a monoculture.
+  const capFor = (topic: string) => (topic === POLITICS_TOPIC ? Math.max(MAX_POLITICS(), topicCap()) : topicCap());
+  const topicOk = (a: PickArticle) => (topicCount.get(topicOf(a)) ?? 0) < capFor(topicOf(a));
+
+  // ---- mandatory desk coverage ----------------------------------------------
+  // One finance story and one tech story in every wrap. A desk is only claimed
+  // when the pool can actually supply it -- an empty tech pool must shorten
+  // nothing and must never leave a hole in the five.
+  const deskSupply = new Map<Desk, PickArticle[]>(
+    DESKS.map((d) => [d, deduped.filter((a) => isDeskArticle(d, a))]),
+  );
+  const deskMet = (d: Desk) => chosen.some((c) => isDeskArticle(d, c));
+  const unmetDesks = () => DESKS.filter((d) => (deskSupply.get(d)?.length ?? 0) > 0 && !deskMet(d));
+  // Slots the discretionary passes may use right now: the full five minus one
+  // held back for each guarantee still outstanding. As soon as a pass happens
+  // to pick a finance or tech story on merit, its reservation is released.
+  const openSlots = () => slots - unmetDesks().length;
 
   // 2. Class A — consensus breaking, capped.
   for (const a of breaking) {
-    if (chosen.length >= slots) break;
+    if (chosen.length >= openSlots()) break;
     if (chosen.filter((c) => isBreakingStory(c, now, flagByUrl)).length >= MAX_CLASS_A()) break;
     if (topicOk(a)) take(a);
   }
@@ -360,14 +383,14 @@ export function orderWrapPool(
     return j ? j.explainer && j.backstory : looksLikeExplainer(a);
   });
   for (const a of explainers.slice(0, MAX_CLASS_B())) {
-    if (chosen.length >= slots) break;
+    if (chosen.length >= openSlots()) break;
     if (topicOk(a)) take(a);
   }
 
   // 4. Class C — a top-tier figure who is genuinely central, an institution, or
   // a story with real national salience.
   for (const a of deduped) {
-    if (chosen.length >= slots) break;
+    if (chosen.length >= openSlots()) break;
     if (has(a)) continue;
     const j = judged.get(a.id);
     const qualifies = j
@@ -378,8 +401,18 @@ export function orderWrapPool(
 
   // 5. Fill any remaining slots by raw strength (topic cap still applies).
   for (const a of deduped) {
-    if (chosen.length >= slots) break;
+    if (chosen.length >= openSlots()) break;
     if (!has(a) && topicOk(a)) take(a);
+  }
+
+  // 5b. Claim the reserved slots. Strongest available story from each desk that
+  // is still unrepresented; the topic cap is not consulted, because this IS the
+  // rule the cap would otherwise be overriding.
+  for (const d of DESKS) {
+    if (chosen.length >= slots) break;
+    if (deskMet(d)) continue;
+    const pick = (deskSupply.get(d) ?? []).find((a) => !has(a));
+    if (pick) take(pick);
   }
   // 6. Last resort: ignore the topic cap rather than ship a short wrap.
   for (const a of deduped) {

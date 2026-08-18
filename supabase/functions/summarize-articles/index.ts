@@ -12,6 +12,7 @@ import { factCheckArticle, type FactCheckResult } from "../_shared/fact-check.ts
 import { findRelatedSources } from "../_shared/related-sources.ts";
 import { embedTexts } from "../_shared/embeddings.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
+import { DESKS, DESK_TOPICS, deskOf, isDesk } from "../_shared/desks.ts";
 
 type Article = {
   id: string;
@@ -19,6 +20,9 @@ type Article = {
   url: string;
   raw_content: string | null;
   source: string | null;
+  // Registry topic ("Business", "Technology", ...). Drives the reserved desk
+  // places below; null on rows from sources with no topic set.
+  topic: string | null;
   rank_score: number | null;
   scraped_at: string;
 };
@@ -68,7 +72,7 @@ Deno.serve(async (request) => {
   const { data: pending, error } = restyle
     ? await supabase
         .from("articles")
-        .select("id,title,url,raw_content,source,rank_score,scraped_at")
+        .select("id,title,url,raw_content,source,topic,rank_score,scraped_at")
         .in("status", ["approved", "sent", "summarized"])
         .not("summary", "is", null)
         .gte("scraped_at", new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
@@ -76,7 +80,7 @@ Deno.serve(async (request) => {
         .limit(restyleLimit)
     : await supabase
         .from("articles")
-        .select("id,title,url,raw_content,source,rank_score,scraped_at")
+        .select("id,title,url,raw_content,source,topic,rank_score,scraped_at")
         .eq("status", "pending")
         .gte("scraped_at", since)
         .order("rank_score", { ascending: false })
@@ -85,7 +89,56 @@ Deno.serve(async (request) => {
 
   if (error) return json({ error: error.message }, 500);
 
-  const articles = (pending ?? []) as Article[];
+  let articles = (pending ?? []) as Article[];
+
+  // ---- reserved places for the guaranteed desks ------------------------------
+  // The batch above is the top MAX_PER_RUN pending rows by rank_score, and tech
+  // sits at the bottom of that ordering by construction (lowest source weights,
+  // fewest feeds). Left alone, tech articles get scraped and then never
+  // summarized, so they can never reach the approved pool the wrap selects
+  // from -- and "one tech story a day" would be a slot with nothing to put in
+  // it.
+  //
+  // Swap rather than append: the batch size is a cost and edge-timeout budget,
+  // so a reserved tech row displaces the weakest general row instead of
+  // growing the run.
+  if (!restyle && articles.length > 0) {
+    const RESERVE = (() => {
+      const v = Number(Deno.env.get("SUMMARIZE_DESK_RESERVE"));
+      return Number.isFinite(v) && v >= 0 ? Math.floor(v) : 2;
+    })();
+    // PER DESK, not pooled. Finance is plentiful and tech is not, so a combined
+    // count is always satisfied by Business alone and the tech top-up would
+    // never fire -- which is exactly the failure this block exists to prevent.
+    for (const desk of DESKS) {
+      const held = articles.filter((a) => isDesk(desk, a.topic)).length;
+      const short = Math.max(0, RESERVE - held);
+      if (short <= 0) continue;
+      const { data: deskRows } = await supabase
+        .from("articles")
+        .select("id,title,url,raw_content,source,topic,rank_score,scraped_at")
+        .eq("status", "pending")
+        .gte("scraped_at", since)
+        .in("topic", DESK_TOPICS[desk])
+        .order("rank_score", { ascending: false })
+        .order("scraped_at", { ascending: false })
+        .limit(short + 5);
+      const have = new Set(articles.map((a) => a.id));
+      const extras = ((deskRows ?? []) as Article[]).filter((a) => !have.has(a.id)).slice(0, short);
+      if (extras.length === 0) continue;
+      // Make room by dropping the weakest rows that belong to NO desk, so a
+      // tech top-up never evicts the finance story it is sharing the run with.
+      const droppable = new Set(
+        articles
+          .filter((a) => !deskOf(a.topic))
+          .sort((x, y) => Number(x.rank_score ?? 0) - Number(y.rank_score ?? 0))
+          .slice(0, extras.length)
+          .map((a) => a.id),
+      );
+      articles = [...articles.filter((a) => !droppable.has(a.id)), ...extras];
+    }
+  }
+
   if (articles.length === 0) return json({ summarized: 0, message: "No pending articles" });
 
   // Title embeddings for the whole batch in ONE call (effectively free) —
