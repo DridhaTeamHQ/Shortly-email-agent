@@ -150,6 +150,11 @@ Deno.serve(async (request) => {
   // having any approved content.
   let intro = false;
   let introTo: string | null = null;
+  // {"intro":true,"intro_batch":"tuesday-2026-08-18"} announces to ONE intake.
+  // An announcement belongs to the people who just arrived, not to the whole
+  // list -- without this the only choices were one address or all of them, and
+  // re-announcing to everyone is how a list earns spam complaints.
+  let introBatch: string | null = null;
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     subscriberIds = Array.isArray(body?.subscriber_ids)
@@ -165,6 +170,9 @@ Deno.serve(async (request) => {
     drainLimit = Math.min(1000, Math.max(1, Number(body?.limit) || 500));
     intro = body?.intro === true;
     introTo = typeof body?.intro_to === "string" && body.intro_to.includes("@") ? body.intro_to : null;
+    introBatch = typeof body?.intro_batch === "string" && body.intro_batch.trim().length > 0
+      ? body.intro_batch.trim()
+      : null;
   }
 
   // A test address is a single-recipient override. Never route it through the
@@ -185,10 +193,12 @@ Deno.serve(async (request) => {
       // silently mail only the first page and report success.
       const PAGE = 1000;
       for (let from = 0; ; from += PAGE) {
-        const { data: subs, error: sErr } = await supabase
+        let sq = supabase
           .from("subscribers")
           .select("id,email,full_name")
-          .eq("status", "subscribed")
+          .eq("status", "subscribed");
+        if (introBatch) sq = sq.eq("import_batch", introBatch);
+        const { data: subs, error: sErr } = await sq
           .order("id")
           .range(from, from + PAGE - 1);
         if (sErr) return json({ error: sErr.message }, 500);
@@ -227,7 +237,8 @@ Deno.serve(async (request) => {
       }));
     }
     return json({
-      mode: introTo ? "intro-preview" : "intro",
+      mode: introTo ? "intro-preview" : introBatch ? `intro-batch:${introBatch}` : "intro",
+      batch: introBatch,
       recipients: targets.length,
       sent: iSent,
       failed: iFailed,
