@@ -77,13 +77,7 @@ async function addSubscribersToGroup(
   subscriberIds: string[],
 ) {
   if (!groupId || subscriberIds.length === 0) return;
-  const { data: group, error: groupError } = await supabase
-    .from("subscriber_groups")
-    .select("id")
-    .eq("id", groupId)
-    .maybeSingle();
-  if (groupError) throw new Error(groupError.message);
-  if (!group) throw new Error("The selected group no longer exists.");
+  await validateSubscriberGroup(supabase, groupId);
 
   const { error } = await supabase
     .from("subscriber_group_members")
@@ -92,6 +86,20 @@ async function addSubscribersToGroup(
       { onConflict: "subscriber_id,group_id", ignoreDuplicates: true },
     );
   if (error) throw new Error(error.message);
+}
+
+async function validateSubscriberGroup(
+  supabase: ReturnType<typeof createClient>,
+  groupId: string,
+) {
+  if (!groupId) return;
+  const { data: group, error: groupError } = await supabase
+    .from("subscriber_groups")
+    .select("id")
+    .eq("id", groupId)
+    .maybeSingle();
+  if (groupError) throw new Error(groupError.message);
+  if (!group) throw new Error("The selected group no longer exists.");
 }
 
 // ---------- legacy plan model (kept for the old QA dashboard form) ----------
@@ -374,12 +382,22 @@ Deno.serve(async (request) => {
       const normalizedPhone = phone_number?.trim() || null;
       const groupId = String(body.group_id ?? "").trim();
 
+      try {
+        await validateSubscriberGroup(supabase, groupId);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "The selected group is unavailable." }, 400);
+      }
+
       const plan = normalizePlan(body.plan);
       const category = plan === "daily-wrap" ? null : normalizePlanCategory(body.category);
       if (plan !== "daily-wrap" && !category) {
         return json({ error: "Please choose a category for this plan." }, 400);
       }
-      const normalizedTopics = topicsForPlan(plan, category);
+      // The dashboard topic picker sends `topics`; keep plan-based requests
+      // backward compatible for older callers that do not provide it.
+      const normalizedTopics = "topics" in body
+        ? normalizeTopics(body.topics)
+        : topicsForPlan(plan, category);
 
       const { data: existing, error: existingError } = await supabase
         .from("subscribers")
@@ -431,6 +449,11 @@ Deno.serve(async (request) => {
     if (action === "import") {
       const rows = Array.isArray(body.subscribers) ? body.subscribers : [];
       const groupId = String(body.group_id ?? "").trim();
+      try {
+        await validateSubscriberGroup(supabase, groupId);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "The selected group is unavailable." }, 400);
+      }
       const updatedAt = new Date().toISOString();
       const normalizedByEmail = new Map<string, Record<string, unknown>>();
       for (const row of rows) {
