@@ -368,20 +368,22 @@
               <p class="sub-field-label">Newsletter subscriptions</p>
               <div class="topic-picker" id="subTopicPicker" aria-label="Subscriber topics"></div>
             </div>
+            <div class="sub-group-field">
+              <p class="sub-field-label">Add to group</p>
+              <select id="subAddGroup" aria-label="Add manual subscriber to group"><option value="">No group</option></select>
+            </div>
             <button class="btn-primary sub-submit" type="submit">Add subscriber</button>
           </form>
           <div class="sub-form sub-import-row">
             <input id="subCsvFile" type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            <select id="subImportGroup" aria-label="Add imported subscribers to group"><option value="">No group</option></select>
             <button id="importCsvBtn" class="btn-ghost" type="button">Upload File</button>
             <span class="muted">Accepted columns: name, email, phone number, topics/category. Supported files: CSV, XLSX, XLS.</span>
           </div>
           <div class="subscriber-tools" aria-label="Subscriber search and groups">
             <label class="subscriber-search" for="subSearch"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input id="subSearch" type="search" placeholder="Search name, email, phone, or group" /></label>
             <select id="subGroupFilter" aria-label="Filter subscribers by group"><option value="">All groups</option></select>
-            <form id="subGroupForm" class="subscriber-group-create">
-              <input id="subGroupName" type="text" maxlength="80" placeholder="New group name" aria-label="New group name" />
-              <button class="btn-ghost" type="submit"><i class="ph ph-plus" aria-hidden="true"></i> Create group</button>
-            </form>
+            <button id="createSubscriberGroup" class="btn-ghost" type="button"><i class="ph ph-plus" aria-hidden="true"></i> Create group</button>
           </div>
           <div class="subscriber-bulk-bar" id="subscriberBulkBar">
             <label class="subscriber-select-all">

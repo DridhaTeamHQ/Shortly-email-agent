@@ -681,7 +681,8 @@ a:hover { text-decoration-color: var(--ink); }
   width: 100%;
   min-width: 0;
 }
-.sub-topic-field { min-width: 0; }
+.sub-topic-field, .sub-group-field { min-width: 0; }
+.sub-group-field select { width: 100%; }
 .sub-field-label {
   margin: 0 0 7px;
   color: var(--muted);
@@ -692,7 +693,7 @@ a:hover { text-decoration-color: var(--ink); }
 }
 .sub-submit {
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1 / span 3;
   align-self: end;
   min-width: 168px;
   min-height: 46px;
@@ -712,6 +713,10 @@ a:hover { text-decoration-color: var(--ink); }
   min-width: 0;
   flex: 0 1 260px;
 }
+.sub-import-row select {
+  flex: 0 1 210px;
+  min-width: 160px;
+}
 .sub-import-row .muted {
   flex: 1 1 320px;
 }
@@ -724,9 +729,7 @@ a:hover { text-decoration-color: var(--ink); }
 .subscriber-search i { color: var(--brand); font-size: 18px; }
 .subscriber-search input { width: 100%; }
 #subGroupFilter { flex: 0 1 200px; min-width: 160px; }
-.subscriber-group-create { display: flex; gap: 8px; flex: 1 1 310px; }
-.subscriber-group-create input { min-width: 160px; flex: 1; }
-.subscriber-group-create .btn-ghost { white-space: nowrap; }
+#createSubscriberGroup { white-space: nowrap; }
 .subscriber-groups-cell { min-width: 180px; }
 .subscriber-group-menu { position: relative; }
 .subscriber-group-menu summary { cursor: pointer; color: var(--brand-deep); font-weight: 700; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1005,7 +1008,7 @@ a:hover { text-decoration-color: var(--ink); }
   .sub-contact-fields { grid-template-columns: 1fr; }
   .sub-submit { grid-column: 1; grid-row: auto; width: 100%; }
   .sub-form button { width: 100%; }
-  .subscriber-tools, .subscriber-group-create { align-items: stretch; flex-direction: column; }
+  .subscriber-tools { align-items: stretch; flex-direction: column; }
   #subGroupFilter { width: 100%; max-width: none; }
   .subscriber-bulk-bar { flex-direction: column; align-items: stretch; border-radius: var(--radius); }
   .fetch-today-card { flex-direction: column; text-align: center; padding: 18px; }
@@ -1557,6 +1560,7 @@ select:focus {
   #subPhone { grid-column: auto; }
   .sub-import-row { align-items: stretch; }
   .sub-import-row input[type="file"] { flex-basis: 100%; }
+  .sub-import-row select { flex-basis: 100%; }
   .table-wrap { border-radius: 18px; }
 }
 

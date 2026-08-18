@@ -1569,14 +1569,21 @@ function visibleSubscribers() {
 }
 
 function renderSubscriberGroupControls() {
-  const filter = $("#subGroupFilter");
-  if (!filter) return;
-  const selected = state.subscriberGroupFilter;
-  filter.innerHTML = `<option value="">All groups</option>${state.subscriberGroups
-    .map((group) => `<option value="${esc(group.id)}">${esc(group.name)}</option>`)
-    .join("")}`;
-  filter.value = state.subscriberGroups.some((group) => group.id === selected) ? selected : "";
-  state.subscriberGroupFilter = filter.value;
+  const groupExists = (value) => state.subscriberGroups.some((group) => group.id === value);
+  const setGroupOptions = (selector, emptyLabel, selectedValue = "") => {
+    const select = $(selector);
+    if (!select) return "";
+    const currentValue = selectedValue || select.value;
+    select.innerHTML = `<option value="">${emptyLabel}</option>${state.subscriberGroups
+      .map((group) => `<option value="${esc(group.id)}">${esc(group.name)}</option>`)
+      .join("")}`;
+    select.value = groupExists(currentValue) ? currentValue : "";
+    return select.value;
+  };
+
+  state.subscriberGroupFilter = setGroupOptions("#subGroupFilter", "All groups", state.subscriberGroupFilter);
+  setGroupOptions("#subAddGroup", "No group");
+  setGroupOptions("#subImportGroup", "No group");
 }
 
 function renderSubscribers() {
@@ -2885,14 +2892,16 @@ $("#subGroupFilter").addEventListener("change", (e) => {
   renderSubscribers();
 });
 
-$("#subGroupForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const input = $("#subGroupName");
-  const name = input.value.trim();
-  if (!name) return;
+$("#createSubscriberGroup").addEventListener("click", async () => {
+  const enteredName = window.prompt("Name this subscriber group");
+  if (enteredName === null) return;
+  const name = enteredName.trim();
+  if (!name) {
+    toast("Enter a group name to create it.");
+    return;
+  }
   try {
     await api("POST", cfg.subscribers, { action: "create-group", name });
-    input.value = "";
     await refreshSubscribersView();
     toast("Subscriber group created.");
   } catch (error) {
@@ -2907,14 +2916,16 @@ $("#subForm").addEventListener("submit", async (e) => {
   const full_name = $("#subName").value.trim();
   const phone_number = $("#subPhone").value.trim();
   const topics = selectedSubscriberTopics();
+  const group_id = $("#subAddGroup").value;
   if (!email) return;
   try {
-    await api("POST", cfg.subscribers, { action: "add", email, full_name, phone_number, topics });
+    await api("POST", cfg.subscribers, { action: "add", email, full_name, phone_number, topics, group_id });
     $("#subEmail").value = "";
     $("#subName").value = "";
     $("#subPhone").value = "";
+    $("#subAddGroup").value = "";
     renderSubscriberTopicPicker();
-    await reload();
+    await refreshSubscribersView();
     toast("Subscriber added.");
   } catch (e) {
     toast(`Failed: ${e.message}`);
@@ -2933,9 +2944,11 @@ $("#importCsvBtn").addEventListener("click", async () => {
       toast("No valid rows found.");
       return;
     }
-    const res = await api("POST", cfg.subscribers, { action: "import", subscribers });
+    const group_id = $("#subImportGroup").value;
+    const res = await api("POST", cfg.subscribers, { action: "import", subscribers, group_id });
     $("#subCsvFile").value = "";
-    await reload();
+    $("#subImportGroup").value = "";
+    await refreshSubscribersView();
     toast(`Imported ${res.imported ?? subscribers.length} subscribers.`);
   } catch (e) {
     toast(`Import failed: ${e.message}`);

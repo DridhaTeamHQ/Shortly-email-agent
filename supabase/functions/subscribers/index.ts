@@ -71,6 +71,29 @@ async function replaceSubscriberGroups(
   if (addError) throw new Error(addError.message);
 }
 
+async function addSubscribersToGroup(
+  supabase: ReturnType<typeof createClient>,
+  groupId: string,
+  subscriberIds: string[],
+) {
+  if (!groupId || subscriberIds.length === 0) return;
+  const { data: group, error: groupError } = await supabase
+    .from("subscriber_groups")
+    .select("id")
+    .eq("id", groupId)
+    .maybeSingle();
+  if (groupError) throw new Error(groupError.message);
+  if (!group) throw new Error("The selected group no longer exists.");
+
+  const { error } = await supabase
+    .from("subscriber_group_members")
+    .upsert(
+      subscriberIds.map((subscriberId) => ({ subscriber_id: subscriberId, group_id: groupId })),
+      { onConflict: "subscriber_id,group_id", ignoreDuplicates: true },
+    );
+  if (error) throw new Error(error.message);
+}
+
 // ---------- legacy plan model (kept for the old QA dashboard form) ----------
 const VALID_TOPICS = new Set([
   "daily-wrap",
@@ -349,6 +372,7 @@ Deno.serve(async (request) => {
       const normalizedEmail = email.trim().toLowerCase();
       const normalizedName = full_name?.trim() || null;
       const normalizedPhone = phone_number?.trim() || null;
+      const groupId = String(body.group_id ?? "").trim();
 
       const plan = normalizePlan(body.plan);
       const category = plan === "daily-wrap" ? null : normalizePlanCategory(body.category);
@@ -380,13 +404,25 @@ Deno.serve(async (request) => {
           .update(patch)
           .eq("id", existing.id);
         if (error) return json({ error: error.message }, 400);
+        try {
+          await addSubscribersToGroup(supabase, groupId, [existing.id]);
+        } catch (error) {
+          return json({ error: error instanceof Error ? error.message : "Failed to add subscriber to group." }, 400);
+        }
         return json({ ok: true, existing: true, resubscribed: existing.status !== "subscribed" });
       }
 
-      const { error } = await supabase
+      const { data: created, error } = await supabase
         .from("subscribers")
-        .insert({ email: normalizedEmail, full_name: normalizedName, phone_number: normalizedPhone, plan, category, topics: normalizedTopics });
+        .insert({ email: normalizedEmail, full_name: normalizedName, phone_number: normalizedPhone, plan, category, topics: normalizedTopics })
+        .select("id")
+        .single();
       if (error) return json({ error: error.message }, 400);
+      try {
+        await addSubscribersToGroup(supabase, groupId, [created.id]);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "Failed to add subscriber to group." }, 400);
+      }
 
       const welcome = await sendWelcome(normalizedEmail, normalizedName);
       return json({ ok: true, created: true, welcome_sent: welcome.sent, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
@@ -394,6 +430,7 @@ Deno.serve(async (request) => {
 
     if (action === "import") {
       const rows = Array.isArray(body.subscribers) ? body.subscribers : [];
+      const groupId = String(body.group_id ?? "").trim();
       const updatedAt = new Date().toISOString();
       const normalizedByEmail = new Map<string, Record<string, unknown>>();
       for (const row of rows) {
@@ -424,6 +461,19 @@ Deno.serve(async (request) => {
         .from("subscribers")
         .upsert(normalizedRows, { onConflict: "email" });
       if (error) return json({ error: error.message, code: error.code, details: error.details }, 400);
+
+      if (groupId) {
+        const { data: importedSubscribers, error: lookupError } = await supabase
+          .from("subscribers")
+          .select("id")
+          .in("email", normalizedRows.map((row) => String(row.email)));
+        if (lookupError) return json({ error: lookupError.message }, 500);
+        try {
+          await addSubscribersToGroup(supabase, groupId, (importedSubscribers ?? []).map((subscriber) => subscriber.id));
+        } catch (error) {
+          return json({ error: error instanceof Error ? error.message : "Failed to add imported subscribers to group." }, 400);
+        }
+      }
 
       return json({ ok: true, imported: normalizedRows.length });
     }
