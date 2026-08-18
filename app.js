@@ -1831,6 +1831,12 @@ async function loadSubscribers() {
   });
 }
 
+async function refreshSubscribersView() {
+  await loadSubscribers();
+  refreshChrome();
+  renderSubscribers();
+}
+
 async function loadDigests() {
   try {
     // Use Supabase REST API directly for digests
@@ -2143,7 +2149,7 @@ async function handleSubscriberAction(row, action) {
       await api("POST", cfg.subscribers, { action: "update", id, status });
       toast(status === "subscribed" ? "Subscriber re-subscribed." : "Subscriber unsubscribed.");
     }
-    await reload({ silent: true });
+    await refreshSubscribersView();
   } catch (e) {
     toast(`Failed: ${e.message}`);
   }
@@ -2887,7 +2893,7 @@ $("#subGroupForm").addEventListener("submit", async (e) => {
   try {
     await api("POST", cfg.subscribers, { action: "create-group", name });
     input.value = "";
-    await reload({ silent: true });
+    await refreshSubscribersView();
     toast("Subscriber group created.");
   } catch (error) {
     toast(`Failed: ${error.message}`);
@@ -3190,4 +3196,5 @@ document.addEventListener("keydown", (e) => {
 // Initial load
 renderSubscriberTopicPicker();
 bootAuth();
+
 
