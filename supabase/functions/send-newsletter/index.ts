@@ -37,6 +37,8 @@ type Article = {
   fact_score: number | null;
   fact_label: string | null;
   fact_notes: { source_count?: number; sources?: Array<{ source: string; url: string }> } | null;
+  // Scraped from the feed's media tag or the article page's og:image.
+  image_url: string | null;
   scraped_at: string;
   published_at: string | null;
   reviewed_at: string | null;
@@ -156,6 +158,10 @@ Deno.serve(async (request) => {
   // daily cron onto the queue would silently drop them -- 16 active
   // subscriptions as of 2026-08-19. This flag is the other half of that split:
   // plan+drain for the list, accounts_only for the accounts.
+  // EXPERIMENT flag. Default OFF so the scheduled 09:00 IST send is byte-for-
+  // byte what it was: pass {"images":true} per request, or set WRAP_SHOW_IMAGES
+  // once the look is approved.
+  let showImages = Deno.env.get("WRAP_SHOW_IMAGES") === "true";
   let accountsOnly = false;
   let intro = false;
   let introTo: string | null = null;
@@ -186,6 +192,8 @@ Deno.serve(async (request) => {
     recipients = Array.isArray(body?.recipients) ? body.recipients : [];
     planOnly = body?.plan === true;
     accountsOnly = body?.accounts_only === true;
+    if (body?.images === true) showImages = true;
+    if (body?.images === false) showImages = false;
     drain = body?.drain === true;
     drainLimit = Math.min(1000, Math.max(1, Number(body?.limit) || 500));
     intro = body?.intro === true;
@@ -319,7 +327,7 @@ Deno.serve(async (request) => {
   // ---- 1. Load approved (unsent) content pools ----
   const { data: approvedArticles, error: articlesError } = await supabase
     .from("articles")
-    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,prominence,fact_score,fact_label,fact_notes,published_at,scraped_at,reviewed_at,breaking_flag")
+    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,prominence,fact_score,fact_label,fact_notes,image_url,published_at,scraped_at,reviewed_at,breaking_flag")
     .eq("status", "approved")
     .gte("reviewed_at", istStart)
     .lt("reviewed_at", istEnd)
@@ -450,6 +458,7 @@ Deno.serve(async (request) => {
             { id: row.subscriber_id ?? "", email: row.email, full_name: row.full_name ?? null, plan, category: cat },
             plan,
             selection,
+            showImages,
           );
           const result = await sendEmail({
             to: row.email,
@@ -672,7 +681,7 @@ Deno.serve(async (request) => {
       }
       const requestedSubject = String((r as Record<string, unknown>).subject ?? "").trim();
       const subject = requestedSubject || buildSubject(plan, caseCategory ?? shortsCategory, sd);
-      const html = await renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection);
+      const html = await renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection, showImages);
       const result = await sendEmail({ to: email, subject, html, provider });
       if (result.ok) sent += 1; else failed += 1;
       out.push({
@@ -803,7 +812,7 @@ Deno.serve(async (request) => {
         return null;
       }
       const subject = buildSubject(plan, sub.category, subjectDate);
-      const html = await renderEmail(sub, plan, selection);
+      const html = await renderEmail(sub, plan, selection, showImages);
       const result = await sendEmail({ to: testEmail ?? sub.email, subject, html });
       await supabase.from("article_deliveries").insert({
         digest_id: digestId, subscriber_id: sub.id, email: testEmail ?? sub.email,
@@ -1094,12 +1103,12 @@ function renderFactBadge(a: Article): string {
   return `<div style="display:inline-block;border:2px solid ${color};color:${color};font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:1px 8px;border-radius:999px;margin:0 0 8px;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</div>`;
 }
 
-function renderSection(label: string, bg: string, articles: Article[]): string {
+function renderSection(label: string, bg: string, articles: Article[], showImages = false): string {
   if (articles.length === 0) return "";
   return `
     ${renderLabelBar(label, bg)}
     <div style="margin-bottom:22px">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${renderItemsReal(articles)}</table>
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${renderItemsReal(articles, showImages)}</table>
     </div>`;
 }
 
@@ -1108,12 +1117,36 @@ function renderBreakingBadge(article: Article): string {
   return `<span style="display:inline-block;vertical-align:middle;margin:0 0 8px;padding:2px 8px;border-radius:999px;background:#c2221e;color:#ffffff;font-size:10px;line-height:1.2;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;font-family:Roboto,Arial,sans-serif">Breaking</span>`;
 }
 
-function renderItemsReal(articles: Article[]): string {
+// EXPERIMENT (2026-08-19): the article's own picture above its headline.
+//
+// Deliberately conservative, because email is not a browser:
+//   * a real <img> with a pixel `width` attribute, not a CSS background --
+//     Outlook's Word engine ignores background-image and max-width alike
+//   * height:auto so the aspect ratio survives the client rescaling it
+//   * alt text carries the headline, so a blocked image still reads as
+//     something rather than a grey void. Gmail and Outlook both hide remote
+//     images until the reader opts in, so this is the DEFAULT state, not an
+//     edge case
+//   * the card renders unchanged when there is no picture -- no empty frame
+//
+// Not solved here: publishers can block hotlinking, and nothing warns us when
+// they do. The image simply fails to load and the alt text stands in.
+const CARD_IMAGE_WIDTH = 560;
+
+function renderArticleImage(article: Article): string {
+  const src = (article.image_url ?? "").trim();
+  if (!src || !/^https:\/\//i.test(src)) return "";
+  const alt = (article.edited_title || article.title || "").trim().slice(0, 120);
+  return `<a href="${escapeHtml(article.url)}" style="text-decoration:none"><img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:8px;margin:0 0 12px;background:#e9e9e9" /></a>`;
+}
+
+function renderItemsReal(articles: Article[], showImages = false): string {
   return articles.map((article) => {
     const headline = (article.edited_title || article.title || "").trim();
     const text = (article.edited_summary || article.summary || "").trim();
     const category = (article.category || article.topic || "General").replaceAll("-", " ");
     return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
+      ${showImages ? renderArticleImage(article) : ""}
       ${renderBreakingBadge(article)}
       <h2 style="font-size:16px;line-height:1.32;margin:0 0 10px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(headline)}</h2>
       <p style="font-size:12px;line-height:1.2;margin:0 0 14px;color:#666666;font-family:Roboto,Arial,sans-serif">${escapeHtml(category)}</p>
@@ -1127,8 +1160,8 @@ function renderItemsReal(articles: Article[]): string {
 // never carries a red BREAKING banner. Breaking stories are still front-loaded
 // in the pool (is_breaking ordering above), so the hottest story leads the
 // list; it just isn't labelled as breaking.
-function renderWrapSections(wrap: Article[]): string {
-  return renderSection("Quick Hits. Daily Wrap", "#111111", wrap);
+function renderWrapSections(wrap: Article[], showImages = false): string {
+  return renderSection("Quick Hits. Daily Wrap", "#111111", wrap, showImages);
 }
 
 function renderCaseStudy(cs: CaseStudy): string {
@@ -1153,18 +1186,18 @@ function renderCaseStudy(cs: CaseStudy): string {
     </div>`;
 }
 
-async function renderEmail(sub: Subscriber, plan: string, selection: Selection): Promise<string> {
+async function renderEmail(sub: Subscriber, plan: string, selection: Selection, showImages = false): Promise<string> {
   let sections = "";
   if (plan === "wrap-category") {
-    sections += renderWrapSections(selection.wrap);
-    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts);
+    sections += renderWrapSections(selection.wrap, showImages);
+    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts, showImages);
   } else if (plan === "category-case") {
-    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts);
+    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts, showImages);
     if (selection.caseStudy) sections += renderCaseStudy(selection.caseStudy);
   } else if (plan === "case-only") {
     if (selection.caseStudy) sections += renderCaseStudy(selection.caseStudy);
   } else {
-    sections += renderWrapSections(selection.wrap);
+    sections += renderWrapSections(selection.wrap, showImages);
   }
   return renderShell(sub.full_name, sub.email, introFor(plan, selection), sections);
 }
