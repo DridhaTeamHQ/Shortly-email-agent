@@ -1157,7 +1157,18 @@ function renderBreakingBadge(article: Article): string {
 //
 // Not solved here: publishers can block hotlinking, and nothing warns us when
 // they do. The image simply fails to load and the alt text stands in.
-const CARD_IMAGE_WIDTH = 200;
+// Image sits ABOVE the headline, capped rather than filling the card.
+//
+// Side-by-side was tried and dropped: at any width narrow enough to matter it
+// either crushed the headline to one word per line or stacked anyway, so it
+// bought nothing that this does not.
+//
+// 440 rather than the card's full ~590: at 16:9 that is ~250px of height
+// instead of ~333, so a five-story wrap loses roughly 400px of scrolling while
+// the picture stays big enough to read. width:100% lets it shrink below the cap
+// on a phone, which is why no media query is needed -- Gmail's Android app
+// strips <style> from a bare fragment, so anything depending on one is fiction.
+const CARD_IMAGE_WIDTH = 440;
 
 // Publishers serve a house crest when a story has no picture of its own. It is
 // worse than no image: it costs a request, takes the best slot in the card, and
@@ -1198,36 +1209,13 @@ function renderItemsReal(articles: Article[], showImages = false): string {
     </div></td></tr>`;
     }
 
-    // Picture: image left, text right -- as two inline-blocks, NOT a fixed
-    // two-cell table and NOT a media query.
-    //
-    // The first attempt used a table plus @media to stack on phones. Gmail's
-    // Android app strips <style> out of a bare HTML fragment (this mailer sends
-    // no <head>), so the query never applied and a 200px thumbnail sat beside a
-    // ~145px text column: "'Ready to / deal with / any / threats':". One word
-    // per line.
-    //
-    // Inline-blocks reflow on their own. Desktop: 214 + 370 = 584 fits the
-    // ~616px card, so they sit side by side. Phone: the text box cannot go below
-    // its 250px min-width, so the pair no longer fits and it wraps beneath the
-    // image at full width. No stylesheet involved, so nothing to strip.
-    //
-    // font-size:0 on the wrapper kills the whitespace gap between two
-    // inline-blocks; each child sets its own size back.
-    //
-    // The MSO conditional gives Outlook a real table, since Word does not
-    // implement inline-block and would otherwise stack on a wide screen.
+    // Picture above the headline, capped at CARD_IMAGE_WIDTH and shrinking
+    // below it on narrow screens. One column, so there is no reflow to get
+    // wrong and nothing for a client to strip.
     const alt = (article.edited_title || article.title || "").trim().slice(0, 120);
-    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:14px 12px 12px;font-size:0">
-      <!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td width="${CARD_IMAGE_WIDTH}" valign="top"><![endif]-->
-      <div style="display:inline-block;vertical-align:top;width:${CARD_IMAGE_WIDTH}px;max-width:${CARD_IMAGE_WIDTH}px;padding:0 14px 10px 0;font-size:14px">
-        <a href="${escapeHtml(article.url)}" style="text-decoration:none"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:100%;max-width:${CARD_IMAGE_WIDTH}px;height:auto;border:0;border-radius:8px;background:#e9e9e9" /></a>
-      </div>
-      <!--[if mso]></td><td valign="top"><![endif]-->
-      <div style="display:inline-block;vertical-align:top;width:100%;max-width:370px;min-width:250px;font-size:14px">
-        ${body}
-      </div>
-      <!--[if mso]></td></tr></table><![endif]-->
+    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:14px 12px 12px">
+      <a href="${escapeHtml(article.url)}" style="text-decoration:none"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:100%;max-width:${CARD_IMAGE_WIDTH}px;height:auto;border:0;border-radius:8px;background:#e9e9e9;margin:0 0 12px" /></a>
+      ${body}
     </div></td></tr>`;
   }).join("");
 }
