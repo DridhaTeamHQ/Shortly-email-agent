@@ -1176,8 +1176,15 @@ function renderBreakingBadge(article: Article): string {
 // on a phone, which is why no media query is needed -- Gmail's Android app
 // strips <style> from a bare fragment, so anything depending on one is fiction.
 const CARD_IMAGE_WIDTH = 440;
-// Medium runs a small thumbnail to the RIGHT of the text rather than above it.
-const MEDIUM_THUMB = 150;
+// Thumbnail to the RIGHT of the text. 200 rather than Medium's ~150: with the
+// full summary showing, the text column runs 5-6 lines and a 150px picture
+// (84px tall at 16:9) left an obvious hole beside it.
+//
+// This trades against itself -- every pixel the image gains, the text column
+// loses, which makes the text TALLER and the mismatch worse. 200 is about where
+// the two stop fighting: the card is ~592 wide inside its padding, so
+// 370 text + 18 gutter + 200 image = 588 and it still sits on one line.
+const MEDIUM_THUMB = 200;
 
 export type CardLayout = "card" | "medium";
 type CardOpts = { images: boolean; layout: CardLayout };
@@ -1253,15 +1260,6 @@ function renderItemsReal(articles: Article[], opts: CardOpts = DEFAULT_CARD_OPTS
 // fact score and how many independent outlets corroborated the story. So the
 // row reads "92/100 . 4 sources . World" in brand blue, which says something
 // about whether to trust the item rather than how popular it was.
-const MEDIUM_DEK_CHARS = 150;
-
-function mediumDek(text: string): string {
-  const t = text.trim();
-  if (t.length <= MEDIUM_DEK_CHARS) return t;
-  const cut = t.slice(0, MEDIUM_DEK_CHARS);
-  return cut.slice(0, cut.lastIndexOf(" ")) + "...";
-}
-
 // How old the story is, from the publisher's own timestamp where we have one.
 function mediumAge(a: Article): string {
   const stamp = a.published_at || a.scraped_at;
@@ -1298,7 +1296,10 @@ function renderMediumMeta(a: Article): string {
 function renderMediumItems(articles: Article[]): string {
   return articles.map((article, i) => {
     const headline = (article.edited_title || article.title || "").trim();
-    const dek = mediumDek(article.edited_summary || article.summary || "");
+    // Full summary, not a Medium-style one-line tease. Theirs truncates
+    // because the click is the point; ours IS the product -- the reader should
+    // be able to finish the story without leaving the inbox.
+    const dek = (article.edited_summary || article.summary || "").trim();
     const img = usableImage(article);
     const alt = headline.slice(0, 120);
     const source = (article.source || "").trim();
@@ -1325,7 +1326,7 @@ function renderMediumItems(articles: Article[]): string {
     const inner = img
       ? `<div style="font-size:0">
           <!--[if mso]><table role="presentation" width="100%"><tr><td valign="top"><![endif]-->
-          <div style="display:inline-block;vertical-align:top;width:100%;max-width:390px;min-width:230px;padding-right:18px;font-size:14px;box-sizing:border-box">${text}</div>
+          <div style="display:inline-block;vertical-align:top;width:100%;max-width:370px;min-width:230px;padding-right:18px;font-size:14px;box-sizing:border-box">${text}</div>
           <!--[if mso]></td><td width="${MEDIUM_THUMB}" valign="top"><![endif]-->
           <div style="display:inline-block;vertical-align:top;width:${MEDIUM_THUMB}px;max-width:${MEDIUM_THUMB}px;font-size:14px">
             <a href="${escapeHtml(article.url)}"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${MEDIUM_THUMB}" style="display:block;width:100%;max-width:${MEDIUM_THUMB}px;height:auto;border:0;border-radius:4px;background:#efefef" /></a>
