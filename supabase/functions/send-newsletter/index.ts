@@ -336,6 +336,32 @@ Deno.serve(async (request) => {
     .limit(500);
   if (articlesError) return json({ error: articlesError.message }, 500);
 
+  // By REUSE: a real photograph belongs to one story, so the same URL appearing
+  // across many articles is a house placeholder by definition. This catches the
+  // ones no name pattern anticipates -- Hindustan Times' /default/1600x900.jpg
+  // was on 8 articles and looks nothing like a placeholder by its path.
+  //
+  // Nulled on the pool itself rather than checked in the renderer, so every
+  // send path inherits it without threading another argument through four
+  // layers of markup helpers.
+  const sharedImages = new Set<string>();
+  try {
+    const { data: dupImgs } = await supabase
+      .from("articles")
+      .select("image_url")
+      .not("image_url", "is", null)
+      .gte("scraped_at", new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString());
+    const seen = new Map<string, number>();
+    for (const r of (dupImgs ?? []) as Array<{ image_url: string }>) {
+      const n = (seen.get(r.image_url) ?? 0) + 1;
+      seen.set(r.image_url, n);
+      if (n > 2) sharedImages.add(r.image_url);
+    }
+  } catch { /* a missing placeholder list must never block a send */ }
+  for (const a of (approvedArticles ?? []) as Article[]) {
+    if (a.image_url && sharedImages.has(a.image_url)) a.image_url = null;
+  }
+
   let wrapPool: Article[] = [];
   const categoryPool: Record<string, Article[]> = {};
   for (const cat of CATEGORIES) categoryPool[cat] = [];
@@ -1131,13 +1157,24 @@ function renderBreakingBadge(article: Article): string {
 //
 // Not solved here: publishers can block hotlinking, and nothing warns us when
 // they do. The image simply fails to load and the alt text stands in.
-const CARD_IMAGE_WIDTH = 560;
+const CARD_IMAGE_WIDTH = 200;
 
-function renderArticleImage(article: Article): string {
+// Publishers serve a house crest when a story has no picture of its own. It is
+// worse than no image: it costs a request, takes the best slot in the card, and
+// tells the reader nothing -- a grey coat of arms beside a trade-policy piece.
+//
+// Caught two ways, because neither is sufficient alone.
+//
+// By NAME: a placeholder-ish path segment. Anchored on a leading slash so
+// livemint's "maxresdefault_..." is not mistaken for "/default".
+const PLACEHOLDER_IMAGE =
+  /\/(og-image|default|placeholder|no-?image|fallback|dummy|logo)([-_./]|$)/i;
+
+function usableImage(article: Article): string | null {
   const src = (article.image_url ?? "").trim();
-  if (!src || !/^https:\/\//i.test(src)) return "";
-  const alt = (article.edited_title || article.title || "").trim().slice(0, 120);
-  return `<a href="${escapeHtml(article.url)}" style="text-decoration:none"><img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:8px;margin:0 0 12px;background:#e9e9e9" /></a>`;
+  if (!src || !/^https:\/\//i.test(src)) return null;
+  if (PLACEHOLDER_IMAGE.test(src)) return null;
+  return src;
 }
 
 function renderItemsReal(articles: Article[], showImages = false): string {
@@ -1145,13 +1182,39 @@ function renderItemsReal(articles: Article[], showImages = false): string {
     const headline = (article.edited_title || article.title || "").trim();
     const text = (article.edited_summary || article.summary || "").trim();
     const category = (article.category || article.topic || "General").replaceAll("-", " ");
-    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
-      ${showImages ? renderArticleImage(article) : ""}
-      ${renderBreakingBadge(article)}
-      <h2 style="font-size:16px;line-height:1.32;margin:0 0 10px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(headline)}</h2>
-      <p style="font-size:12px;line-height:1.2;margin:0 0 14px;color:#666666;font-family:Roboto,Arial,sans-serif">${escapeHtml(category)}</p>
+    const body = `${renderBreakingBadge(article)}
+      <h2 style="font-size:16px;line-height:1.32;margin:0 0 8px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(headline)}</h2>
+      <p style="font-size:12px;line-height:1.2;margin:0 0 10px;color:#666666;font-family:Roboto,Arial,sans-serif">${escapeHtml(category)}</p>
       <p style="font-size:13px;line-height:1.55;color:#686868;margin:0 0 12px;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(text)}</p>
-      ${renderSourceMeta(article)}
+      ${renderSourceMeta(article)}`;
+
+    const img = showImages ? usableImage(article) : null;
+
+    // No picture: the original single-column card, unchanged. Never an empty
+    // frame where an image would have been.
+    if (!img) {
+      return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
+      ${body}
+    </div></td></tr>`;
+    }
+
+    // Picture: a two-cell table, not flexbox -- Outlook renders through Word,
+    // which has no flex or grid. The dm-* classes are hooks for the one media
+    // query in renderShell(), which stacks these cells on a phone; clients that
+    // drop <style> keep the desktop side-by-side, which is the safe fallback
+    // rather than a broken one.
+    const alt = (article.edited_title || article.title || "").trim().slice(0, 120);
+    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:14px 12px 12px">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse">
+        <tr>
+          <td class="dm-imgcell" width="${CARD_IMAGE_WIDTH}" valign="top" style="width:${CARD_IMAGE_WIDTH}px;padding:0 14px 0 0">
+            <a href="${escapeHtml(article.url)}" style="text-decoration:none"><img class="dm-img" src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:${CARD_IMAGE_WIDTH}px;max-width:${CARD_IMAGE_WIDTH}px;height:auto;border:0;border-radius:8px;background:#e9e9e9" /></a>
+          </td>
+          <td class="dm-textcell" valign="top" style="vertical-align:top">
+            ${body}
+          </td>
+        </tr>
+      </table>
     </div></td></tr>`;
   }).join("");
 }
@@ -1223,6 +1286,22 @@ async function renderShell(fullName: string | null, email: string, intro: string
 
   return `
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    /* Stacks the image above the text on a phone. A 200px thumbnail beside
+       text in a 360px viewport leaves ~145px for the headline, which is
+       unreadable. Gmail (web and app) and Apple Mail honour this; Outlook
+       desktop ignores it and keeps the side-by-side layout, which is correct
+       there anyway because the window is wide. */
+    @media only screen and (max-width:480px) {
+      .dm-imgcell {
+        display: block !important;
+        width: 100% !important;
+        padding: 0 0 12px 0 !important;
+      }
+      .dm-textcell { display: block !important; width: 100% !important; }
+      .dm-img { width: 100% !important; max-width: 100% !important; height: auto !important; }
+    }
+  </style>
   <div style="margin:0;background:#ffffff;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
     <div style="max-width:640px;margin:0 auto">
       ${renderTopMeta()}
