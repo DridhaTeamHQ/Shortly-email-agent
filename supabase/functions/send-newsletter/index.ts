@@ -1221,21 +1221,35 @@ function renderItemsReal(articles: Article[], opts: CardOpts = DEFAULT_CARD_OPTS
 
     const img = opts.images ? usableImage(article) : null;
 
-    // No picture: the original single-column card, unchanged. Never an empty
-    // frame where an image would have been.
+    // No picture: the original single-column card at full card width, byte for
+    // byte what the scheduled send renders. Nothing to align to, and narrowing
+    // it would change the daily email that is not part of this experiment.
     if (!img) {
       return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
       ${body}
     </div></td></tr>`;
     }
 
-    // Picture above the headline, capped at CARD_IMAGE_WIDTH and shrinking
-    // below it on narrow screens. One column, so there is no reflow to get
-    // wrong and nothing for a client to strip.
+    // Picture above the headline, and image + text share ONE centred column.
+    //
+    // Before this they had different widths: the image capped at 440 while the
+    // text ran the card's full ~616, so the right edges did not line up and the
+    // picture read as pinned to the left with dead space beside it. Putting
+    // both in the same max-width block fixes the alignment and the centring
+    // together -- they are the same problem, not two.
+    //
+    // 440 also gives the summary a ~70-character measure instead of ~95, which
+    // is the readable range rather than a wall.
+    //
+    // On a phone the column is narrower than 440, so it collapses to full width
+    // and the layout is exactly the one that already reads well there. No media
+    // query, nothing for Gmail to strip.
     const alt = (article.edited_title || article.title || "").trim().slice(0, 120);
-    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:14px 12px 12px">
-      <a href="${escapeHtml(article.url)}" style="text-decoration:none"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:100%;max-width:${CARD_IMAGE_WIDTH}px;height:auto;border:0;border-radius:8px;background:#e9e9e9;margin:0 0 12px" /></a>
-      ${body}
+    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
+      <div style="max-width:${CARD_IMAGE_WIDTH}px;margin:0 auto">
+        <a href="${escapeHtml(article.url)}" style="text-decoration:none"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:100%;max-width:${CARD_IMAGE_WIDTH}px;height:auto;border:0;border-radius:8px;background:#e9e9e9;margin:0 0 14px" /></a>
+        ${body}
+      </div>
     </div></td></tr>`;
   }).join("");
 }
