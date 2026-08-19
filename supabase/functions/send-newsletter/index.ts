@@ -148,6 +148,15 @@ Deno.serve(async (request) => {
   // sends to every subscribed address. Runs BEFORE the content pools are
   // loaded, because it carries no articles and must not depend on the day
   // having any approved content.
+  // {"accounts_only":true} runs ONLY the website-account branch below.
+  //
+  // The queue covers the `subscribers` table; the planner deliberately excludes
+  // account subscribers because one row can yield two different products. But
+  // {"plan":true} returns before the account branch ever runs, so moving the
+  // daily cron onto the queue would silently drop them -- 16 active
+  // subscriptions as of 2026-08-19. This flag is the other half of that split:
+  // plan+drain for the list, accounts_only for the accounts.
+  let accountsOnly = false;
   let intro = false;
   let introTo: string | null = null;
   // {"intro":true,"intro_group":"tuesday batch"} announces to ONE group.
@@ -176,6 +185,7 @@ Deno.serve(async (request) => {
     provider = body?.provider === "brevo" ? "brevo" : body?.provider === "ses" ? "ses" : undefined;
     recipients = Array.isArray(body?.recipients) ? body.recipients : [];
     planOnly = body?.plan === true;
+    accountsOnly = body?.accounts_only === true;
     drain = body?.drain === true;
     drainLimit = Math.min(1000, Math.max(1, Number(body?.limit) || 500));
     intro = body?.intro === true;
@@ -413,6 +423,10 @@ Deno.serve(async (request) => {
 
     let dSent = 0;
     let dFailed = 0;
+    // What this slice actually put in front of a reader. Persisted only once
+    // the whole queue is empty -- see the end of this block.
+    const drainUsedArticles = new Set<string>();
+    const drainUsedEditorial = new Set<string>();
     const sd = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
     // Small parallel groups: fast enough to clear the slice, slow enough to stay
@@ -463,7 +477,12 @@ Deno.serve(async (request) => {
               error: result.error ?? null,
             });
           }
-          if (result.ok) dSent++; else dFailed++;
+          if (result.ok) {
+            dSent++;
+            selection.wrap.forEach((a) => drainUsedArticles.add(a.id));
+            selection.shorts.forEach((a) => drainUsedArticles.add(a.id));
+            if (selection.caseStudy) drainUsedEditorial.add(selection.caseStudy.id);
+          } else dFailed++;
         } catch (e) {
           dFailed++;
           await supabase.from("email_outbox")
@@ -480,13 +499,51 @@ Deno.serve(async (request) => {
       .from("email_outbox")
       .select("id", { count: "exact", head: true })
       .eq("status", "queued");
+    // Mark content as sent ONLY once nothing is left queued.
+    //
+    // Timing is the whole point. wrapPool is re-read from status='approved' at
+    // the top of EVERY invocation, so marking mid-drain would empty the pool
+    // for the batches that follow and hand later readers an empty email. The
+    // 2026-08-19 send is the cautionary tale from the other direction: it died
+    // before its bookkeeping ran, so 5 articles stayed 'approved' and the
+    // digest reported 0 recipients despite 646 deliveries.
+    const done = (remaining ?? 0) === 0;
+    let markedArticles = 0;
+    if (done && drainUsedArticles.size > 0) {
+      const { data: upd } = await supabase
+        .from("articles")
+        .update({ status: "sent", sent_at: new Date().toISOString() })
+        .in("id", [...drainUsedArticles])
+        .eq("status", "approved")
+        .select("id");
+      markedArticles = upd?.length ?? 0;
+      if (drainUsedEditorial.size > 0) {
+        await supabase.from("editorial_drafts")
+          .update({ status: "sent" })
+          .in("id", [...drainUsedEditorial])
+          .eq("status", "approved");
+      }
+    }
+    // Keep the digest's own count honest; the crashed run left it at 0.
+    if (done && rows[0]?.digest_id) {
+      const { count: delivered } = await supabase
+        .from("article_deliveries")
+        .select("email", { count: "exact", head: true })
+        .eq("digest_id", rows[0].digest_id);
+      if (delivered != null) {
+        await supabase.from("digests").update({ recipients: delivered })
+          .eq("id", rows[0].digest_id);
+      }
+    }
+
     return json({
       mode: "drain",
       claimed: rows.length,
       sent: dSent,
       failed: dFailed,
       queuedRemaining: remaining ?? 0,
-      done: (remaining ?? 0) === 0,
+      markedArticles,
+      done,
     });
   }
 
@@ -713,15 +770,18 @@ Deno.serve(async (request) => {
 
   // ---- 2b. LEGACY subscribers (subscribers table) minus anyone already handled
   // via their website account.
-  let subQuery = supabase
-    .from("subscribers")
-    .select("id,email,full_name,plan,category")
-    .eq("status", "subscribed");
-  if (subscriberIds.length > 0) subQuery = subQuery.in("id", subscriberIds);
-  const { data: subs, error: subError } = await subQuery;
-  if (subError) return json({ error: subError.message }, 500);
-  const subscribers = ((subs ?? []) as Subscriber[])
-    .filter((s) => subscriberIds.length > 0 || !accountEmails.has(normalizeEmail(s.email)));
+  let subscribers: Subscriber[] = [];
+  if (!accountsOnly) {
+    let subQuery = supabase
+      .from("subscribers")
+      .select("id,email,full_name,plan,category")
+      .eq("status", "subscribed");
+    if (subscriberIds.length > 0) subQuery = subQuery.in("id", subscriberIds);
+    const { data: subs, error: subError } = await subQuery;
+    if (subError) return json({ error: subError.message }, 500);
+    subscribers = ((subs ?? []) as Subscriber[])
+      .filter((s) => subscriberIds.length > 0 || !accountEmails.has(normalizeEmail(s.email)));
+  }
 
   // Concurrency per batch. Measured 2026-08-15: a batch takes ~855ms
   // regardless of size, so throughput = batchSize / 0.855s. At 5 that is
@@ -760,7 +820,12 @@ Deno.serve(async (request) => {
   // ---- 3. Mark used content as sent (skip when this was a test) ----
   // If even one recipient failed, leave the approved content available for a
   // controlled retry instead of consuming it globally.
-  if (!testEmail && failed === 0) {
+  // accounts_only must NOT mark content sent. It runs alongside the queue, and
+  // the drain re-reads the pool from status='approved' on every invocation: if
+  // the 16 account emails marked the wrap sent at 03:30, the drain would find
+  // an empty pool at 03:32 and every queued reader would be skipped. The queue
+  // owns this now -- it marks once the last batch drains.
+  if (!testEmail && !accountsOnly && failed === 0) {
     if (usedArticleIds.size > 0) {
       await supabase.from("articles")
         .update({ status: "sent", sent_at: new Date().toISOString() })
@@ -777,7 +842,7 @@ Deno.serve(async (request) => {
     .update({ article_ids: [...usedArticleIds], recipients: sent, sent, failed })
     .eq("id", digestId);
 
-  return json({ digestId, sent, failed, skipped, accountSubscribers: accountEmails.size, plans: planTally, test: Boolean(testEmail), wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
+  return json({ mode: accountsOnly ? "accounts-only" : "full", digestId, sent, failed, skipped, accountSubscribers: accountEmails.size, plans: planTally, test: Boolean(testEmail), wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
 });
 
 function istWeekday(): string {
