@@ -1198,23 +1198,36 @@ function renderItemsReal(articles: Article[], showImages = false): string {
     </div></td></tr>`;
     }
 
-    // Picture: a two-cell table, not flexbox -- Outlook renders through Word,
-    // which has no flex or grid. The dm-* classes are hooks for the one media
-    // query in renderShell(), which stacks these cells on a phone; clients that
-    // drop <style> keep the desktop side-by-side, which is the safe fallback
-    // rather than a broken one.
+    // Picture: image left, text right -- as two inline-blocks, NOT a fixed
+    // two-cell table and NOT a media query.
+    //
+    // The first attempt used a table plus @media to stack on phones. Gmail's
+    // Android app strips <style> out of a bare HTML fragment (this mailer sends
+    // no <head>), so the query never applied and a 200px thumbnail sat beside a
+    // ~145px text column: "'Ready to / deal with / any / threats':". One word
+    // per line.
+    //
+    // Inline-blocks reflow on their own. Desktop: 214 + 370 = 584 fits the
+    // ~616px card, so they sit side by side. Phone: the text box cannot go below
+    // its 250px min-width, so the pair no longer fits and it wraps beneath the
+    // image at full width. No stylesheet involved, so nothing to strip.
+    //
+    // font-size:0 on the wrapper kills the whitespace gap between two
+    // inline-blocks; each child sets its own size back.
+    //
+    // The MSO conditional gives Outlook a real table, since Word does not
+    // implement inline-block and would otherwise stack on a wide screen.
     const alt = (article.edited_title || article.title || "").trim().slice(0, 120);
-    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:14px 12px 12px">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse">
-        <tr>
-          <td class="dm-imgcell" width="${CARD_IMAGE_WIDTH}" valign="top" style="width:${CARD_IMAGE_WIDTH}px;padding:0 14px 0 0">
-            <a href="${escapeHtml(article.url)}" style="text-decoration:none"><img class="dm-img" src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:${CARD_IMAGE_WIDTH}px;max-width:${CARD_IMAGE_WIDTH}px;height:auto;border:0;border-radius:8px;background:#e9e9e9" /></a>
-          </td>
-          <td class="dm-textcell" valign="top" style="vertical-align:top">
-            ${body}
-          </td>
-        </tr>
-      </table>
+    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:14px 12px 12px;font-size:0">
+      <!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td width="${CARD_IMAGE_WIDTH}" valign="top"><![endif]-->
+      <div style="display:inline-block;vertical-align:top;width:${CARD_IMAGE_WIDTH}px;max-width:${CARD_IMAGE_WIDTH}px;padding:0 14px 10px 0;font-size:14px">
+        <a href="${escapeHtml(article.url)}" style="text-decoration:none"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:100%;max-width:${CARD_IMAGE_WIDTH}px;height:auto;border:0;border-radius:8px;background:#e9e9e9" /></a>
+      </div>
+      <!--[if mso]></td><td valign="top"><![endif]-->
+      <div style="display:inline-block;vertical-align:top;width:100%;max-width:370px;min-width:250px;font-size:14px">
+        ${body}
+      </div>
+      <!--[if mso]></td></tr></table><![endif]-->
     </div></td></tr>`;
   }).join("");
 }
@@ -1286,22 +1299,7 @@ async function renderShell(fullName: string | null, email: string, intro: string
 
   return `
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    /* Stacks the image above the text on a phone. A 200px thumbnail beside
-       text in a 360px viewport leaves ~145px for the headline, which is
-       unreadable. Gmail (web and app) and Apple Mail honour this; Outlook
-       desktop ignores it and keeps the side-by-side layout, which is correct
-       there anyway because the window is wide. */
-    @media only screen and (max-width:480px) {
-      .dm-imgcell {
-        display: block !important;
-        width: 100% !important;
-        padding: 0 0 12px 0 !important;
-      }
-      .dm-textcell { display: block !important; width: 100% !important; }
-      .dm-img { width: 100% !important; max-width: 100% !important; height: auto !important; }
-    }
-  </style>
+
   <div style="margin:0;background:#ffffff;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
     <div style="max-width:640px;margin:0 auto">
       ${renderTopMeta()}
