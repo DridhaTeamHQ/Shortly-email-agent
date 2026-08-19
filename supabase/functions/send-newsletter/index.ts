@@ -18,6 +18,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
+import { logoSvg } from "../_shared/brand.ts";
 import { buildWrapOrder } from "../_shared/editorial-picks.ts";
 import { renderIntroEmail, INTRO_SUBJECT } from "../_shared/intro-email.ts";
 
@@ -162,6 +163,10 @@ Deno.serve(async (request) => {
   // byte what it was: pass {"images":true} per request, or set WRAP_SHOW_IMAGES
   // once the look is approved.
   let showImages = Deno.env.get("WRAP_SHOW_IMAGES") === "true";
+  // {"layout":"medium"} swaps the boxed cards for a Medium-Daily-Digest-style
+  // list. Experiment only; "card" stays the default and the scheduled send
+  // never passes this.
+  let layout: CardLayout = Deno.env.get("WRAP_LAYOUT") === "medium" ? "medium" : "card";
   let accountsOnly = false;
   let intro = false;
   let introTo: string | null = null;
@@ -194,6 +199,8 @@ Deno.serve(async (request) => {
     accountsOnly = body?.accounts_only === true;
     if (body?.images === true) showImages = true;
     if (body?.images === false) showImages = false;
+    if (body?.layout === "medium") layout = "medium";
+    if (body?.layout === "card") layout = "card";
     drain = body?.drain === true;
     drainLimit = Math.min(1000, Math.max(1, Number(body?.limit) || 500));
     intro = body?.intro === true;
@@ -484,7 +491,7 @@ Deno.serve(async (request) => {
             { id: row.subscriber_id ?? "", email: row.email, full_name: row.full_name ?? null, plan, category: cat },
             plan,
             selection,
-            showImages,
+            { images: showImages, layout },
           );
           const result = await sendEmail({
             to: row.email,
@@ -707,7 +714,7 @@ Deno.serve(async (request) => {
       }
       const requestedSubject = String((r as Record<string, unknown>).subject ?? "").trim();
       const subject = requestedSubject || buildSubject(plan, caseCategory ?? shortsCategory, sd);
-      const html = await renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection, showImages);
+      const html = await renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection, { images: showImages, layout });
       const result = await sendEmail({ to: email, subject, html, provider });
       if (result.ok) sent += 1; else failed += 1;
       out.push({
@@ -838,7 +845,7 @@ Deno.serve(async (request) => {
         return null;
       }
       const subject = buildSubject(plan, sub.category, subjectDate);
-      const html = await renderEmail(sub, plan, selection, showImages);
+      const html = await renderEmail(sub, plan, selection, { images: showImages, layout });
       const result = await sendEmail({ to: testEmail ?? sub.email, subject, html });
       await supabase.from("article_deliveries").insert({
         digest_id: digestId, subscriber_id: sub.id, email: testEmail ?? sub.email,
@@ -1129,12 +1136,12 @@ function renderFactBadge(a: Article): string {
   return `<div style="display:inline-block;border:2px solid ${color};color:${color};font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:1px 8px;border-radius:999px;margin:0 0 8px;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</div>`;
 }
 
-function renderSection(label: string, bg: string, articles: Article[], showImages = false): string {
+function renderSection(label: string, bg: string, articles: Article[], opts: CardOpts = DEFAULT_CARD_OPTS): string {
   if (articles.length === 0) return "";
   return `
     ${renderLabelBar(label, bg)}
     <div style="margin-bottom:22px">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${renderItemsReal(articles, showImages)}</table>
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${renderItemsReal(articles, opts)}</table>
     </div>`;
 }
 
@@ -1169,6 +1176,12 @@ function renderBreakingBadge(article: Article): string {
 // on a phone, which is why no media query is needed -- Gmail's Android app
 // strips <style> from a bare fragment, so anything depending on one is fiction.
 const CARD_IMAGE_WIDTH = 440;
+// Medium runs a small thumbnail to the RIGHT of the text rather than above it.
+const MEDIUM_THUMB = 150;
+
+export type CardLayout = "card" | "medium";
+type CardOpts = { images: boolean; layout: CardLayout };
+const DEFAULT_CARD_OPTS: CardOpts = { images: false, layout: "card" };
 
 // Publishers serve a house crest when a story has no picture of its own. It is
 // worse than no image: it costs a request, takes the best slot in the card, and
@@ -1188,7 +1201,7 @@ function usableImage(article: Article): string | null {
   return src;
 }
 
-function renderItemsReal(articles: Article[], showImages = false): string {
+function renderItemsReal(articles: Article[], opts: CardOpts = DEFAULT_CARD_OPTS): string {
   return articles.map((article) => {
     const headline = (article.edited_title || article.title || "").trim();
     const text = (article.edited_summary || article.summary || "").trim();
@@ -1199,7 +1212,7 @@ function renderItemsReal(articles: Article[], showImages = false): string {
       <p style="font-size:13px;line-height:1.55;color:#686868;margin:0 0 12px;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(text)}</p>
       ${renderSourceMeta(article)}`;
 
-    const img = showImages ? usableImage(article) : null;
+    const img = opts.images ? usableImage(article) : null;
 
     // No picture: the original single-column card, unchanged. Never an empty
     // frame where an image would have been.
@@ -1224,8 +1237,156 @@ function renderItemsReal(articles: Article[], showImages = false): string {
 // never carries a red BREAKING banner. Breaking stories are still front-loaded
 // in the pool (is_breaking ordering above), so the hottest story leads the
 // list; it just isn't labelled as breaking.
-function renderWrapSections(wrap: Article[], showImages = false): string {
-  return renderSection("Quick Hits. Daily Wrap", "#111111", wrap, showImages);
+// ---- EXPERIMENT: Medium Daily Digest layout ---------------------------------
+//
+// What makes that email read the way it does, and what we borrow:
+//   * no cards. White page, items separated by a hairline. The boxes in our
+//     current wrap are what make it feel heavy
+//   * a serif headline at ~20px doing all the work, with everything else
+//     stepped well below it in size and colour
+//   * a small thumbnail on the RIGHT, ~150px, so the picture supports the
+//     headline instead of interrupting it
+//   * a quiet metadata line under each item
+//
+// Our touch is that metadata line. Medium shows claps and comments -- social
+// proof it has and we do not. We have something better suited to news: the
+// fact score and how many independent outlets corroborated the story. So the
+// row reads "92/100 . 4 sources . World" in brand blue, which says something
+// about whether to trust the item rather than how popular it was.
+const MEDIUM_DEK_CHARS = 150;
+
+function mediumDek(text: string): string {
+  const t = text.trim();
+  if (t.length <= MEDIUM_DEK_CHARS) return t;
+  const cut = t.slice(0, MEDIUM_DEK_CHARS);
+  return cut.slice(0, cut.lastIndexOf(" ")) + "...";
+}
+
+// How old the story is, from the publisher's own timestamp where we have one.
+function mediumAge(a: Article): string {
+  const stamp = a.published_at || a.scraped_at;
+  if (!stamp) return "";
+  const h = (Date.now() - new Date(stamp).getTime()) / 3_600_000;
+  if (!Number.isFinite(h) || h < 0) return "";
+  if (h < 1) return "just now";
+  if (h < 24) return `${Math.round(h)}h ago`;
+  const d = Math.round(h / 24);
+  return d === 1 ? "yesterday" : `${d}d ago`;
+}
+
+function renderMediumMeta(a: Article): string {
+  const bits: string[] = [];
+  // Deliberately NOT the fact score. 55% of articles score exactly 100 and
+  // selection favours the strong ones, so a five-story wrap would print
+  // "100/100" five times -- decoration dressed as a signal. Age and
+  // corroboration both vary story to story, and for news they are the two
+  // things a reader actually weighs.
+  const age = mediumAge(a);
+  if (age) bits.push(age);
+  const n = Number(a.fact_notes?.source_count)
+    || (Array.isArray(a.fact_notes?.sources) ? a.fact_notes!.sources!.length : 0);
+  if (n > 1) bits.push(`${n} sources`);
+  const topic = (a.category || a.topic || "").replaceAll("-", " ").trim();
+  if (topic) bits.push(topic);
+  if (bits.length === 0) return "";
+  const dot = `<span style="color:#c9c9c9"> &middot; </span>`;
+  return `<p style="margin:10px 0 0;font:400 12.5px/1.4 Roboto,Arial,sans-serif;color:#8a8a8a">` +
+    `<span style="color:#3979ff;font-weight:700">&#10022;</span>&nbsp;` +
+    bits.map((b) => escapeHtml(b)).join(dot) + `</p>`;
+}
+
+function renderMediumItems(articles: Article[]): string {
+  return articles.map((article, i) => {
+    const headline = (article.edited_title || article.title || "").trim();
+    const dek = mediumDek(article.edited_summary || article.summary || "");
+    const img = usableImage(article);
+    const alt = headline.slice(0, 120);
+    const source = (article.source || "").trim();
+
+    // Source stands where Medium puts the author, with a brand-blue dot for
+    // the avatar. Cheaper than an image and it never fails to load.
+    const byline = source
+      ? `<p style="margin:0 0 8px;font:600 13px/1.3 Roboto,Arial,sans-serif;color:#5b5b5b">` +
+        `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#3979ff;margin-right:8px"></span>` +
+        `${escapeHtml(source)}</p>`
+      : "";
+
+    const text = `${byline}${renderBreakingBadge(article)}
+      <h2 style="margin:0 0 6px;font:700 20px/1.28 'Roboto Serif',Georgia,'Times New Roman',serif;color:#191919;letter-spacing:-0.01em">
+        <a href="${escapeHtml(article.url)}" style="color:#191919;text-decoration:none">${escapeHtml(headline)}</a>
+      </h2>
+      <p style="margin:0;font:400 15px/1.5 Roboto,Arial,sans-serif;color:#6b6b6b">${escapeHtml(dek)}</p>
+      ${renderMediumMeta(article)}`;
+
+    // Text and thumbnail as inline-blocks: on a phone the text box cannot go
+    // below 230px, so the pair stops fitting and the picture drops beneath the
+    // headline instead of squeezing it. No media query, because Gmail's app
+    // strips <style> from a bare fragment.
+    const inner = img
+      ? `<div style="font-size:0">
+          <!--[if mso]><table role="presentation" width="100%"><tr><td valign="top"><![endif]-->
+          <div style="display:inline-block;vertical-align:top;width:100%;max-width:390px;min-width:230px;padding-right:18px;font-size:14px;box-sizing:border-box">${text}</div>
+          <!--[if mso]></td><td width="${MEDIUM_THUMB}" valign="top"><![endif]-->
+          <div style="display:inline-block;vertical-align:top;width:${MEDIUM_THUMB}px;max-width:${MEDIUM_THUMB}px;font-size:14px">
+            <a href="${escapeHtml(article.url)}"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${MEDIUM_THUMB}" style="display:block;width:100%;max-width:${MEDIUM_THUMB}px;height:auto;border:0;border-radius:4px;background:#efefef" /></a>
+          </div>
+          <!--[if mso]></td></tr></table><![endif]-->
+        </div>`
+      : text;
+
+    const rule = i === 0 ? "" : "border-top:1px solid #e8e8e8;";
+    return `<tr><td style="${rule}padding:${i === 0 ? "0" : "26px"} 0 26px">${inner}</td></tr>`;
+  }).join("");
+}
+
+function renderMediumSection(label: string, articles: Article[]): string {
+  if (articles.length === 0) return "";
+  return `
+    <div style="padding:0 24px">
+      <p style="margin:0 0 4px;font:700 12px/1.4 Roboto,Arial,sans-serif;color:#191919;letter-spacing:.12em;text-transform:uppercase">${escapeHtml(label)}</p>
+      <div style="height:2px;background:#191919;margin:0 0 22px"></div>
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${renderMediumItems(articles)}</table>
+    </div>`;
+}
+
+async function renderMediumShell(fullName: string | null, email: string, intro: string, sections: string): Promise<string> {
+  const greeting = fullName ? `Hi ${escapeHtml(String(fullName).split(" ")[0])},` : "Hi there,";
+  const privacyFooter = await renderPrivacyFooter(email);
+  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
+
+  // The masthead is the wordmark itself rather than a banner image: Medium's
+  // digest opens on type, not a picture, and the logo already carries the brand
+  // without costing a 154 kB download.
+  return `
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&family=Roboto+Serif:wght@400;600;700&display=swap" rel="stylesheet">
+  <div style="margin:0;background:#ffffff;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
+    <div style="max-width:640px;margin:0 auto">
+      <div style="padding:28px 24px 0;text-align:center">
+        <span style="display:inline-block;line-height:0;color:#3979ff">${logoSvg(210, "#3979ff")}</span>
+        <p style="margin:14px 0 0;font:400 13px/1.4 Roboto,Arial,sans-serif;color:#8a8a8a">${escapeHtml(today)}</p>
+      </div>
+      <div style="height:1px;background:#e8e8e8;margin:22px 24px 24px"></div>
+
+      <div style="padding:0 24px 26px">
+        <p style="margin:0 0 6px;font:700 17px/1.35 'Roboto Serif',Georgia,serif;color:#191919">${greeting}</p>
+        <p style="margin:0;font:400 15px/1.6 Roboto,Arial,sans-serif;color:#5b5b5b">${intro}</p>
+      </div>
+
+      ${sections}
+
+      <div style="height:1px;background:#e8e8e8;margin:8px 24px 0"></div>
+      <div style="padding:22px 24px 30px;text-align:center">
+        <span style="display:inline-block;line-height:0;color:#3979ff">${logoSvg(130, "#3979ff")}</span>
+        <p style="margin:12px 0 0;font:400 13px/1.6 Roboto,Arial,sans-serif;color:#8a8a8a">Curated news, summarized daily.</p>
+        ${privacyFooter}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderWrapSections(wrap: Article[], opts: CardOpts = DEFAULT_CARD_OPTS): string {
+  if (opts.layout === "medium") return renderMediumSection("Today's highlights", wrap);
+  return renderSection("Quick Hits. Daily Wrap", "#111111", wrap, opts);
 }
 
 function renderCaseStudy(cs: CaseStudy): string {
@@ -1250,18 +1411,21 @@ function renderCaseStudy(cs: CaseStudy): string {
     </div>`;
 }
 
-async function renderEmail(sub: Subscriber, plan: string, selection: Selection, showImages = false): Promise<string> {
+async function renderEmail(sub: Subscriber, plan: string, selection: Selection, opts: CardOpts = DEFAULT_CARD_OPTS): Promise<string> {
   let sections = "";
   if (plan === "wrap-category") {
-    sections += renderWrapSections(selection.wrap, showImages);
-    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts, showImages);
+    sections += renderWrapSections(selection.wrap, opts);
+    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts, opts);
   } else if (plan === "category-case") {
-    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts, showImages);
+    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts, opts);
     if (selection.caseStudy) sections += renderCaseStudy(selection.caseStudy);
   } else if (plan === "case-only") {
     if (selection.caseStudy) sections += renderCaseStudy(selection.caseStudy);
   } else {
-    sections += renderWrapSections(selection.wrap, showImages);
+    sections += renderWrapSections(selection.wrap, opts);
+  }
+  if (opts.layout === "medium") {
+    return renderMediumShell(sub.full_name, sub.email, introFor(plan, selection), sections);
   }
   return renderShell(sub.full_name, sub.email, introFor(plan, selection), sections);
 }
