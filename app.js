@@ -1639,6 +1639,42 @@ function renderSubscribers() {
   updateSubscriberSelectionUi();
 }
 
+function downloadSubscriberExport(status) {
+  if (!window.XLSX) {
+    toast("Excel export is unavailable. Refresh and try again.");
+    return;
+  }
+
+  const contacts = state.subscribers
+    .filter((subscriber) => subscriber.status === status)
+    .map((subscriber) => ({
+      Email: subscriber.email || "",
+      Name: subscriber.full_name || "",
+      "Phone number": subscriber.phone_number || "",
+      Topics: normalizeTopicList(subscriber.topics).map(topicLabel).join(", "),
+      Groups: groupsForSubscriber(subscriber.id).map((group) => group.name).join(", "),
+      Status: subscriber.status || "",
+      "Subscribed at": subscriber.subscribed_at || subscriber.created_at || "",
+      "Unsubscribed at": subscriber.unsubscribed_at || ""
+    }));
+
+  if (!contacts.length) {
+    toast(`No ${status} contacts to download.`);
+    return;
+  }
+
+  const sheet = window.XLSX.utils.json_to_sheet(contacts);
+  sheet["!cols"] = [
+    { wch: 32 }, { wch: 24 }, { wch: 18 }, { wch: 28 },
+    { wch: 28 }, { wch: 16 }, { wch: 23 }, { wch: 23 }
+  ];
+  const workbook = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(sheet, workbook, status === "subscribed" ? "Subscribers" : "Unsubscribers");
+  const date = new Date().toISOString().slice(0, 10);
+  window.XLSX.writeFile(workbook, `dailymattr-${status}-${date}.xlsx`);
+  toast(`${contacts.length} ${status} contact${contacts.length === 1 ? "" : "s"} downloaded.`);
+}
+
 function parseCsvLine(line) {
   const values = [];
   let current = "";
@@ -2907,6 +2943,14 @@ $("#createSubscriberGroup").addEventListener("click", async () => {
   } catch (error) {
     toast(`Failed: ${error.message}`);
   }
+});
+
+$("#exportSubscribers").addEventListener("click", () => {
+  downloadSubscriberExport("subscribed");
+});
+
+$("#exportUnsubscribers").addEventListener("click", () => {
+  downloadSubscriberExport("unsubscribed");
 });
 
 // Add subscriber form

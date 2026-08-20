@@ -15,7 +15,7 @@ async function sendWelcome(email: string, name: string | null) {
   try {
     const result = await sendEmail({
       to: email,
-      subject: "Welcome to Daily Mattr",
+      subject: "Welcome to Dailymattr",
       html: await renderWelcomeEmail(email, name),
     });
     return result.ok ? { sent: true } : { sent: false, error: result.error ?? "Email provider rejected the message" };
@@ -361,6 +361,13 @@ Deno.serve(async (request) => {
       if (normalizedName) record.full_name = normalizedName;
 
       if (existing?.id) {
+        if (existing.status !== "subscribed") {
+          try {
+            await setLinkedAccountSubscriptionStatus(supabase, normalizedEmail, "subscribed");
+          } catch (error) {
+            return json({ error: error instanceof Error ? error.message : "Failed to update account subscription." }, 500);
+          }
+        }
         const { error } = await supabase.from("subscribers").update(record).eq("id", existing.id);
         if (error) return json({ error: error.message }, 400);
         return json({ ok: true, existing: true, resubscribed: existing.status !== "subscribed" });
@@ -376,7 +383,7 @@ Deno.serve(async (request) => {
 
     if (action === "add") {
       const { email, full_name, phone_number } = body;
-      if (!email?.trim()) return json({ error: "email is required" }, 400);
+      if (!email?.trim() || !String(email).includes("@")) return json({ error: "A valid email is required." }, 400);
       const normalizedEmail = email.trim().toLowerCase();
       const normalizedName = full_name?.trim() || null;
       const normalizedPhone = phone_number?.trim() || null;
@@ -417,6 +424,13 @@ Deno.serve(async (request) => {
         };
         if (normalizedName) patch.full_name = normalizedName;
         if (normalizedPhone) patch.phone_number = normalizedPhone;
+        if (existing.status !== "subscribed") {
+          try {
+            await setLinkedAccountSubscriptionStatus(supabase, normalizedEmail, "subscribed");
+          } catch (error) {
+            return json({ error: error instanceof Error ? error.message : "Failed to update account subscription." }, 500);
+          }
+        }
         const { error } = await supabase
           .from("subscribers")
           .update(patch)
@@ -436,6 +450,7 @@ Deno.serve(async (request) => {
         .select("id")
         .single();
       if (error) return json({ error: error.message }, 400);
+      await setLinkedAccountSubscriptionStatus(supabase, normalizedEmail, "subscribed");
       try {
         await addSubscribersToGroup(supabase, groupId, [created.id]);
       } catch (error) {
@@ -458,7 +473,7 @@ Deno.serve(async (request) => {
       const normalizedByEmail = new Map<string, Record<string, unknown>>();
       for (const row of rows) {
         const email = row?.email?.trim()?.toLowerCase() || "";
-        if (!email) continue;
+        if (!email || !email.includes("@")) continue;
         const plan = normalizePlan(row?.plan);
         const category = plan === "daily-wrap" ? null : normalizePlanCategory(row?.category);
         const topics = row?.topics ? normalizeTopics(row.topics) : topicsForPlan(plan, category);

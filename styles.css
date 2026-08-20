@@ -729,7 +729,7 @@ a:hover { text-decoration-color: var(--ink); }
 .subscriber-search i { color: var(--brand); font-size: 18px; }
 .subscriber-search input { width: 100%; }
 #subGroupFilter { flex: 0 1 200px; min-width: 160px; }
-#createSubscriberGroup { white-space: nowrap; }
+#createSubscriberGroup, #exportSubscribers, #exportUnsubscribers { white-space: nowrap; }
 .subscriber-groups-cell { min-width: 180px; }
 .subscriber-group-menu { position: relative; }
 .subscriber-group-menu summary { cursor: pointer; color: var(--brand-deep); font-weight: 700; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
