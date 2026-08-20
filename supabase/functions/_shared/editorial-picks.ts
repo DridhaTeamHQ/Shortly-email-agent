@@ -24,7 +24,7 @@
 
 import { chatCompletionRaw } from "./summary-clean.ts";
 import { mediaGroupOf } from "./trending.ts";
-import { DESKS, type Desk, isDesk, POLITICS_TOPIC } from "./desks.ts";
+import { DESKS, type Desk, deskOf, deskPreference, isDesk, POLITICS_TOPIC } from "./desks.ts";
 
 export type PickArticle = {
   id: string;
@@ -358,9 +358,52 @@ export function orderWrapPool(
   // One finance story and one tech story in every wrap. A desk is only claimed
   // when the pool can actually supply it -- an empty tech pool must shorten
   // nothing and must never leave a hole in the five.
+  // Ordered by desk preference first, then by the strength order they already
+  // arrive in. A stable sort, so preference RE-RANKS rather than overrides:
+  // among equally preferred candidates the editorial signals still decide.
+  //
+  // This is what stops the finance slot going to "Rupee falls 7 paise" or a
+  // foreign share price when "RBI to step up rupee internationalisation" is
+  // sitting in the same pool.
   const deskSupply = new Map<Desk, PickArticle[]>(
-    DESKS.map((d) => [d, deduped.filter((a) => isDeskArticle(d, a))]),
+    DESKS.map((d) => {
+      const pool = deduped.filter((a) => isDeskArticle(d, a));
+      const scored = pool.map((a, i) => ({
+        a,
+        i,
+        p: deskPreference(d, a.edited_title || a.title || "", a.edited_summary || a.summary),
+      }));
+      scored.sort((x, y) => (y.p - x.p) || (x.i - y.i));
+      return [d, scored.map((x) => x.a)];
+    }),
   );
+  // The preference has to gate the DISCRETIONARY passes too, not just the
+  // reserved fill below.
+  //
+  // Without this the guarantee was satisfiable by accident: pass 5 fills by raw
+  // strength, and on 2026-08-19 that handed the finance slot to "Rupee rises
+  // 1 paisa to 95.73 in early trade" while "Middle East war: Indian refiners
+  // forced to buy oil at premium" -- stronger AND India-relevant -- sat unused.
+  // Once a Business story was in, the desk counted as met and the reserved fill
+  // never ran.
+  //
+  // So a desk article may only enter on merit if it is among the best its desk
+  // can offer. Weaker ones are not banned outright: pass 6, the last resort
+  // against shipping a short wrap, still ignores every rule including this one.
+  const prefOf = (d: Desk, a: PickArticle) =>
+    deskPreference(d, a.edited_title || a.title || "", a.edited_summary || a.summary);
+  const bestPref = new Map<Desk, number>(
+    DESKS.map((d) => {
+      const supply = deskSupply.get(d) ?? [];
+      return [d, supply.length ? prefOf(d, supply[0]) : 0];
+    }),
+  );
+  const preferenceOk = (a: PickArticle) => {
+    const d = deskOf(a.topic);
+    if (!d) return true;
+    return prefOf(d, a) >= (bestPref.get(d) ?? 0);
+  };
+
   const deskMet = (d: Desk) => chosen.some((c) => isDeskArticle(d, c));
   const unmetDesks = () => DESKS.filter((d) => (deskSupply.get(d)?.length ?? 0) > 0 && !deskMet(d));
   // Slots the discretionary passes may use right now: the full five minus one
@@ -372,7 +415,7 @@ export function orderWrapPool(
   for (const a of breaking) {
     if (chosen.length >= openSlots()) break;
     if (chosen.filter((c) => isBreakingStory(c, now, flagByUrl)).length >= MAX_CLASS_A()) break;
-    if (topicOk(a)) take(a);
+    if (topicOk(a) && preferenceOk(a)) take(a);
   }
 
   // 3. Class B — one qualified explainer, and it must be the backstory rather
@@ -384,7 +427,7 @@ export function orderWrapPool(
   });
   for (const a of explainers.slice(0, MAX_CLASS_B())) {
     if (chosen.length >= openSlots()) break;
-    if (topicOk(a)) take(a);
+    if (topicOk(a) && preferenceOk(a)) take(a);
   }
 
   // 4. Class C — a top-tier figure who is genuinely central, an institution, or
@@ -396,13 +439,13 @@ export function orderWrapPool(
     const qualifies = j
       ? (j.tier === 1 && j.central) || j.viral
       : Number(a.prominence ?? 2) >= 4;
-    if (qualifies && topicOk(a)) take(a);
+    if (qualifies && topicOk(a) && preferenceOk(a)) take(a);
   }
 
   // 5. Fill any remaining slots by raw strength (topic cap still applies).
   for (const a of deduped) {
     if (chosen.length >= openSlots()) break;
-    if (!has(a) && topicOk(a)) take(a);
+    if (!has(a) && topicOk(a) && preferenceOk(a)) take(a);
   }
 
   // 5b. Claim the reserved slots. Strongest available story from each desk that

@@ -159,10 +159,11 @@ Deno.serve(async (request) => {
   // daily cron onto the queue would silently drop them -- 16 active
   // subscriptions as of 2026-08-19. This flag is the other half of that split:
   // plan+drain for the list, accounts_only for the accounts.
-  // EXPERIMENT flag. Default OFF so the scheduled 09:00 IST send is byte-for-
-  // byte what it was: pass {"images":true} per request, or set WRAP_SHOW_IMAGES
-  // once the look is approved.
-  let showImages = Deno.env.get("WRAP_SHOW_IMAGES") === "true";
+  // Article images are now part of the product, not an experiment: the card
+  // layout with a centred 440px column was signed off on 2026-08-19. Opt OUT
+  // with WRAP_SHOW_IMAGES=false or {"images":false} if a send ever needs the
+  // plain text-only cards back.
+  let showImages = Deno.env.get("WRAP_SHOW_IMAGES") !== "false";
   // {"layout":"medium"} swaps the boxed cards for a Medium-Daily-Digest-style
   // list. Experiment only; "card" stays the default and the scheduled send
   // never passes this.
@@ -369,6 +370,11 @@ Deno.serve(async (request) => {
     if (a.image_url && sharedImages.has(a.image_url)) a.image_url = null;
   }
 
+  // Image liveness is verified AFTER selection -- see below. Checking here, in
+  // the pool's scraped_at order, examined an arbitrary twelve articles with
+  // little relation to the five the wrap actually picks by strength.
+  const imageCheck = { checked: 0, dropped: 0, softFailed: 0 };
+
   let wrapPool: Article[] = [];
   const categoryPool: Record<string, Article[]> = {};
   for (const cat of CATEGORIES) categoryPool[cat] = [];
@@ -445,6 +451,77 @@ Deno.serve(async (request) => {
     dupPairs,
   });
   wrapPool = limitBreakingStories(wrapOrder.pool as Article[]);
+
+  // ---- do these pictures actually load? -------------------------------------
+  //
+  // Runs HERE, not at pool load, because only now is the order the one the wrap
+  // will use. The first attempt checked the head of the pool in scraped_at
+  // order, and a deliberately broken URL on the top-ranked article went
+  // unnoticed -- it sat outside the twelve examined.
+  //
+  // Everything before this trusts a URL a publisher put in a feed. They move
+  // files, expire CDN paths and switch on hotlink protection without notice,
+  // and a dead <img> is not a small blemish: it is a broken grey box at the top
+  // of the card, in front of a thousand people, with no way to recall it.
+  //
+  // Failures are silent by design -- the picture is dropped, the card falls back
+  // to its text-only form, and the send continues. A slow CDN must never hold up
+  // the email.
+  {
+    const CHECK_HEAD = WRAP_COUNT + 3;   // the five that ship, plus headroom
+    const CHECK_TIMEOUT_MS = 8000;
+    const candidates = wrapPool.filter((a) => a.image_url).slice(0, CHECK_HEAD);
+    const provenDead: string[] = [];
+
+    await Promise.all(candidates.map(async (a) => {
+      const url = a.image_url as string;
+      imageCheck.checked++;
+      try {
+        // GET with a Range header rather than HEAD: several Indian publisher
+        // CDNs answer HEAD with 403 or 405 while serving the image perfectly to
+        // a browser, which would have discarded good pictures.
+        const res = await fetch(url, {
+          method: "GET",
+          headers: { "Range": "bytes=0-2047", "User-Agent": IMAGE_UA },
+          redirect: "follow",
+          signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+        });
+        const type = res.headers.get("content-type") ?? "";
+        const ok = (res.status === 200 || res.status === 206) && /^image\//i.test(type);
+        await res.body?.cancel();
+        if (!ok) {
+          a.image_url = null;
+          imageCheck.dropped++;
+          provenDead.push(url);
+        }
+      } catch {
+        // A timeout or network error is OUR problem, not proof the image is
+        // broken, so the picture is KEPT.
+        //
+        // The first version dropped on any exception, and on 2026-08-20 that
+        // produced the reported symptom: seven drain slices each ran this check
+        // independently, one slice timed out on one image, and only that
+        // slice's 150 readers lost it -- some inboxes had five pictures and
+        // some four, from identical content. All five images passed a manual
+        // check afterwards, including through Gmail's own image proxy.
+        //
+        // The reader is also better placed than we are: Gmail fetches through
+        // googleusercontent with its own retries and a far longer timeout. A
+        // working image occasionally missing is a worse failure than the rare
+        // broken box this was guarding against.
+        imageCheck.softFailed++;
+      }
+    }));
+
+    // Persist only what was PROVEN dead, so every later slice -- and tomorrow's
+    // send -- agrees without re-fetching, and no reader gets a different email
+    // because of when their slice happened to run.
+    if (provenDead.length > 0) {
+      await supabase.from("articles")
+        .update({ image_url: null })
+        .in("image_url", provenDead);
+    }
+  }
 
   // Explicit one-recipient tests may intentionally use an approved case from
   // the active pool even when it was approved before today's scrape window.
@@ -585,6 +662,9 @@ Deno.serve(async (request) => {
       failed: dFailed,
       queuedRemaining: remaining ?? 0,
       markedArticles,
+      imagesChecked: imageCheck.checked,
+      imagesDropped: imageCheck.dropped,
+      imagesSoftFailed: imageCheck.softFailed,
       done,
     });
   }
@@ -722,7 +802,10 @@ Deno.serve(async (request) => {
         wrap: selection.wrap.length, shorts: selection.shorts.length, caseStudy: Boolean(selection.caseStudy)
       });
     }
-    return json({ mode: "recipients", sent, failed, results: out, wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
+    return json({ mode: "recipients", sent, failed, results: out,
+      imagesChecked: imageCheck.checked, imagesDropped: imageCheck.dropped,
+      imagesSoftFailed: imageCheck.softFailed,
+      wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
   }
 
   // ---- 2. Create the digest (shared by the account + legacy sends) ----
@@ -884,7 +967,10 @@ Deno.serve(async (request) => {
     .update({ article_ids: [...usedArticleIds], recipients: sent, sent, failed })
     .eq("id", digestId);
 
-  return json({ mode: accountsOnly ? "accounts-only" : "full", digestId, sent, failed, skipped, accountSubscribers: accountEmails.size, plans: planTally, test: Boolean(testEmail), wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
+  return json({ mode: accountsOnly ? "accounts-only" : "full", digestId, sent, failed, skipped,
+    imagesChecked: imageCheck.checked, imagesDropped: imageCheck.dropped,
+    imagesSoftFailed: imageCheck.softFailed,
+    accountSubscribers: accountEmails.size, plans: planTally, test: Boolean(testEmail), wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
 });
 
 function istWeekday(): string {
@@ -1175,6 +1261,11 @@ function renderBreakingBadge(article: Article): string {
 // the picture stays big enough to read. width:100% lets it shrink below the cap
 // on a phone, which is why no media query is needed -- Gmail's Android app
 // strips <style> from a bare fragment, so anything depending on one is fiction.
+// Publisher CDNs routinely refuse requests with no User-Agent, so the liveness
+// check presents the same one a reader's mail client effectively would.
+const IMAGE_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
 const CARD_IMAGE_WIDTH = 440;
 // Thumbnail to the RIGHT of the text. 200 rather than Medium's ~150: with the
 // full summary showing, the text column runs 5-6 lines and a 150px picture
