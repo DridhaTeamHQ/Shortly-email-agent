@@ -1645,11 +1645,6 @@ function renderSubscribers() {
 }
 
 function downloadSubscriberExport(status) {
-  if (!window.XLSX) {
-    toast("Excel export is unavailable. Refresh and try again.");
-    return;
-  }
-
   const contacts = state.subscribers
     .filter((subscriber) => subscriber.status === status)
     .map((subscriber) => ({
@@ -1668,15 +1663,46 @@ function downloadSubscriberExport(status) {
     return;
   }
 
-  const sheet = window.XLSX.utils.json_to_sheet(contacts);
-  sheet["!cols"] = [
-    { wch: 32 }, { wch: 24 }, { wch: 18 }, { wch: 28 },
-    { wch: 28 }, { wch: 16 }, { wch: 23 }, { wch: 23 }
-  ];
-  const workbook = window.XLSX.utils.book_new();
-  window.XLSX.utils.book_append_sheet(sheet, workbook, status === "subscribed" ? "Subscribers" : "Unsubscribers");
   const date = new Date().toISOString().slice(0, 10);
-  window.XLSX.writeFile(workbook, `dailymattr-${status}-${date}.xlsx`);
+  const filename = `dailymattr-${status}-${date}`;
+
+  if (window.XLSX) {
+    try {
+      const sheet = window.XLSX.utils.json_to_sheet(contacts);
+      sheet["!cols"] = [
+        { wch: 32 }, { wch: 24 }, { wch: 18 }, { wch: 28 },
+        { wch: 28 }, { wch: 16 }, { wch: 23 }, { wch: 23 }
+      ];
+      const workbook = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(sheet, workbook, status === "subscribed" ? "Subscribers" : "Unsubscribers");
+      window.XLSX.writeFile(workbook, `${filename}.xlsx`);
+      toast(`${contacts.length} ${status} contact${contacts.length === 1 ? "" : "s"} downloaded.`);
+      return;
+    } catch (error) {
+      console.warn("XLSX export failed; using the built-in Excel fallback.", error);
+    }
+  }
+
+  const columns = Object.keys(contacts[0]);
+  const cell = (value) => `<Cell><Data ss:Type="String">${esc(String(value ?? ""))}</Data></Cell>`;
+  const xml = `<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <Worksheet ss:Name="${status === "subscribed" ? "Subscribers" : "Unsubscribers"}">
+    <Table>
+      <Row>${columns.map(cell).join("")}</Row>
+      ${contacts.map((contact) => `<Row>${columns.map((column) => cell(contact[column])).join("")}</Row>`).join("")}
+    </Table>
+  </Worksheet>
+</Workbook>`;
+  const blob = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${filename}.xls`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
   toast(`${contacts.length} ${status} contact${contacts.length === 1 ? "" : "s"} downloaded.`);
 }
 
