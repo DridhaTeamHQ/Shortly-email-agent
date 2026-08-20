@@ -17,6 +17,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number.parseInt(process.env.PORT || "4173", 10);
 const now = () => new Date().toISOString();
 
+// Stable ids so memberships can reference rows declared below them.
+const SUB_IDS = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+const GROUP_IDS = [randomUUID(), randomUUID()];
+
 const ART = (title, topic, source, status, category = null, fact = null) => ({
   id: randomUUID(), title, edited_title: null,
   url: `https://example.com/${randomUUID().slice(0, 8)}`,
@@ -58,9 +62,26 @@ const store = {
   ],
   corporateCases: [CASE("How Zomato turned profitable", "Zomato", "approved"), CASE("Why a D2C brand shut down", "ExampleCo", "draft")],
   editorialDrafts: [DRAFT("real-estate", "Real Estate", "hybrid", "approved"), DRAFT("money-matters", "Money Matters", "hybrid", "draft"), DRAFT("policy-partner", "Policy Partner", "single", "approved"), DRAFT("wellness-daily", "Wellness Daily", "single", "draft")],
+  // Mixed statuses on purpose: the dashboard's status filter cannot be tested
+  // against an all-"subscribed" fixture, and unsubscribed/bounced rows are
+  // exactly the ones every send path hides.
   subscribers: [
-    { id: randomUUID(), email: "reader@example.com", full_name: "Reader", phone_number: null, topics: ["daily-wrap"], status: "subscribed", created_at: now() },
-    { id: randomUUID(), email: "analyst@example.com", full_name: "Analyst", phone_number: null, topics: ["corporate-case", "money-matters"], status: "subscribed", created_at: now() }
+    { id: SUB_IDS[0], email: "reader@example.com", full_name: "Reader", phone_number: null, topics: ["daily-wrap"], status: "subscribed", created_at: now() },
+    { id: SUB_IDS[1], email: "analyst@example.com", full_name: "Analyst", phone_number: null, topics: ["corporate-case", "money-matters"], status: "subscribed", created_at: now() },
+    { id: SUB_IDS[2], email: "left@example.com", full_name: "Opted Out", phone_number: null, topics: ["daily-wrap"], status: "unsubscribed", created_at: now() },
+    { id: SUB_IDS[3], email: "dead@example.com", full_name: "Hard Bounce", phone_number: null, topics: ["daily-wrap"], status: "bounced", created_at: now() }
+  ],
+  // The real /subscribers function returns groups + memberships alongside the
+  // rows; this mock predates that feature and the dashboard renders group
+  // chips from it.
+  subscriberGroups: [
+    { id: GROUP_IDS[0], name: "monday batch", created_at: now() },
+    { id: GROUP_IDS[1], name: "tuesday batch", created_at: now() }
+  ],
+  subscriberMemberships: [
+    { subscriber_id: SUB_IDS[0], group_id: GROUP_IDS[0] },
+    { subscriber_id: SUB_IDS[2], group_id: GROUP_IDS[0] },
+    { subscriber_id: SUB_IDS[1], group_id: GROUP_IDS[1] }
   ],
   digests: []
 };
@@ -114,7 +135,11 @@ async function api(req, res, pathname, url) {
     return sendJson(res, { draft: d || null });
   }
   if (pathname === "/api/subscribers") {
-    if (req.method === "GET") return sendJson(res, { subscribers: store.subscribers });
+    if (req.method === "GET") return sendJson(res, {
+      subscribers: store.subscribers,
+      groups: store.subscriberGroups,
+      memberships: store.subscriberMemberships,
+    });
     const b = await readBody(req);
     if (b.action === "add") store.subscribers.push({ id: randomUUID(), email: b.email, full_name: b.full_name || null, phone_number: b.phone_number || null, topics: b.topics || ["daily-wrap"], status: "subscribed", created_at: now() });
     else if (b.action === "update") { const s = store.subscribers.find((x) => x.id === b.id); if (s && b.status) s.status = b.status; }

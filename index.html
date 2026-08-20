@@ -383,6 +383,12 @@
           <div class="subscriber-tools" aria-label="Subscriber search and groups">
             <label class="subscriber-search" for="subSearch"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input id="subSearch" type="search" placeholder="Search name, email, phone, or group" /></label>
             <select id="subGroupFilter" aria-label="Filter subscribers by group"><option value="">All groups</option></select>
+            <select id="subStatusFilter" aria-label="Filter subscribers by status">
+              <option value="">All statuses</option>
+              <option value="subscribed">Subscribed</option>
+              <option value="unsubscribed">Unsubscribed</option>
+              <option value="bounced">Bounced</option>
+            </select>
             <button id="createSubscriberGroup" class="btn-ghost" type="button"><i class="ph ph-plus" aria-hidden="true"></i> Create group</button>
           </div>
           <div class="subscriber-export-bar" aria-label="Download subscriber lists">

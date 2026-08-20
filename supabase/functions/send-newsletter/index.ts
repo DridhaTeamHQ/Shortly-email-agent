@@ -18,6 +18,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
+import { logoSvg } from "../_shared/brand.ts";
 import { buildWrapOrder } from "../_shared/editorial-picks.ts";
 import { renderIntroEmail, INTRO_SUBJECT } from "../_shared/intro-email.ts";
 
@@ -37,6 +38,8 @@ type Article = {
   fact_score: number | null;
   fact_label: string | null;
   fact_notes: { source_count?: number; sources?: Array<{ source: string; url: string }> } | null;
+  // Scraped from the feed's media tag or the article page's og:image.
+  image_url: string | null;
   scraped_at: string;
   published_at: string | null;
   reviewed_at: string | null;
@@ -148,8 +151,40 @@ Deno.serve(async (request) => {
   // sends to every subscribed address. Runs BEFORE the content pools are
   // loaded, because it carries no articles and must not depend on the day
   // having any approved content.
+  // {"accounts_only":true} runs ONLY the website-account branch below.
+  //
+  // The queue covers the `subscribers` table; the planner deliberately excludes
+  // account subscribers because one row can yield two different products. But
+  // {"plan":true} returns before the account branch ever runs, so moving the
+  // daily cron onto the queue would silently drop them -- 16 active
+  // subscriptions as of 2026-08-19. This flag is the other half of that split:
+  // plan+drain for the list, accounts_only for the accounts.
+  // EXPERIMENT flag. Default OFF so the scheduled 09:00 IST send is byte-for-
+  // byte what it was: pass {"images":true} per request, or set WRAP_SHOW_IMAGES
+  // once the look is approved.
+  let showImages = Deno.env.get("WRAP_SHOW_IMAGES") === "true";
+  // {"layout":"medium"} swaps the boxed cards for a Medium-Daily-Digest-style
+  // list. Experiment only; "card" stays the default and the scheduled send
+  // never passes this.
+  let layout: CardLayout = Deno.env.get("WRAP_LAYOUT") === "medium" ? "medium" : "card";
+  let accountsOnly = false;
   let intro = false;
   let introTo: string | null = null;
+  // {"intro":true,"intro_group":"tuesday batch"} announces to ONE group.
+  // An announcement belongs to the people who just arrived, not to the whole
+  // list -- without this the only choices were one address or all of them, and
+  // re-announcing to everyone is how a list earns spam complaints.
+  //
+  // Targets subscriber_groups, the same groups the dashboard manages, rather
+  // than a private column: two places recording "which intake is this" drift
+  // the moment someone edits a group in the UI, and the send would quietly
+  // miss them.
+  let introGroup: string | null = null;
+  // {"dry_run":true} resolves the audience and returns it WITHOUT sending.
+  // A broadcast cannot be recalled, and the only way to learn who a filter
+  // actually selected used to be to mail them. Targeting bugs fail loudly here
+  // instead of in someone's inbox.
+  let dryRun = false;
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     subscriberIds = Array.isArray(body?.subscriber_ids)
@@ -161,10 +196,19 @@ Deno.serve(async (request) => {
     provider = body?.provider === "brevo" ? "brevo" : body?.provider === "ses" ? "ses" : undefined;
     recipients = Array.isArray(body?.recipients) ? body.recipients : [];
     planOnly = body?.plan === true;
+    accountsOnly = body?.accounts_only === true;
+    if (body?.images === true) showImages = true;
+    if (body?.images === false) showImages = false;
+    if (body?.layout === "medium") layout = "medium";
+    if (body?.layout === "card") layout = "card";
     drain = body?.drain === true;
     drainLimit = Math.min(1000, Math.max(1, Number(body?.limit) || 500));
     intro = body?.intro === true;
     introTo = typeof body?.intro_to === "string" && body.intro_to.includes("@") ? body.intro_to : null;
+    introGroup = typeof body?.intro_group === "string" && body.intro_group.trim().length > 0
+      ? body.intro_group.trim()
+      : null;
+    dryRun = body?.dry_run === true;
   }
 
   // A test address is a single-recipient override. Never route it through the
@@ -181,14 +225,34 @@ Deno.serve(async (request) => {
     if (introTo) {
       targets.push({ id: null, email: introTo, full_name: null });
     } else {
+      // Resolve the group NAME to an id first. Names are unique on lower(name),
+      // so match case-insensitively -- "Tuesday Batch" and "tuesday batch" are
+      // the same group, and silently mailing nobody because of a capital letter
+      // would look identical to success.
+      let groupId: string | null = null;
+      if (introGroup) {
+        const { data: g, error: gErr } = await supabase
+          .from("subscriber_groups")
+          .select("id,name")
+          .ilike("name", introGroup)
+          .maybeSingle();
+        if (gErr) return json({ error: gErr.message }, 500);
+        if (!g) return json({ error: `No subscriber group named "${introGroup}".` }, 400);
+        groupId = g.id as string;
+      }
+
       // Page it: a bare select is capped by PostgREST max-rows, which would
       // silently mail only the first page and report success.
       const PAGE = 1000;
       for (let from = 0; ; from += PAGE) {
-        const { data: subs, error: sErr } = await supabase
+        // !inner turns the embed into a JOIN, so this filters subscribers by
+        // membership without shipping hundreds of ids through the query string.
+        let sq = supabase
           .from("subscribers")
-          .select("id,email,full_name")
-          .eq("status", "subscribed")
+          .select(groupId ? "id,email,full_name,subscriber_group_members!inner(group_id)" : "id,email,full_name")
+          .eq("status", "subscribed");
+        if (groupId) sq = sq.eq("subscriber_group_members.group_id", groupId);
+        const { data: subs, error: sErr } = await sq
           .order("id")
           .range(from, from + PAGE - 1);
         if (sErr) return json({ error: sErr.message }, 500);
@@ -199,6 +263,16 @@ Deno.serve(async (request) => {
       }
     }
     if (targets.length === 0) return json({ mode: "intro", sent: 0, failed: 0, reason: "no subscribers" });
+
+    if (dryRun) {
+      return json({
+        mode: "intro-dry-run",
+        group: introGroup,
+        wouldSend: targets.length,
+        sample: targets.slice(0, 5).map((t) => t.email),
+        sent: 0,
+      });
+    }
 
     let iSent = 0;
     let iFailed = 0;
@@ -227,7 +301,8 @@ Deno.serve(async (request) => {
       }));
     }
     return json({
-      mode: introTo ? "intro-preview" : "intro",
+      mode: introTo ? "intro-preview" : introGroup ? `intro-group:${introGroup}` : "intro",
+      group: introGroup,
       recipients: targets.length,
       sent: iSent,
       failed: iFailed,
@@ -259,7 +334,7 @@ Deno.serve(async (request) => {
   // ---- 1. Load approved (unsent) content pools ----
   const { data: approvedArticles, error: articlesError } = await supabase
     .from("articles")
-    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,prominence,fact_score,fact_label,fact_notes,published_at,scraped_at,reviewed_at,breaking_flag")
+    .select("id,title,edited_title,url,summary,edited_summary,source,topic,category,rank_score,prominence,fact_score,fact_label,fact_notes,image_url,published_at,scraped_at,reviewed_at,breaking_flag")
     .eq("status", "approved")
     .gte("reviewed_at", istStart)
     .lt("reviewed_at", istEnd)
@@ -267,6 +342,32 @@ Deno.serve(async (request) => {
     .order("rank_score", { ascending: false })
     .limit(500);
   if (articlesError) return json({ error: articlesError.message }, 500);
+
+  // By REUSE: a real photograph belongs to one story, so the same URL appearing
+  // across many articles is a house placeholder by definition. This catches the
+  // ones no name pattern anticipates -- Hindustan Times' /default/1600x900.jpg
+  // was on 8 articles and looks nothing like a placeholder by its path.
+  //
+  // Nulled on the pool itself rather than checked in the renderer, so every
+  // send path inherits it without threading another argument through four
+  // layers of markup helpers.
+  const sharedImages = new Set<string>();
+  try {
+    const { data: dupImgs } = await supabase
+      .from("articles")
+      .select("image_url")
+      .not("image_url", "is", null)
+      .gte("scraped_at", new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString());
+    const seen = new Map<string, number>();
+    for (const r of (dupImgs ?? []) as Array<{ image_url: string }>) {
+      const n = (seen.get(r.image_url) ?? 0) + 1;
+      seen.set(r.image_url, n);
+      if (n > 2) sharedImages.add(r.image_url);
+    }
+  } catch { /* a missing placeholder list must never block a send */ }
+  for (const a of (approvedArticles ?? []) as Article[]) {
+    if (a.image_url && sharedImages.has(a.image_url)) a.image_url = null;
+  }
 
   let wrapPool: Article[] = [];
   const categoryPool: Record<string, Article[]> = {};
@@ -363,6 +464,10 @@ Deno.serve(async (request) => {
 
     let dSent = 0;
     let dFailed = 0;
+    // What this slice actually put in front of a reader. Persisted only once
+    // the whole queue is empty -- see the end of this block.
+    const drainUsedArticles = new Set<string>();
+    const drainUsedEditorial = new Set<string>();
     const sd = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
     // Small parallel groups: fast enough to clear the slice, slow enough to stay
@@ -386,6 +491,7 @@ Deno.serve(async (request) => {
             { id: row.subscriber_id ?? "", email: row.email, full_name: row.full_name ?? null, plan, category: cat },
             plan,
             selection,
+            { images: showImages, layout },
           );
           const result = await sendEmail({
             to: row.email,
@@ -413,7 +519,12 @@ Deno.serve(async (request) => {
               error: result.error ?? null,
             });
           }
-          if (result.ok) dSent++; else dFailed++;
+          if (result.ok) {
+            dSent++;
+            selection.wrap.forEach((a) => drainUsedArticles.add(a.id));
+            selection.shorts.forEach((a) => drainUsedArticles.add(a.id));
+            if (selection.caseStudy) drainUsedEditorial.add(selection.caseStudy.id);
+          } else dFailed++;
         } catch (e) {
           dFailed++;
           await supabase.from("email_outbox")
@@ -430,13 +541,51 @@ Deno.serve(async (request) => {
       .from("email_outbox")
       .select("id", { count: "exact", head: true })
       .eq("status", "queued");
+    // Mark content as sent ONLY once nothing is left queued.
+    //
+    // Timing is the whole point. wrapPool is re-read from status='approved' at
+    // the top of EVERY invocation, so marking mid-drain would empty the pool
+    // for the batches that follow and hand later readers an empty email. The
+    // 2026-08-19 send is the cautionary tale from the other direction: it died
+    // before its bookkeeping ran, so 5 articles stayed 'approved' and the
+    // digest reported 0 recipients despite 646 deliveries.
+    const done = (remaining ?? 0) === 0;
+    let markedArticles = 0;
+    if (done && drainUsedArticles.size > 0) {
+      const { data: upd } = await supabase
+        .from("articles")
+        .update({ status: "sent", sent_at: new Date().toISOString() })
+        .in("id", [...drainUsedArticles])
+        .eq("status", "approved")
+        .select("id");
+      markedArticles = upd?.length ?? 0;
+      if (drainUsedEditorial.size > 0) {
+        await supabase.from("editorial_drafts")
+          .update({ status: "sent" })
+          .in("id", [...drainUsedEditorial])
+          .eq("status", "approved");
+      }
+    }
+    // Keep the digest's own count honest; the crashed run left it at 0.
+    if (done && rows[0]?.digest_id) {
+      const { count: delivered } = await supabase
+        .from("article_deliveries")
+        .select("email", { count: "exact", head: true })
+        .eq("digest_id", rows[0].digest_id);
+      if (delivered != null) {
+        await supabase.from("digests").update({ recipients: delivered })
+          .eq("id", rows[0].digest_id);
+      }
+    }
+
     return json({
       mode: "drain",
       claimed: rows.length,
       sent: dSent,
       failed: dFailed,
       queuedRemaining: remaining ?? 0,
-      done: (remaining ?? 0) === 0,
+      markedArticles,
+      done,
     });
   }
 
@@ -565,7 +714,7 @@ Deno.serve(async (request) => {
       }
       const requestedSubject = String((r as Record<string, unknown>).subject ?? "").trim();
       const subject = requestedSubject || buildSubject(plan, caseCategory ?? shortsCategory, sd);
-      const html = await renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection);
+      const html = await renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection, { images: showImages, layout });
       const result = await sendEmail({ to: email, subject, html, provider });
       if (result.ok) sent += 1; else failed += 1;
       out.push({
@@ -663,15 +812,18 @@ Deno.serve(async (request) => {
 
   // ---- 2b. LEGACY subscribers (subscribers table) minus anyone already handled
   // via their website account.
-  let subQuery = supabase
-    .from("subscribers")
-    .select("id,email,full_name,plan,category")
-    .eq("status", "subscribed");
-  if (subscriberIds.length > 0) subQuery = subQuery.in("id", subscriberIds);
-  const { data: subs, error: subError } = await subQuery;
-  if (subError) return json({ error: subError.message }, 500);
-  const subscribers = ((subs ?? []) as Subscriber[])
-    .filter((s) => subscriberIds.length > 0 || !accountEmails.has(normalizeEmail(s.email)));
+  let subscribers: Subscriber[] = [];
+  if (!accountsOnly) {
+    let subQuery = supabase
+      .from("subscribers")
+      .select("id,email,full_name,plan,category")
+      .eq("status", "subscribed");
+    if (subscriberIds.length > 0) subQuery = subQuery.in("id", subscriberIds);
+    const { data: subs, error: subError } = await subQuery;
+    if (subError) return json({ error: subError.message }, 500);
+    subscribers = ((subs ?? []) as Subscriber[])
+      .filter((s) => subscriberIds.length > 0 || !accountEmails.has(normalizeEmail(s.email)));
+  }
 
   // Concurrency per batch. Measured 2026-08-15: a batch takes ~855ms
   // regardless of size, so throughput = batchSize / 0.855s. At 5 that is
@@ -693,7 +845,7 @@ Deno.serve(async (request) => {
         return null;
       }
       const subject = buildSubject(plan, sub.category, subjectDate);
-      const html = await renderEmail(sub, plan, selection);
+      const html = await renderEmail(sub, plan, selection, { images: showImages, layout });
       const result = await sendEmail({ to: testEmail ?? sub.email, subject, html });
       await supabase.from("article_deliveries").insert({
         digest_id: digestId, subscriber_id: sub.id, email: testEmail ?? sub.email,
@@ -710,7 +862,12 @@ Deno.serve(async (request) => {
   // ---- 3. Mark used content as sent (skip when this was a test) ----
   // If even one recipient failed, leave the approved content available for a
   // controlled retry instead of consuming it globally.
-  if (!testEmail && failed === 0) {
+  // accounts_only must NOT mark content sent. It runs alongside the queue, and
+  // the drain re-reads the pool from status='approved' on every invocation: if
+  // the 16 account emails marked the wrap sent at 03:30, the drain would find
+  // an empty pool at 03:32 and every queued reader would be skipped. The queue
+  // owns this now -- it marks once the last batch drains.
+  if (!testEmail && !accountsOnly && failed === 0) {
     if (usedArticleIds.size > 0) {
       await supabase.from("articles")
         .update({ status: "sent", sent_at: new Date().toISOString() })
@@ -727,7 +884,7 @@ Deno.serve(async (request) => {
     .update({ article_ids: [...usedArticleIds], recipients: sent, sent, failed })
     .eq("id", digestId);
 
-  return json({ digestId, sent, failed, skipped, accountSubscribers: accountEmails.size, plans: planTally, test: Boolean(testEmail), wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
+  return json({ mode: accountsOnly ? "accounts-only" : "full", digestId, sent, failed, skipped, accountSubscribers: accountEmails.size, plans: planTally, test: Boolean(testEmail), wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
 });
 
 function istWeekday(): string {
@@ -979,12 +1136,12 @@ function renderFactBadge(a: Article): string {
   return `<div style="display:inline-block;border:2px solid ${color};color:${color};font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;padding:1px 8px;border-radius:999px;margin:0 0 8px;font-family:Roboto,Arial,sans-serif">${escapeHtml(text)}</div>`;
 }
 
-function renderSection(label: string, bg: string, articles: Article[]): string {
+function renderSection(label: string, bg: string, articles: Article[], opts: CardOpts = DEFAULT_CARD_OPTS): string {
   if (articles.length === 0) return "";
   return `
     ${renderLabelBar(label, bg)}
     <div style="margin-bottom:22px">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${renderItemsReal(articles)}</table>
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${renderItemsReal(articles, opts)}</table>
     </div>`;
 }
 
@@ -993,17 +1150,106 @@ function renderBreakingBadge(article: Article): string {
   return `<span style="display:inline-block;vertical-align:middle;margin:0 0 8px;padding:2px 8px;border-radius:999px;background:#c2221e;color:#ffffff;font-size:10px;line-height:1.2;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;font-family:Roboto,Arial,sans-serif">Breaking</span>`;
 }
 
-function renderItemsReal(articles: Article[]): string {
+// EXPERIMENT (2026-08-19): the article's own picture above its headline.
+//
+// Deliberately conservative, because email is not a browser:
+//   * a real <img> with a pixel `width` attribute, not a CSS background --
+//     Outlook's Word engine ignores background-image and max-width alike
+//   * height:auto so the aspect ratio survives the client rescaling it
+//   * alt text carries the headline, so a blocked image still reads as
+//     something rather than a grey void. Gmail and Outlook both hide remote
+//     images until the reader opts in, so this is the DEFAULT state, not an
+//     edge case
+//   * the card renders unchanged when there is no picture -- no empty frame
+//
+// Not solved here: publishers can block hotlinking, and nothing warns us when
+// they do. The image simply fails to load and the alt text stands in.
+// Image sits ABOVE the headline, capped rather than filling the card.
+//
+// Side-by-side was tried and dropped: at any width narrow enough to matter it
+// either crushed the headline to one word per line or stacked anyway, so it
+// bought nothing that this does not.
+//
+// 440 rather than the card's full ~590: at 16:9 that is ~250px of height
+// instead of ~333, so a five-story wrap loses roughly 400px of scrolling while
+// the picture stays big enough to read. width:100% lets it shrink below the cap
+// on a phone, which is why no media query is needed -- Gmail's Android app
+// strips <style> from a bare fragment, so anything depending on one is fiction.
+const CARD_IMAGE_WIDTH = 440;
+// Thumbnail to the RIGHT of the text. 200 rather than Medium's ~150: with the
+// full summary showing, the text column runs 5-6 lines and a 150px picture
+// (84px tall at 16:9) left an obvious hole beside it.
+//
+// This trades against itself -- every pixel the image gains, the text column
+// loses, which makes the text TALLER and the mismatch worse. 200 is about where
+// the two stop fighting: the card is ~592 wide inside its padding, so
+// 370 text + 18 gutter + 200 image = 588 and it still sits on one line.
+const MEDIUM_THUMB = 200;
+
+export type CardLayout = "card" | "medium";
+type CardOpts = { images: boolean; layout: CardLayout };
+const DEFAULT_CARD_OPTS: CardOpts = { images: false, layout: "card" };
+
+// Publishers serve a house crest when a story has no picture of its own. It is
+// worse than no image: it costs a request, takes the best slot in the card, and
+// tells the reader nothing -- a grey coat of arms beside a trade-policy piece.
+//
+// Caught two ways, because neither is sufficient alone.
+//
+// By NAME: a placeholder-ish path segment. Anchored on a leading slash so
+// livemint's "maxresdefault_..." is not mistaken for "/default".
+const PLACEHOLDER_IMAGE =
+  /\/(og-image|default|placeholder|no-?image|fallback|dummy|logo)([-_./]|$)/i;
+
+function usableImage(article: Article): string | null {
+  const src = (article.image_url ?? "").trim();
+  if (!src || !/^https:\/\//i.test(src)) return null;
+  if (PLACEHOLDER_IMAGE.test(src)) return null;
+  return src;
+}
+
+function renderItemsReal(articles: Article[], opts: CardOpts = DEFAULT_CARD_OPTS): string {
   return articles.map((article) => {
     const headline = (article.edited_title || article.title || "").trim();
     const text = (article.edited_summary || article.summary || "").trim();
     const category = (article.category || article.topic || "General").replaceAll("-", " ");
-    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
-      ${renderBreakingBadge(article)}
-      <h2 style="font-size:16px;line-height:1.32;margin:0 0 10px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(headline)}</h2>
-      <p style="font-size:12px;line-height:1.2;margin:0 0 14px;color:#666666;font-family:Roboto,Arial,sans-serif">${escapeHtml(category)}</p>
+    const body = `${renderBreakingBadge(article)}
+      <h2 style="font-size:16px;line-height:1.32;margin:0 0 8px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(headline)}</h2>
+      <p style="font-size:12px;line-height:1.2;margin:0 0 10px;color:#666666;font-family:Roboto,Arial,sans-serif">${escapeHtml(category)}</p>
       <p style="font-size:13px;line-height:1.55;color:#686868;margin:0 0 12px;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(text)}</p>
-      ${renderSourceMeta(article)}
+      ${renderSourceMeta(article)}`;
+
+    const img = opts.images ? usableImage(article) : null;
+
+    // No picture: the original single-column card at full card width, byte for
+    // byte what the scheduled send renders. Nothing to align to, and narrowing
+    // it would change the daily email that is not part of this experiment.
+    if (!img) {
+      return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
+      ${body}
+    </div></td></tr>`;
+    }
+
+    // Picture above the headline, and image + text share ONE centred column.
+    //
+    // Before this they had different widths: the image capped at 440 while the
+    // text ran the card's full ~616, so the right edges did not line up and the
+    // picture read as pinned to the left with dead space beside it. Putting
+    // both in the same max-width block fixes the alignment and the centring
+    // together -- they are the same problem, not two.
+    //
+    // 440 also gives the summary a ~70-character measure instead of ~95, which
+    // is the readable range rather than a wall.
+    //
+    // On a phone the column is narrower than 440, so it collapses to full width
+    // and the layout is exactly the one that already reads well there. No media
+    // query, nothing for Gmail to strip.
+    const alt = (article.edited_title || article.title || "").trim().slice(0, 120);
+    return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
+      <div style="max-width:${CARD_IMAGE_WIDTH}px;margin:0 auto">
+        <a href="${escapeHtml(article.url)}" style="text-decoration:none"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:100%;max-width:${CARD_IMAGE_WIDTH}px;height:auto;border:0;border-radius:8px;background:#e9e9e9;margin:0 0 14px" /></a>
+        ${body}
+      </div>
     </div></td></tr>`;
   }).join("");
 }
@@ -1012,8 +1258,150 @@ function renderItemsReal(articles: Article[]): string {
 // never carries a red BREAKING banner. Breaking stories are still front-loaded
 // in the pool (is_breaking ordering above), so the hottest story leads the
 // list; it just isn't labelled as breaking.
-function renderWrapSections(wrap: Article[]): string {
-  return renderSection("Quick Hits. Daily Wrap", "#111111", wrap);
+// ---- EXPERIMENT: Medium Daily Digest layout ---------------------------------
+//
+// What makes that email read the way it does, and what we borrow:
+//   * no cards. White page, items separated by a hairline. The boxes in our
+//     current wrap are what make it feel heavy
+//   * a serif headline at ~20px doing all the work, with everything else
+//     stepped well below it in size and colour
+//   * a small thumbnail on the RIGHT, ~150px, so the picture supports the
+//     headline instead of interrupting it
+//   * a quiet metadata line under each item
+//
+// Our touch is that metadata line. Medium shows claps and comments -- social
+// proof it has and we do not. We have something better suited to news: the
+// fact score and how many independent outlets corroborated the story. So the
+// row reads "92/100 . 4 sources . World" in brand blue, which says something
+// about whether to trust the item rather than how popular it was.
+// How old the story is, from the publisher's own timestamp where we have one.
+function mediumAge(a: Article): string {
+  const stamp = a.published_at || a.scraped_at;
+  if (!stamp) return "";
+  const h = (Date.now() - new Date(stamp).getTime()) / 3_600_000;
+  if (!Number.isFinite(h) || h < 0) return "";
+  if (h < 1) return "just now";
+  if (h < 24) return `${Math.round(h)}h ago`;
+  const d = Math.round(h / 24);
+  return d === 1 ? "yesterday" : `${d}d ago`;
+}
+
+function renderMediumMeta(a: Article): string {
+  const bits: string[] = [];
+  // Deliberately NOT the fact score. 55% of articles score exactly 100 and
+  // selection favours the strong ones, so a five-story wrap would print
+  // "100/100" five times -- decoration dressed as a signal. Age and
+  // corroboration both vary story to story, and for news they are the two
+  // things a reader actually weighs.
+  const age = mediumAge(a);
+  if (age) bits.push(age);
+  const n = Number(a.fact_notes?.source_count)
+    || (Array.isArray(a.fact_notes?.sources) ? a.fact_notes!.sources!.length : 0);
+  if (n > 1) bits.push(`${n} sources`);
+  const topic = (a.category || a.topic || "").replaceAll("-", " ").trim();
+  if (topic) bits.push(topic);
+  if (bits.length === 0) return "";
+  const dot = `<span style="color:#c9c9c9"> &middot; </span>`;
+  return `<p style="margin:10px 0 0;font:400 12.5px/1.4 Roboto,Arial,sans-serif;color:#8a8a8a">` +
+    `<span style="color:#3979ff;font-weight:700">&#10022;</span>&nbsp;` +
+    bits.map((b) => escapeHtml(b)).join(dot) + `</p>`;
+}
+
+function renderMediumItems(articles: Article[]): string {
+  return articles.map((article, i) => {
+    const headline = (article.edited_title || article.title || "").trim();
+    // Full summary, not a Medium-style one-line tease. Theirs truncates
+    // because the click is the point; ours IS the product -- the reader should
+    // be able to finish the story without leaving the inbox.
+    const dek = (article.edited_summary || article.summary || "").trim();
+    const img = usableImage(article);
+    const alt = headline.slice(0, 120);
+    const source = (article.source || "").trim();
+
+    // Source stands where Medium puts the author, with a brand-blue dot for
+    // the avatar. Cheaper than an image and it never fails to load.
+    const byline = source
+      ? `<p style="margin:0 0 8px;font:600 13px/1.3 Roboto,Arial,sans-serif;color:#5b5b5b">` +
+        `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#3979ff;margin-right:8px"></span>` +
+        `${escapeHtml(source)}</p>`
+      : "";
+
+    const text = `${byline}${renderBreakingBadge(article)}
+      <h2 style="margin:0 0 6px;font:700 20px/1.28 'Roboto Serif',Georgia,'Times New Roman',serif;color:#191919;letter-spacing:-0.01em">
+        <a href="${escapeHtml(article.url)}" style="color:#191919;text-decoration:none">${escapeHtml(headline)}</a>
+      </h2>
+      <p style="margin:0;font:400 15px/1.5 Roboto,Arial,sans-serif;color:#6b6b6b">${escapeHtml(dek)}</p>
+      ${renderMediumMeta(article)}`;
+
+    // Text and thumbnail as inline-blocks: on a phone the text box cannot go
+    // below 230px, so the pair stops fitting and the picture drops beneath the
+    // headline instead of squeezing it. No media query, because Gmail's app
+    // strips <style> from a bare fragment.
+    const inner = img
+      ? `<div style="font-size:0">
+          <!--[if mso]><table role="presentation" width="100%"><tr><td valign="top"><![endif]-->
+          <div style="display:inline-block;vertical-align:top;width:100%;max-width:370px;min-width:230px;padding-right:18px;font-size:14px;box-sizing:border-box">${text}</div>
+          <!--[if mso]></td><td width="${MEDIUM_THUMB}" valign="top"><![endif]-->
+          <div style="display:inline-block;vertical-align:top;width:${MEDIUM_THUMB}px;max-width:${MEDIUM_THUMB}px;font-size:14px">
+            <a href="${escapeHtml(article.url)}"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${MEDIUM_THUMB}" style="display:block;width:100%;max-width:${MEDIUM_THUMB}px;height:auto;border:0;border-radius:4px;background:#efefef" /></a>
+          </div>
+          <!--[if mso]></td></tr></table><![endif]-->
+        </div>`
+      : text;
+
+    const rule = i === 0 ? "" : "border-top:1px solid #e8e8e8;";
+    return `<tr><td style="${rule}padding:${i === 0 ? "0" : "26px"} 0 26px">${inner}</td></tr>`;
+  }).join("");
+}
+
+function renderMediumSection(label: string, articles: Article[]): string {
+  if (articles.length === 0) return "";
+  return `
+    <div style="padding:0 24px">
+      <p style="margin:0 0 4px;font:700 12px/1.4 Roboto,Arial,sans-serif;color:#191919;letter-spacing:.12em;text-transform:uppercase">${escapeHtml(label)}</p>
+      <div style="height:2px;background:#191919;margin:0 0 22px"></div>
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${renderMediumItems(articles)}</table>
+    </div>`;
+}
+
+async function renderMediumShell(fullName: string | null, email: string, intro: string, sections: string): Promise<string> {
+  const greeting = fullName ? `Hi ${escapeHtml(String(fullName).split(" ")[0])},` : "Hi there,";
+  const privacyFooter = await renderPrivacyFooter(email);
+  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" });
+
+  // The masthead is the wordmark itself rather than a banner image: Medium's
+  // digest opens on type, not a picture, and the logo already carries the brand
+  // without costing a 154 kB download.
+  return `
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&family=Roboto+Serif:wght@400;600;700&display=swap" rel="stylesheet">
+  <div style="margin:0;background:#ffffff;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
+    <div style="max-width:640px;margin:0 auto">
+      <div style="padding:28px 24px 0;text-align:center">
+        <span style="display:inline-block;line-height:0;color:#3979ff">${logoSvg(210, "#3979ff")}</span>
+        <p style="margin:14px 0 0;font:400 13px/1.4 Roboto,Arial,sans-serif;color:#8a8a8a">${escapeHtml(today)}</p>
+      </div>
+      <div style="height:1px;background:#e8e8e8;margin:22px 24px 24px"></div>
+
+      <div style="padding:0 24px 26px">
+        <p style="margin:0 0 6px;font:700 17px/1.35 'Roboto Serif',Georgia,serif;color:#191919">${greeting}</p>
+        <p style="margin:0;font:400 15px/1.6 Roboto,Arial,sans-serif;color:#5b5b5b">${intro}</p>
+      </div>
+
+      ${sections}
+
+      <div style="height:1px;background:#e8e8e8;margin:8px 24px 0"></div>
+      <div style="padding:22px 24px 30px;text-align:center">
+        <span style="display:inline-block;line-height:0;color:#3979ff">${logoSvg(130, "#3979ff")}</span>
+        <p style="margin:12px 0 0;font:400 13px/1.6 Roboto,Arial,sans-serif;color:#8a8a8a">Curated news, summarized daily.</p>
+        ${privacyFooter}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderWrapSections(wrap: Article[], opts: CardOpts = DEFAULT_CARD_OPTS): string {
+  if (opts.layout === "medium") return renderMediumSection("Today's highlights", wrap);
+  return renderSection("Quick Hits. Daily Wrap", "#111111", wrap, opts);
 }
 
 function renderCaseStudy(cs: CaseStudy): string {
@@ -1038,18 +1426,21 @@ function renderCaseStudy(cs: CaseStudy): string {
     </div>`;
 }
 
-async function renderEmail(sub: Subscriber, plan: string, selection: Selection): Promise<string> {
+async function renderEmail(sub: Subscriber, plan: string, selection: Selection, opts: CardOpts = DEFAULT_CARD_OPTS): Promise<string> {
   let sections = "";
   if (plan === "wrap-category") {
-    sections += renderWrapSections(selection.wrap);
-    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts);
+    sections += renderWrapSections(selection.wrap, opts);
+    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts, opts);
   } else if (plan === "category-case") {
-    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts);
+    sections += renderSection(`${selection.shortsCategory ?? "Category"} Briefs`, "#b45309", selection.shorts, opts);
     if (selection.caseStudy) sections += renderCaseStudy(selection.caseStudy);
   } else if (plan === "case-only") {
     if (selection.caseStudy) sections += renderCaseStudy(selection.caseStudy);
   } else {
-    sections += renderWrapSections(selection.wrap);
+    sections += renderWrapSections(selection.wrap, opts);
+  }
+  if (opts.layout === "medium") {
+    return renderMediumShell(sub.full_name, sub.email, introFor(plan, selection), sections);
   }
   return renderShell(sub.full_name, sub.email, introFor(plan, selection), sections);
 }
@@ -1075,6 +1466,7 @@ async function renderShell(fullName: string | null, email: string, intro: string
 
   return `
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Roboto+Serif:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <div style="margin:0;background:#ffffff;padding:0;font-family:Roboto,Arial,sans-serif;color:#191919">
     <div style="max-width:640px;margin:0 auto">
       ${renderTopMeta()}

@@ -562,6 +562,10 @@ const state = {
   subscriberGroupMemberships: [],
   subscriberSearch: "",
   subscriberGroupFilter: "",
+  // "" = every status. Unsubscribed and bounced rows are already in the table
+  // but were only findable by scrolling; every send path filters on
+  // status = 'subscribed', so this is how you see who is NOT receiving mail.
+  subscriberStatusFilter: "",
   digests: [],
   editorialDrafts: [],
   trending: { topics: [], filter: "suggested" },
@@ -1562,6 +1566,7 @@ function visibleSubscribers() {
   return state.subscribers.filter((subscriber) => {
     const groups = groupsForSubscriber(subscriber.id);
     if (state.subscriberGroupFilter && !groups.some((group) => group.id === state.subscriberGroupFilter)) return false;
+    if (state.subscriberStatusFilter && subscriber.status !== state.subscriberStatusFilter) return false;
     if (!query) return true;
     return [subscriber.email, subscriber.full_name, subscriber.phone_number, ...groups.map((group) => group.name)]
       .some((value) => String(value || "").toLowerCase().includes(query));
@@ -1630,7 +1635,7 @@ function renderSubscribers() {
       }
     )
     .join("");
-  $("#subRows").innerHTML = rows || `<tr><td colspan="8" class="muted" style="padding:18px">No subscribers match this search or group.</td></tr>`;
+  $("#subRows").innerHTML = rows || `<tr><td colspan="8" class="muted" style="padding:18px">No subscribers match this search, group, or status.</td></tr>`;
   const selectAll = $("#subSelectAll");
   if (selectAll) {
     selectAll.checked = allChecked;
@@ -2925,6 +2930,11 @@ $("#subSearch").addEventListener("input", (e) => {
 
 $("#subGroupFilter").addEventListener("change", (e) => {
   state.subscriberGroupFilter = e.target.value;
+  renderSubscribers();
+});
+
+$("#subStatusFilter").addEventListener("change", (e) => {
+  state.subscriberStatusFilter = e.target.value;
   renderSubscribers();
 });
 
