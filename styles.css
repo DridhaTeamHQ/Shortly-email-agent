@@ -730,6 +730,14 @@ a:hover { text-decoration-color: var(--ink); }
 .subscriber-search input { width: 100%; }
 #subGroupFilter { flex: 0 1 200px; min-width: 160px; }
 #createSubscriberGroup, #exportSubscribers, #exportUnsubscribers { white-space: nowrap; }
+.subscriber-export-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: -6px 0 16px; padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--panel-border));
+  border-radius: 14px; background: color-mix(in srgb, var(--brand) 6%, var(--surface));
+}
+.subscriber-export-label { display: inline-flex; align-items: center; gap: 7px; margin-right: auto; color: var(--brand-deep); font-size: 13px; font-weight: 800; }
+.subscriber-export-label i { color: var(--brand); font-size: 18px; }
 .subscriber-groups-cell { min-width: 180px; }
 .subscriber-group-menu { position: relative; }
 .subscriber-group-menu summary { cursor: pointer; color: var(--brand-deep); font-weight: 700; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
