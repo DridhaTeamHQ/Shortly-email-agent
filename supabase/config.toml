@@ -4,3 +4,8 @@ project_id = "ygxdrphajvrbjcaxhvcn"
 # validates a signed, per-recipient token before any account status is changed.
 [functions.unsubscribe]
 verify_jwt = false
+
+# Amazon SNS cannot attach a Supabase JWT. The handler validates its own
+# unguessable query token before accepting SES delivery events.
+[functions.email-events]
+verify_jwt = false
