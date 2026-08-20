@@ -2963,14 +2963,16 @@ $("#subForm").addEventListener("submit", async (e) => {
   const group_id = $("#subAddGroup").value;
   if (!email) return;
   try {
-    await api("POST", cfg.subscribers, { action: "add", email, full_name, phone_number, topics, group_id });
+    const res = await api("POST", cfg.subscribers, { action: "add", email, full_name, phone_number, topics, group_id });
     $("#subEmail").value = "";
     $("#subName").value = "";
     $("#subPhone").value = "";
     $("#subAddGroup").value = "";
     renderSubscriberTopicPicker();
     await refreshSubscribersView();
-    toast("Subscriber added.");
+    toast(res.existing
+      ? (res.resubscribed ? "Existing subscriber found and re-subscribed." : "Existing subscriber found and updated.")
+      : "Subscriber added.");
   } catch (e) {
     toast(`Failed: ${e.message}`);
   }
@@ -2993,7 +2995,12 @@ $("#importCsvBtn").addEventListener("click", async () => {
     $("#subCsvFile").value = "";
     $("#subImportGroup").value = "";
     await refreshSubscribersView();
-    toast(`Imported ${res.imported ?? subscribers.length} subscribers.`);
+    const processed = res.imported ?? subscribers.length;
+    const details = [];
+    if (res.created) details.push(`${res.created} new`);
+    if (res.updated) details.push(`${res.updated} updated`);
+    if (res.duplicates_in_file) details.push(`${res.duplicates_in_file} duplicate row${res.duplicates_in_file === 1 ? "" : "s"} skipped`);
+    toast(`Processed ${processed} subscriber${processed === 1 ? "" : "s"}${details.length ? `: ${details.join(", ")}.` : "."}`);
   } catch (e) {
     toast(`Import failed: ${e.message}`);
   }

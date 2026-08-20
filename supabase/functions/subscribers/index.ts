@@ -471,9 +471,11 @@ Deno.serve(async (request) => {
       }
       const updatedAt = new Date().toISOString();
       const normalizedByEmail = new Map<string, Record<string, unknown>>();
+      let validRows = 0;
       for (const row of rows) {
         const email = row?.email?.trim()?.toLowerCase() || "";
         if (!email || !email.includes("@")) continue;
+        validRows++;
         const plan = normalizePlan(row?.plan);
         const category = plan === "daily-wrap" ? null : normalizePlanCategory(row?.category);
         const topics = row?.topics ? normalizeTopics(row.topics) : topicsForPlan(plan, category);
@@ -495,6 +497,14 @@ Deno.serve(async (request) => {
         return json({ error: "No valid subscribers found in CSV" }, 400);
       }
 
+      const importedEmails = normalizedRows.map((row) => String(row.email));
+      const { data: existingSubscribers, error: existingLookupError } = await supabase
+        .from("subscribers")
+        .select("email")
+        .in("email", importedEmails);
+      if (existingLookupError) return json({ error: existingLookupError.message }, 500);
+      const existingCount = existingSubscribers?.length ?? 0;
+
       const { error } = await supabase
         .from("subscribers")
         .upsert(normalizedRows, { onConflict: "email" });
@@ -504,7 +514,7 @@ Deno.serve(async (request) => {
         const { data: importedSubscribers, error: lookupError } = await supabase
           .from("subscribers")
           .select("id")
-          .in("email", normalizedRows.map((row) => String(row.email)));
+          .in("email", importedEmails);
         if (lookupError) return json({ error: lookupError.message }, 500);
         try {
           await addSubscribersToGroup(supabase, groupId, (importedSubscribers ?? []).map((subscriber) => subscriber.id));
@@ -513,7 +523,13 @@ Deno.serve(async (request) => {
         }
       }
 
-      return json({ ok: true, imported: normalizedRows.length });
+      return json({
+        ok: true,
+        imported: normalizedRows.length,
+        created: normalizedRows.length - existingCount,
+        updated: existingCount,
+        duplicates_in_file: validRows - normalizedRows.length,
+      });
     }
 
     if (action === "update") {
