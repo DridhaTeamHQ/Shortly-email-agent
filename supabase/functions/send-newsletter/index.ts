@@ -373,7 +373,7 @@ Deno.serve(async (request) => {
   // Image liveness is verified AFTER selection -- see below. Checking here, in
   // the pool's scraped_at order, examined an arbitrary twelve articles with
   // little relation to the five the wrap actually picks by strength.
-  const imageCheck = { checked: 0, dropped: 0 };
+  const imageCheck = { checked: 0, dropped: 0, softFailed: 0 };
 
   let wrapPool: Article[] = [];
   const categoryPool: Record<string, Article[]> = {};
@@ -469,8 +469,10 @@ Deno.serve(async (request) => {
   // the email.
   {
     const CHECK_HEAD = WRAP_COUNT + 3;   // the five that ship, plus headroom
-    const CHECK_TIMEOUT_MS = 4000;
+    const CHECK_TIMEOUT_MS = 8000;
     const candidates = wrapPool.filter((a) => a.image_url).slice(0, CHECK_HEAD);
+    const provenDead: string[] = [];
+
     await Promise.all(candidates.map(async (a) => {
       const url = a.image_url as string;
       imageCheck.checked++;
@@ -487,12 +489,38 @@ Deno.serve(async (request) => {
         const type = res.headers.get("content-type") ?? "";
         const ok = (res.status === 200 || res.status === 206) && /^image\//i.test(type);
         await res.body?.cancel();
-        if (!ok) { a.image_url = null; imageCheck.dropped++; }
+        if (!ok) {
+          a.image_url = null;
+          imageCheck.dropped++;
+          provenDead.push(url);
+        }
       } catch {
-        a.image_url = null;
-        imageCheck.dropped++;
+        // A timeout or network error is OUR problem, not proof the image is
+        // broken, so the picture is KEPT.
+        //
+        // The first version dropped on any exception, and on 2026-08-20 that
+        // produced the reported symptom: seven drain slices each ran this check
+        // independently, one slice timed out on one image, and only that
+        // slice's 150 readers lost it -- some inboxes had five pictures and
+        // some four, from identical content. All five images passed a manual
+        // check afterwards, including through Gmail's own image proxy.
+        //
+        // The reader is also better placed than we are: Gmail fetches through
+        // googleusercontent with its own retries and a far longer timeout. A
+        // working image occasionally missing is a worse failure than the rare
+        // broken box this was guarding against.
+        imageCheck.softFailed++;
       }
     }));
+
+    // Persist only what was PROVEN dead, so every later slice -- and tomorrow's
+    // send -- agrees without re-fetching, and no reader gets a different email
+    // because of when their slice happened to run.
+    if (provenDead.length > 0) {
+      await supabase.from("articles")
+        .update({ image_url: null })
+        .in("image_url", provenDead);
+    }
   }
 
   // Explicit one-recipient tests may intentionally use an approved case from
@@ -634,6 +662,9 @@ Deno.serve(async (request) => {
       failed: dFailed,
       queuedRemaining: remaining ?? 0,
       markedArticles,
+      imagesChecked: imageCheck.checked,
+      imagesDropped: imageCheck.dropped,
+      imagesSoftFailed: imageCheck.softFailed,
       done,
     });
   }
@@ -773,6 +804,7 @@ Deno.serve(async (request) => {
     }
     return json({ mode: "recipients", sent, failed, results: out,
       imagesChecked: imageCheck.checked, imagesDropped: imageCheck.dropped,
+      imagesSoftFailed: imageCheck.softFailed,
       wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
   }
 
@@ -937,6 +969,7 @@ Deno.serve(async (request) => {
 
   return json({ mode: accountsOnly ? "accounts-only" : "full", digestId, sent, failed, skipped,
     imagesChecked: imageCheck.checked, imagesDropped: imageCheck.dropped,
+    imagesSoftFailed: imageCheck.softFailed,
     accountSubscribers: accountEmails.size, plans: planTally, test: Boolean(testEmail), wrapJudged: wrapOrder.judged, wrapCandidates: wrapOrder.candidates, wrapBreaking: wrapOrder.breaking, wrapDupPairs: wrapOrder.dupPairs });
 });
 
