@@ -242,7 +242,7 @@ Deno.serve(async (request) => {
     const [subscriberResult, groupResult, membershipResult] = await Promise.all([
       supabase
         .from("subscribers")
-        .select("id,email,full_name,phone_number,topics,plan,category,rhythm,send_days,news_categories,source_preference,status,created_at")
+        .select("id,email,full_name,phone_number,topics,plan,category,rhythm,send_days,news_categories,source_preference,status,created_at,unsubscribed_at")
         .order("created_at", { ascending: false }),
       supabase
         .from("subscriber_groups")

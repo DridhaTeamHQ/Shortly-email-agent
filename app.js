@@ -1591,6 +1591,17 @@ function renderSubscriberGroupControls() {
   setGroupOptions("#subImportGroup", "No group");
 }
 
+function formatSubscriberTimestamp(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata"
+  });
+}
+
 function renderSubscribers() {
   syncSelectedSubscribersForAudience();
   renderSubscriberGroupControls();
@@ -1625,6 +1636,7 @@ function renderSubscribers() {
           </details>
         </td>
         <td><span class="dot ${s.status}"></span>${esc(s.status)}</td>
+        <td class="subscriber-timestamp">${esc(formatSubscriberTimestamp(s.unsubscribed_at))}</td>
         <td class="row-actions">
           ${s.status === "subscribed"
             ? `<button class="btn-ghost" data-action="unsubscribe">Unsubscribe</button>`
@@ -1635,7 +1647,7 @@ function renderSubscribers() {
       }
     )
     .join("");
-  $("#subRows").innerHTML = rows || `<tr><td colspan="8" class="muted" style="padding:18px">No subscribers match this search, group, or status.</td></tr>`;
+  $("#subRows").innerHTML = rows || `<tr><td colspan="9" class="muted" style="padding:18px">No subscribers match this search, group, or status.</td></tr>`;
   const selectAll = $("#subSelectAll");
   if (selectAll) {
     selectAll.checked = allChecked;
@@ -1809,8 +1821,8 @@ function renderHistory() {
     const total = (d.sent || 0) + (d.failed || 0);
     const rate = total > 0 ? Math.round((d.sent / total) * 100) : 0;
     const statusBadge = d.failed > 0
-      ? `<span class="history-badge fail">${rate}% delivered</span>`
-      : `<span class="history-badge success">All delivered</span>`;
+      ? `<span class="history-badge fail">${rate}% accepted</span>`
+      : `<span class="history-badge success">All accepted</span>`;
     return `<tr>
       <td>${date}<br><span class="muted" style="font-size:11px">${time}</span></td>
       <td>${(d.article_ids || []).length}</td>
