@@ -743,6 +743,14 @@ a:hover { text-decoration-color: var(--ink); }
 .history-explainer { margin: 0 0 12px; font-size: 13px; }
 .subscriber-groups-cell { min-width: 180px; }
 .subscriber-timestamp { min-width: 165px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.subscriber-table th:first-child,
+.subscriber-table td:first-child { position: sticky; left: 0; z-index: 2; min-width: 34px; width: 34px; background: var(--surface); }
+.subscriber-table th:nth-child(2),
+.subscriber-table td:nth-child(2) { position: sticky; left: 34px; z-index: 2; min-width: 210px; background: var(--surface); box-shadow: 8px 0 12px rgba(23, 49, 102, 0.06); }
+.subscriber-table thead th:first-child,
+.subscriber-table thead th:nth-child(2) { z-index: 3; background: var(--softer); }
+.subscriber-table.hide-unsubscribe-time th:nth-child(8),
+.subscriber-table.hide-unsubscribe-time td:nth-child(8) { display: none; }
 .subscriber-group-menu { position: relative; }
 .subscriber-group-menu summary { cursor: pointer; color: var(--brand-deep); font-weight: 700; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .subscriber-group-menu[open] { z-index: 3; }

@@ -1606,6 +1606,8 @@ function renderSubscribers() {
   syncSelectedSubscribersForAudience();
   renderSubscriberGroupControls();
   const visible = visibleSubscribers();
+  const subscriberTable = document.querySelector(".subscriber-table");
+  subscriberTable?.classList.toggle("hide-unsubscribe-time", state.subscriberStatusFilter === "subscribed");
   const audienceNote = $("#subscriberAudienceNote");
   if (audienceNote) {
     const statusLabel = state.subscriberStatusFilter === "subscribed"
