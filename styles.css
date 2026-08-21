@@ -738,6 +738,7 @@ a:hover { text-decoration-color: var(--ink); }
 }
 .subscriber-export-label { display: inline-flex; align-items: center; gap: 7px; margin-right: auto; color: var(--brand-deep); font-size: 13px; font-weight: 800; }
 .subscriber-export-label i { color: var(--brand); font-size: 18px; }
+.subscriber-audience-note { margin: -5px 0 12px; color: var(--muted); font-size: 13px; }
 .subscriber-groups-cell { min-width: 180px; }
 .subscriber-timestamp { min-width: 165px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .subscriber-group-menu { position: relative; }

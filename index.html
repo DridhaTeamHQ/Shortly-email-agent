@@ -393,7 +393,7 @@
             <select id="subGroupFilter" aria-label="Filter subscribers by group"><option value="">All groups</option></select>
             <select id="subStatusFilter" aria-label="Filter subscribers by status">
               <option value="">All statuses</option>
-              <option value="subscribed">Subscribed</option>
+              <option value="subscribed" selected>Subscribed</option>
               <option value="unsubscribed">Unsubscribed</option>
               <option value="bounced">Bounced</option>
             </select>
@@ -404,6 +404,7 @@
             <button id="exportSubscribers" class="btn-ghost" type="button">Download subscribers</button>
             <button id="exportUnsubscribers" class="btn-ghost" type="button">Download unsubscribers</button>
           </div>
+          <p class="subscriber-audience-note" id="subscriberAudienceNote">Loading active email recipients...</p>
           <div class="subscriber-bulk-bar" id="subscriberBulkBar">
             <label class="subscriber-select-all">
               <input type="checkbox" id="subSelectAll" />

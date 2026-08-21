@@ -562,10 +562,9 @@ const state = {
   subscriberGroupMemberships: [],
   subscriberSearch: "",
   subscriberGroupFilter: "",
-  // "" = every status. Unsubscribed and bounced rows are already in the table
-  // but were only findable by scrolling; every send path filters on
-  // status = 'subscribed', so this is how you see who is NOT receiving mail.
-  subscriberStatusFilter: "",
+  // The default list is the actual sending audience; other statuses remain
+  // available in the filter for subscriber management.
+  subscriberStatusFilter: "subscribed",
   digests: [],
   analytics: null,
   editorialDrafts: [],
@@ -1607,6 +1606,13 @@ function renderSubscribers() {
   syncSelectedSubscribersForAudience();
   renderSubscriberGroupControls();
   const visible = visibleSubscribers();
+  const audienceNote = $("#subscriberAudienceNote");
+  if (audienceNote) {
+    const statusLabel = state.subscriberStatusFilter === "subscribed"
+      ? "active email recipients"
+      : state.subscriberStatusFilter ? `${state.subscriberStatusFilter} contacts` : "all contacts";
+    audienceNote.textContent = `Showing ${visible.length} ${statusLabel}. Only subscribed contacts receive emails.`;
+  }
   const subscribed = visible.filter((s) => subscriberMatchesCurrentAudience(s));
   const allChecked = subscribed.length > 0 && subscribed.every((s) => state.selectedSubscribers.has(s.id));
   const rows = visible
