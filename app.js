@@ -1606,8 +1606,6 @@ function renderSubscribers() {
   syncSelectedSubscribersForAudience();
   renderSubscriberGroupControls();
   const visible = visibleSubscribers();
-  const subscriberTable = document.querySelector(".subscriber-table");
-  subscriberTable?.classList.toggle("hide-unsubscribe-time", state.subscriberStatusFilter === "subscribed");
   const audienceNote = $("#subscriberAudienceNote");
   if (audienceNote) {
     const statusLabel = state.subscriberStatusFilter === "subscribed"
@@ -1644,8 +1642,10 @@ function renderSubscribers() {
             ${state.subscriberGroups.length ? `<button class="btn-ghost subscriber-group-save" data-action="save-groups" type="button">Save groups</button>` : ""}
           </details>
         </td>
-        <td><span class="dot ${s.status}"></span>${esc(s.status)}</td>
-        <td class="subscriber-timestamp">${esc(formatSubscriberTimestamp(s.unsubscribed_at))}</td>
+        <td class="subscriber-status-cell">
+          <span><span class="dot ${s.status}"></span>${esc(s.status)}</span>
+          ${s.unsubscribed_at ? `<span class="subscriber-status-time">Unsubscribed ${esc(formatSubscriberTimestamp(s.unsubscribed_at))}</span>` : ""}
+        </td>
         <td class="row-actions">
           ${s.status === "subscribed"
             ? `<button class="btn-ghost" data-action="unsubscribe">Unsubscribe</button>`
@@ -1656,7 +1656,7 @@ function renderSubscribers() {
       }
     )
     .join("");
-  $("#subRows").innerHTML = rows || `<tr><td colspan="9" class="muted" style="padding:18px">No subscribers match this search, group, or status.</td></tr>`;
+  $("#subRows").innerHTML = rows || `<tr><td colspan="8" class="muted" style="padding:18px">No subscribers match this search, group, or status.</td></tr>`;
   const selectAll = $("#subSelectAll");
   if (selectAll) {
     selectAll.checked = allChecked;
