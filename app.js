@@ -1817,25 +1817,35 @@ async function parseSubscriberFile(file) {
 
 function renderHistory() {
   if (state.digests.length === 0) {
-    $("#historyRows").innerHTML = `<tr><td colspan="6" class="muted" style="padding:20px;text-align:center">No digests sent yet.</td></tr>`;
+    $("#historyRows").innerHTML = `<tr><td colspan="7" class="muted" style="padding:20px;text-align:center">No digests sent yet.</td></tr>`;
     return;
   }
+  const analyticsByDigest = new Map((state.analytics?.digests || []).map((digest) => [digest.id, digest]));
   const rows = state.digests.map((d) => {
     const date = new Date(d.sent_at).toLocaleDateString("en-US", {
       weekday: "short", month: "short", day: "numeric", year: "numeric"
     });
     const time = new Date(d.sent_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-    const total = (d.sent || 0) + (d.failed || 0);
-    const rate = total > 0 ? Math.round((d.sent / total) * 100) : 0;
-    const statusBadge = d.failed > 0
-      ? `<span class="history-badge fail">${rate}% accepted</span>`
-      : `<span class="history-badge success">All accepted</span>`;
+    const metrics = analyticsByDigest.get(d.id);
+    const recipients = metrics?.recipients ?? d.recipients ?? 0;
+    const accepted = metrics?.accepted ?? d.sent ?? 0;
+    const failed = metrics?.failed ?? d.failed ?? 0;
+    const delivered = metrics?.delivered ?? 0;
+    const pending = metrics?.pending ?? Math.max(accepted - delivered, 0);
+    const statusBadge = accepted === 0
+      ? `<span class="history-badge">${recipients === 0 ? "No recipients" : "No SES record"}</span>`
+      : pending > 0
+        ? `<span class="history-badge pending">${pending} awaiting SES</span>`
+        : failed > 0
+          ? `<span class="history-badge fail">${failed} failed</span>`
+          : `<span class="history-badge success">Confirmed</span>`;
     return `<tr>
       <td>${date}<br><span class="muted" style="font-size:11px">${time}</span></td>
       <td>${(d.article_ids || []).length}</td>
-      <td>${d.recipients || 0}</td>
-      <td>${d.sent || 0}</td>
-      <td>${d.failed || 0}</td>
+      <td>${recipients}</td>
+      <td>${accepted}</td>
+      <td>${failed}</td>
+      <td>${delivered}</td>
       <td>${statusBadge}</td>
     </tr>`;
   }).join("");
