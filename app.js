@@ -567,6 +567,7 @@ const state = {
   // status = 'subscribed', so this is how you see who is NOT receiving mail.
   subscriberStatusFilter: "",
   digests: [],
+  analytics: null,
   editorialDrafts: [],
   trending: { topics: [], filter: "suggested" },
   workspace: "short",
@@ -1836,31 +1837,26 @@ function renderHistory() {
 }
 
 function renderAnalytics() {
-  const subs = state.subscribers.filter((s) => s.status === "subscribed").length;
-  const totalArticles = state.articles.length;
-  const totalDigests = state.digests.length;
-  const totalSent = state.digests.reduce((s, d) => s + (d.sent || 0), 0);
-  const totalFailed = state.digests.reduce((s, d) => s + (d.failed || 0), 0);
-  const deliveryRate = (totalSent + totalFailed) > 0
-    ? Math.round((totalSent / (totalSent + totalFailed)) * 100)
-    : 0;
+  const analytics = state.analytics;
+  const stats = analytics?.stats;
 
-  $("#statDigests").textContent = totalDigests;
-  $("#statArticles").textContent = totalArticles;
-  $("#statSubscribers").textContent = subs;
-  $("#statDeliveryRate").textContent = deliveryRate + "%";
+  $("#statDigests").textContent = stats ? stats.total_digests : "-";
+  $("#statArticles").textContent = stats ? stats.processed_articles : "-";
+  $("#statSubscribers").textContent = stats ? stats.active_subscribers : "-";
+  $("#statDeliveryRate").textContent = stats
+    ? (stats.confirmed_delivery_rate === null ? "Pending" : `${stats.confirmed_delivery_rate}%`)
+    : "-";
+  $("#statBounces").textContent = stats ? stats.bounced : "-";
+  $("#statComplaints").textContent = stats ? stats.complained : "-";
 
-  // Recent digests chart (last 10)
-  const recent = state.digests.slice(0, 10);
+  const recent = analytics?.digests?.slice(0, 10) || [];
   if (recent.length === 0) {
-    $("#analyticsRows").innerHTML = `<tr><td colspan="4" class="muted" style="padding:20px;text-align:center">No data yet.</td></tr>`;
+    $("#analyticsRows").innerHTML = `<tr><td colspan="6" class="muted" style="padding:20px;text-align:center">No analytics data yet.</td></tr>`;
     return;
   }
   const rows = recent.map((d) => {
     const date = new Date(d.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const total = (d.sent || 0) + (d.failed || 0);
-    const rate = total > 0 ? Math.round((d.sent / total) * 100) + "%" : "-";
-    return `<tr><td>${date}</td><td>${d.sent || 0}</td><td>${d.failed || 0}</td><td>${rate}</td></tr>`;
+    return `<tr><td>${date}</td><td>${d.accepted}</td><td>${d.failed}</td><td>${d.delivered}</td><td>${d.bounced}</td><td>${d.pending}</td></tr>`;
   }).join("");
   $("#analyticsRows").innerHTML = rows;
 }
@@ -1952,6 +1948,19 @@ async function loadDigests() {
   }
 }
 
+async function loadAnalytics() {
+  if (!cfg.analytics) {
+    state.analytics = null;
+    return;
+  }
+  try {
+    state.analytics = await api("GET", cfg.analytics);
+  } catch (error) {
+    console.warn("Could not load live analytics:", error);
+    state.analytics = null;
+  }
+}
+
 async function loadTopicDrafts() {
   const [editorial] = await Promise.allSettled([
     cfg.editorialTopics ? api("GET", cfg.editorialTopics) : Promise.resolve({ drafts: [] })
@@ -1979,7 +1988,7 @@ async function loadTrending() {
 
 async function reload({ silent = false } = {}) {
   try {
-    await Promise.all([loadArticles(), loadSubscribers(), loadDigests(), loadTopicDrafts(), loadTrending()]);
+    await Promise.all([loadArticles(), loadSubscribers(), loadDigests(), loadAnalytics(), loadTopicDrafts(), loadTrending()]);
     renderAll();
   } catch (e) {
     if (!silent) toast(`Load failed: ${e.message}`);
