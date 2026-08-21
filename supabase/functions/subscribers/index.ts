@@ -239,11 +239,26 @@ Deno.serve(async (request) => {
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
 
   if (request.method === "GET") {
+    // PostgREST limits a response to 1,000 rows by default. Page through the
+    // list so dashboard counts and exports include the complete audience.
+    const loadAllSubscribers = async () => {
+      const pageSize = 1000;
+      const subscribers: Record<string, unknown>[] = [];
+      for (let from = 0; ; from += pageSize) {
+        const result = await supabase
+          .from("subscribers")
+          .select("id,email,full_name,phone_number,topics,plan,category,rhythm,send_days,news_categories,source_preference,status,created_at,unsubscribed_at")
+          .order("created_at", { ascending: false })
+          .range(from, from + pageSize - 1);
+        if (result.error) return { data: null, error: result.error };
+        const page = result.data ?? [];
+        subscribers.push(...page);
+        if (page.length < pageSize) return { data: subscribers, error: null };
+      }
+    };
+
     const [subscriberResult, groupResult, membershipResult] = await Promise.all([
-      supabase
-        .from("subscribers")
-        .select("id,email,full_name,phone_number,topics,plan,category,rhythm,send_days,news_categories,source_preference,status,created_at,unsubscribed_at")
-        .order("created_at", { ascending: false }),
+      loadAllSubscribers(),
       supabase
         .from("subscriber_groups")
         .select("id,name,created_at")
