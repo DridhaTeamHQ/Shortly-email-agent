@@ -15,7 +15,7 @@ async function sendWelcome(email: string, name: string | null) {
   try {
     const result = await sendEmail({
       to: email,
-      subject: "Welcome to Dailymattr",
+      subject: "Welcome to dailymattr",
       html: await renderWelcomeEmail(email, name),
     });
     return result.ok ? { sent: true } : { sent: false, error: result.error ?? "Email provider rejected the message" };
