@@ -18,7 +18,26 @@ async function sendWelcome(email: string, name: string | null) {
       subject: "Welcome to dailymattr",
       html: await renderWelcomeEmail(email, name),
     });
-    return result.ok ? { sent: true } : { sent: false, error: result.error ?? "Email provider rejected the message" };
+    /* One line per welcome attempt, in the function logs.
+     *
+     * "welcome_sent: true" on its own cannot answer "did the intro mail go
+     * out?": it does not distinguish SES from the Brevo fallback, and carries
+     * no message id, so a reader who never received the mail cannot be traced
+     * in either provider's console. email_events is still empty (no SES event
+     * destination is configured), which makes this the only per-recipient
+     * record that the welcome was handed off at all. */
+    console.log(JSON.stringify({
+      tag: "welcome-email",
+      email,
+      ok: result.ok,
+      provider: result.provider ?? null,
+      from: result.from ?? null,
+      messageId: result.messageId ?? null,
+      error: result.error ?? null,
+    }));
+    return result.ok
+      ? { sent: true, provider: result.provider ?? null, messageId: result.messageId ?? null }
+      : { sent: false, provider: result.provider ?? null, error: result.error ?? "Email provider rejected the message" };
   } catch (error) {
     return { sent: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -393,7 +412,14 @@ Deno.serve(async (request) => {
         .insert({ email: normalizedEmail, ...record });
       if (error) return json({ error: error.message }, 400);
       const welcome = await sendWelcome(normalizedEmail, normalizedName);
-      return json({ ok: true, created: true, welcome_sent: welcome.sent, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
+      return json({
+        ok: true,
+        created: true,
+        welcome_sent: welcome.sent,
+        welcome_provider: welcome.provider ?? null,
+        welcome_message_id: welcome.messageId ?? null,
+        ...(welcome.error ? { welcome_error: welcome.error } : {}),
+      });
     }
 
     if (action === "add") {
@@ -473,7 +499,14 @@ Deno.serve(async (request) => {
       }
 
       const welcome = await sendWelcome(normalizedEmail, normalizedName);
-      return json({ ok: true, created: true, welcome_sent: welcome.sent, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
+      return json({
+        ok: true,
+        created: true,
+        welcome_sent: welcome.sent,
+        welcome_provider: welcome.provider ?? null,
+        welcome_message_id: welcome.messageId ?? null,
+        ...(welcome.error ? { welcome_error: welcome.error } : {}),
+      });
     }
 
     if (action === "import") {

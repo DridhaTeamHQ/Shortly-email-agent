@@ -1,5 +1,10 @@
 import { renderPrivacyFooter } from "./privacy.ts";
 
+// Same banner the daily newsletter uses, so the welcome mail matches the
+// editions that follow it.
+const BANNER_URL =
+  Deno.env.get("SHORTLY_BANNER_URL") ??
+  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner-v3.jpg";
 const LOGO_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/dailymattr-primary-logo.png";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "https://longmattr.com").replace(/\/+$/, "");
 
@@ -23,8 +28,8 @@ export async function renderWelcomeEmail(email: string, name: string | null): Pr
       <tr><td align="center">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:680px;background:#fff;border:1px solid #d9d9d4">
           <tr><td style="background:#ffffff;color:#3979ff;padding:12px 22px;font-size:12px;line-height:1.4;font-weight:700">From Team Dailymattr</td></tr>
+          <tr><td style="background:#0b1220"><img src="${BANNER_URL}" alt="Dailymattr" width="1280" style="display:block;width:100%;height:auto;border:0"></td></tr>
           <tr><td style="padding:34px 32px 24px">
-            <div style="margin:0 0 24px"><img src="${LOGO_URL}" alt="dailymattr" width="190" style="display:block;width:190px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none"></div>
             <h1 style="margin:0 0 16px;color:#111111;font:700 25px/1.2 Roboto,Arial,sans-serif">${greeting}</h1>
             <p style="margin:0 0 16px;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">Welcome to the <strong>dailymattr club</strong> - a group of smart, busy people who either don't have the time to stay updated, or whose algorithms simply aren't showing them what matters. Either way, you're covered now.</p>
             <p style="margin:0 0 20px;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">We bring you the day's news, minus the noise. Five stories that actually mattr, with context, summary and source.</p>

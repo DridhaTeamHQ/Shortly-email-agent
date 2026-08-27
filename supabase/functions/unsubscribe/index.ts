@@ -402,11 +402,42 @@ Deno.serve(async (request) => {
   }
 
   // ── POST: Programmatic unsubscribe ──
+  //
+  // Two different callers arrive here:
+  //   1. our own confirmation page -> JSON body { email, token, action }
+  //   2. Gmail / Yahoo one-click   -> body "List-Unsubscribe=One-Click" as form
+  //      data, with the address and token in the QUERY STRING.
+  //
+  // This used to call request.json() and return "Invalid JSON body" on
+  // failure, so every one-click request failed. Advertising List-Unsubscribe-Post
+  // and then rejecting the click is worse than not advertising it, so the query
+  // string is read first and the body treated as optional.
   if (request.method === "POST") {
     try {
-      const body = await request.json();
-      const { email, token } = body;
-      const action = body.action === "delete" ? "delete" : body.action === "resubscribe" ? "resubscribe" : "unsubscribe";
+      const postUrl = new URL(request.url);
+      let email = postUrl.searchParams.get("email") ?? "";
+      let token = postUrl.searchParams.get("token") ?? "";
+      let requestedAction = postUrl.searchParams.get("action") ?? "";
+
+      const rawBody = await request.text().catch(() => "");
+      if (rawBody) {
+        try {
+          const body = JSON.parse(rawBody);
+          email = body.email ?? email;
+          token = body.token ?? token;
+          requestedAction = body.action ?? requestedAction;
+        } catch {
+          // one-click sends form data, not JSON; its credentials are in the
+          // query string, so there is nothing to read out of the body.
+        }
+      }
+
+      if (!email || !token) {
+        return json({ ok: false, error: "Missing email or token." }, 400);
+      }
+
+      // One-click must never delete data -- unsubscribe is the only safe default.
+      const action = requestedAction === "delete" ? "delete" : requestedAction === "resubscribe" ? "resubscribe" : "unsubscribe";
       const result = await processUnsubscribe(email, token, action);
 
       if (result.ok) {
@@ -421,8 +452,9 @@ Deno.serve(async (request) => {
       }
 
       return json({ ok: false, error: result.error }, 400);
-    } catch {
-      return json({ error: "Invalid JSON body." }, 400);
+    } catch (error) {
+      console.error("unsubscribe POST failed", error);
+      return json({ ok: false, error: "Could not process this request." }, 400);
     }
   }
 
