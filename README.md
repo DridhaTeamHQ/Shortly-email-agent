@@ -36,7 +36,7 @@ pending  ->  summarized  ->  approved  ->  sent
    supabase secrets set SUPABASE_URL="..." SUPABASE_SERVICE_ROLE_KEY="..." \
      AWS_REGION="ap-south-1" AWS_ACCESS_KEY_ID="..." AWS_SECRET_ACCESS_KEY="..." \
      SHORTLY_AGENT_SHARED_TOKEN="YOUR_SHARED_LOGIN_TOKEN" \
-     FROM_EMAIL="Team Dailymattr <team@dailymattr.com>" \
+     FROM_EMAIL="Dailywrap <team@dailymattr.com>" \
      OPENAI_API_KEY="..." OPENAI_MODEL="gpt-4o"
    ```
 4. Optional fallback while testing:
