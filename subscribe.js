@@ -85,12 +85,14 @@ form?.addEventListener("submit", async (event) => {
 
     form.reset();
 
-    if (data.resubscribed) {
+    if (data.welcome_sent === false && !data.welcome_skipped) {
+      setMessage("You're subscribed, but we could not send the welcome email yet. Your daily emails remain active.", "success");
+    } else if (data.welcome_sent) {
+      setMessage("You're in. Check your inbox for a welcome from Dailymattr.", "success");
+    } else if (data.resubscribed) {
       setMessage("Welcome back. Your subscription is active again.", "success");
     } else if (data.existing) {
       setMessage("You're already subscribed to Dailymattr Daily Wrap.", "success");
-    } else if (data.welcome_sent === false) {
-      setMessage("You're subscribed, but we could not send the welcome email yet. Your daily emails remain active.", "success");
     } else {
       setMessage("You're in. Check your inbox for a welcome from Dailymattr.", "success");
     }

@@ -24,6 +24,26 @@ async function sendWelcome(email: string, name: string | null) {
   }
 }
 
+async function sendWelcomeIfNeeded(
+  supabase: ReturnType<typeof createClient>,
+  subscriberId: string,
+  email: string,
+  name: string | null,
+  welcomeSentAt: string | null | undefined,
+) {
+  if (welcomeSentAt) return { sent: false, skipped: true };
+
+  const welcome = await sendWelcome(email, name);
+  if (!welcome.sent) return welcome;
+
+  const { error } = await supabase
+    .from("subscribers")
+    .update({ welcome_sent_at: new Date().toISOString() })
+    .eq("id", subscriberId);
+  if (error) console.error("Welcome email was sent but could not be recorded", error);
+  return welcome;
+}
+
 // Website accounts are sent from newsletter_subscriptions, while the email
 // agent manages the mirrored subscribers row. Keep both stores aligned when
 // an agent re-subscribes or unsubscribes a reader.
@@ -357,7 +377,7 @@ Deno.serve(async (request) => {
 
       const { data: existing, error: existingError } = await supabase
         .from("subscribers")
-        .select("id,status")
+        .select("id,status,full_name,welcome_sent_at")
         .eq("email", normalizedEmail)
         .maybeSingle();
       if (existingError) return json({ error: existingError.message }, 500);
@@ -385,14 +405,18 @@ Deno.serve(async (request) => {
         }
         const { error } = await supabase.from("subscribers").update(record).eq("id", existing.id);
         if (error) return json({ error: error.message }, 400);
-        return json({ ok: true, existing: true, resubscribed: existing.status !== "subscribed" });
+        const welcome = await sendWelcomeIfNeeded(supabase, existing.id, normalizedEmail, normalizedName ?? existing.full_name, existing.welcome_sent_at);
+        const welcomeSkipped = "skipped" in welcome && welcome.skipped === true;
+        return json({ ok: true, existing: true, resubscribed: existing.status !== "subscribed", welcome_sent: welcome.sent, welcome_skipped: welcomeSkipped, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
       }
 
-      const { error } = await supabase
+      const { data: createdSubscriber, error } = await supabase
         .from("subscribers")
-        .insert({ email: normalizedEmail, ...record });
+        .insert({ email: normalizedEmail, ...record })
+        .select("id")
+        .single();
       if (error) return json({ error: error.message }, 400);
-      const welcome = await sendWelcome(normalizedEmail, normalizedName);
+      const welcome = await sendWelcomeIfNeeded(supabase, createdSubscriber.id, normalizedEmail, normalizedName, null);
       return json({ ok: true, created: true, welcome_sent: welcome.sent, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
     }
 
@@ -423,7 +447,7 @@ Deno.serve(async (request) => {
 
       const { data: existing, error: existingError } = await supabase
         .from("subscribers")
-        .select("id,status,full_name,phone_number,topics")
+        .select("id,status,full_name,phone_number,topics,welcome_sent_at")
         .eq("email", normalizedEmail)
         .maybeSingle();
       if (existingError) return json({ error: existingError.message }, 500);
@@ -456,7 +480,9 @@ Deno.serve(async (request) => {
         } catch (error) {
           return json({ error: error instanceof Error ? error.message : "Failed to add subscriber to group." }, 400);
         }
-        return json({ ok: true, existing: true, resubscribed: existing.status !== "subscribed" });
+        const welcome = await sendWelcomeIfNeeded(supabase, existing.id, normalizedEmail, normalizedName ?? existing.full_name, existing.welcome_sent_at);
+        const welcomeSkipped = "skipped" in welcome && welcome.skipped === true;
+        return json({ ok: true, existing: true, resubscribed: existing.status !== "subscribed", welcome_sent: welcome.sent, welcome_skipped: welcomeSkipped, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
       }
 
       const { data: created, error } = await supabase
@@ -472,7 +498,7 @@ Deno.serve(async (request) => {
         return json({ error: error instanceof Error ? error.message : "Failed to add subscriber to group." }, 400);
       }
 
-      const welcome = await sendWelcome(normalizedEmail, normalizedName);
+      const welcome = await sendWelcomeIfNeeded(supabase, created.id, normalizedEmail, normalizedName, null);
       return json({ ok: true, created: true, welcome_sent: welcome.sent, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
     }
 
