@@ -56,10 +56,10 @@ async function unsubscribeHeaders(to: string) {
 }
 
 export async function sendEmail(opts: SendOpts) {
-  const fromRaw = Deno.env.get("FROM_EMAIL") ?? "Dailymattr Daily Wrap <dailywrap@shortlyindia.com>";
+  const fromRaw = Deno.env.get("FROM_EMAIL") ?? "Team Dailymattr <team@dailymattr.com>";
 
   const match = fromRaw.match(/^(.+?)\s*<(.+?)>$/);
-  const senderName = match?.[1] ?? "Dailymattr Daily Wrap";
+  const senderName = match?.[1] ?? "Team Dailymattr";
   const senderEmail = match?.[2] ?? fromRaw;
 
   const awsKey = Deno.env.get("AWS_ACCESS_KEY_ID");
