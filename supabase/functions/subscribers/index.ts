@@ -18,7 +18,26 @@ async function sendWelcome(email: string, name: string | null) {
       subject: "Welcome to dailymattr",
       html: await renderWelcomeEmail(email, name),
     });
-    return result.ok ? { sent: true } : { sent: false, error: result.error ?? "Email provider rejected the message" };
+    /* One line per welcome attempt, in the function logs.
+     *
+     * "welcome_sent: true" on its own cannot answer "did the intro mail go
+     * out?": it does not distinguish SES from the Brevo fallback, and carries
+     * no message id, so a reader who never received the mail cannot be traced
+     * in either provider's console. email_events is still empty (no SES event
+     * destination is configured), which makes this the only per-recipient
+     * record that the welcome was handed off at all. */
+    console.log(JSON.stringify({
+      tag: "welcome-email",
+      email,
+      ok: result.ok,
+      provider: result.provider ?? null,
+      from: result.from ?? null,
+      messageId: result.messageId ?? null,
+      error: result.error ?? null,
+    }));
+    return result.ok
+      ? { sent: true, provider: result.provider ?? null, messageId: result.messageId ?? null }
+      : { sent: false, provider: result.provider ?? null, error: result.error ?? "Email provider rejected the message" };
   } catch (error) {
     return { sent: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -31,17 +50,19 @@ async function sendWelcomeIfNeeded(
   name: string | null,
   welcomeSentAt: string | null | undefined,
 ) {
-  if (welcomeSentAt) return { sent: false, skipped: true };
+  if (welcomeSentAt) {
+    return { sent: false, skipped: true, provider: null, messageId: null, error: null };
+  }
 
   const welcome = await sendWelcome(email, name);
-  if (!welcome.sent) return welcome;
+  if (!welcome.sent) return { ...welcome, skipped: false };
 
   const { error } = await supabase
     .from("subscribers")
     .update({ welcome_sent_at: new Date().toISOString() })
     .eq("id", subscriberId);
   if (error) console.error("Welcome email was sent but could not be recorded", error);
-  return welcome;
+  return { ...welcome, skipped: false };
 }
 
 // Website accounts are sent from newsletter_subscriptions, while the email
@@ -406,8 +427,16 @@ Deno.serve(async (request) => {
         const { error } = await supabase.from("subscribers").update(record).eq("id", existing.id);
         if (error) return json({ error: error.message }, 400);
         const welcome = await sendWelcomeIfNeeded(supabase, existing.id, normalizedEmail, normalizedName ?? existing.full_name, existing.welcome_sent_at);
-        const welcomeSkipped = "skipped" in welcome && welcome.skipped === true;
-        return json({ ok: true, existing: true, resubscribed: existing.status !== "subscribed", welcome_sent: welcome.sent, welcome_skipped: welcomeSkipped, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
+        return json({
+          ok: true,
+          existing: true,
+          resubscribed: existing.status !== "subscribed",
+          welcome_sent: welcome.sent,
+          welcome_skipped: welcome.skipped,
+          welcome_provider: welcome.provider ?? null,
+          welcome_message_id: welcome.messageId ?? null,
+          ...(welcome.error ? { welcome_error: welcome.error } : {}),
+        });
       }
 
       const { data: createdSubscriber, error } = await supabase
@@ -417,7 +446,14 @@ Deno.serve(async (request) => {
         .single();
       if (error) return json({ error: error.message }, 400);
       const welcome = await sendWelcomeIfNeeded(supabase, createdSubscriber.id, normalizedEmail, normalizedName, null);
-      return json({ ok: true, created: true, welcome_sent: welcome.sent, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
+      return json({
+        ok: true,
+        created: true,
+        welcome_sent: welcome.sent,
+        welcome_provider: welcome.provider ?? null,
+        welcome_message_id: welcome.messageId ?? null,
+        ...(welcome.error ? { welcome_error: welcome.error } : {}),
+      });
     }
 
     if (action === "add") {
@@ -481,8 +517,16 @@ Deno.serve(async (request) => {
           return json({ error: error instanceof Error ? error.message : "Failed to add subscriber to group." }, 400);
         }
         const welcome = await sendWelcomeIfNeeded(supabase, existing.id, normalizedEmail, normalizedName ?? existing.full_name, existing.welcome_sent_at);
-        const welcomeSkipped = "skipped" in welcome && welcome.skipped === true;
-        return json({ ok: true, existing: true, resubscribed: existing.status !== "subscribed", welcome_sent: welcome.sent, welcome_skipped: welcomeSkipped, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
+        return json({
+          ok: true,
+          existing: true,
+          resubscribed: existing.status !== "subscribed",
+          welcome_sent: welcome.sent,
+          welcome_skipped: welcome.skipped,
+          welcome_provider: welcome.provider ?? null,
+          welcome_message_id: welcome.messageId ?? null,
+          ...(welcome.error ? { welcome_error: welcome.error } : {}),
+        });
       }
 
       const { data: created, error } = await supabase
@@ -499,7 +543,14 @@ Deno.serve(async (request) => {
       }
 
       const welcome = await sendWelcomeIfNeeded(supabase, created.id, normalizedEmail, normalizedName, null);
-      return json({ ok: true, created: true, welcome_sent: welcome.sent, ...(welcome.error ? { welcome_error: welcome.error } : {}) });
+      return json({
+        ok: true,
+        created: true,
+        welcome_sent: welcome.sent,
+        welcome_provider: welcome.provider ?? null,
+        welcome_message_id: welcome.messageId ?? null,
+        ...(welcome.error ? { welcome_error: welcome.error } : {}),
+      });
     }
 
     if (action === "import") {
