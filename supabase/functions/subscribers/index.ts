@@ -155,6 +155,15 @@ const VALID_TOPICS = new Set([
 
 const VALID_PLANS = new Set(["daily-wrap", "category-case", "wrap-category", "case-only"]);
 const VALID_CATEGORIES = new Set(["Real Estate", "Automobile", "Health & Wellness", "Tech & AI", "Markets & Startups"]);
+const COMMON_EMAIL_DOMAIN_TYPOS: Record<string, string> = {
+  "gamil.com": "gmail.com",
+  "gmial.com": "gmail.com",
+  "gmai.com": "gmail.com",
+  "gmail.con": "gmail.com",
+  "hotmai.com": "hotmail.com",
+  "yahoo.con": "yahoo.com",
+  "outlook.con": "outlook.com",
+};
 const CATEGORY_TO_SLUG: Record<string, string> = {
   "Real Estate": "real-estate",
   "Automobile": "automobile",
@@ -166,6 +175,18 @@ const CATEGORY_TO_SLUG: Record<string, string> = {
 function normalizePlan(value: unknown): string {
   const plan = String(value ?? "").trim().toLowerCase().replace(/[\s_]+/g, "-");
   return VALID_PLANS.has(plan) ? plan : "daily-wrap";
+}
+
+function validateEmailAddress(value: unknown): { email: string; error: string | null } {
+  const email = String(value ?? "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { email, error: "Enter a valid email address." };
+  }
+  const [local, domain] = email.split("@");
+  const suggestion = COMMON_EMAIL_DOMAIN_TYPOS[domain];
+  return suggestion
+    ? { email, error: `Check the email domain. Did you mean ${local}@${suggestion}?` }
+    : { email, error: null };
 }
 
 function normalizePlanCategory(value: unknown): string | null {
@@ -379,8 +400,8 @@ Deno.serve(async (request) => {
     // NEW consumer subscribe (website form): rhythm + categories[] + source pref.
     if (action === "subscribe") {
       const { email, name, full_name } = body;
-      if (!email?.trim() || !String(email).includes("@")) return json({ error: "A valid email is required." }, 400);
-      const normalizedEmail = email.trim().toLowerCase();
+      const { email: normalizedEmail, error: emailError } = validateEmailAddress(email);
+      if (emailError) return json({ error: emailError }, 400);
       const normalizedName = String(name ?? full_name ?? "").trim() || null;
 
       const rhythm = normalizeRhythm(body.rhythm);
@@ -458,8 +479,8 @@ Deno.serve(async (request) => {
 
     if (action === "add") {
       const { email, full_name, phone_number } = body;
-      if (!email?.trim() || !String(email).includes("@")) return json({ error: "A valid email is required." }, 400);
-      const normalizedEmail = email.trim().toLowerCase();
+      const { email: normalizedEmail, error: emailError } = validateEmailAddress(email);
+      if (emailError) return json({ error: emailError }, 400);
       const normalizedName = full_name?.trim() || null;
       const normalizedPhone = phone_number?.trim() || null;
       const groupId = String(body.group_id ?? "").trim();
@@ -564,9 +585,13 @@ Deno.serve(async (request) => {
       const updatedAt = new Date().toISOString();
       const normalizedByEmail = new Map<string, Record<string, unknown>>();
       let validRows = 0;
+      let invalidEmailRows = 0;
       for (const row of rows) {
-        const email = row?.email?.trim()?.toLowerCase() || "";
-        if (!email || !email.includes("@")) continue;
+        const { email, error: emailError } = validateEmailAddress(row?.email);
+        if (emailError) {
+          invalidEmailRows++;
+          continue;
+        }
         validRows++;
         const plan = normalizePlan(row?.plan);
         const category = plan === "daily-wrap" ? null : normalizePlanCategory(row?.category);
@@ -621,6 +646,7 @@ Deno.serve(async (request) => {
         created: normalizedRows.length - existingCount,
         updated: existingCount,
         duplicates_in_file: validRows - normalizedRows.length,
+        invalid_email_rows: invalidEmailRows,
       });
     }
 

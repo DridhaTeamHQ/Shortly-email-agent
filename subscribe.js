@@ -4,11 +4,43 @@ const emailInput = document.querySelector("#subEmail");
 const nameInput = document.querySelector("#subName");
 const button = document.querySelector("#subscribeButton");
 const message = document.querySelector("#subscribeMessage");
+const emailHint = document.querySelector("#emailHint");
 const xLink = document.querySelector("#xLink");
 const linkedinLink = document.querySelector("#linkedinLink");
 const planInputs = [...document.querySelectorAll('input[name="plan"]')];
 const categoryField = document.querySelector("#categoryField");
 const categorySelect = document.querySelector("#subCategory");
+
+const COMMON_EMAIL_DOMAIN_TYPOS = {
+  "gamil.com": "gmail.com",
+  "gmial.com": "gmail.com",
+  "gmai.com": "gmail.com",
+  "gmail.con": "gmail.com",
+  "hotmai.com": "hotmail.com",
+  "yahoo.con": "yahoo.com",
+  "outlook.con": "outlook.com"
+};
+
+function emailIssue(value) {
+  const email = value.trim().toLowerCase();
+  if (!email) return "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Enter a valid email address.";
+  const [local, domain] = email.split("@");
+  const suggestion = COMMON_EMAIL_DOMAIN_TYPOS[domain];
+  return suggestion ? `Check the domain. Did you mean ${local}@${suggestion}?` : "";
+}
+
+function validateEmailField() {
+  const issue = emailIssue(emailInput.value);
+  emailInput.setCustomValidity(issue);
+  emailInput.setAttribute("aria-invalid", issue ? "true" : "false");
+  emailHint.textContent = issue;
+  emailHint.hidden = !issue;
+  return issue;
+}
+
+emailInput?.addEventListener("input", validateEmailField);
+emailInput?.addEventListener("blur", validateEmailField);
 
 function selectedPlan() {
   return planInputs.find((input) => input.checked)?.value || "daily-wrap";
@@ -58,6 +90,13 @@ async function api(path, body) {
 
 form?.addEventListener("submit", async (event) => {
   event.preventDefault();
+
+  const issue = validateEmailField();
+  if (issue) {
+    setMessage(issue, "error");
+    emailInput.focus();
+    return;
+  }
 
   if (!cfg.subscribers || !cfg.anonKey) {
     setMessage("This page is not configured yet. Please try again after deployment.", "error");

@@ -189,6 +189,17 @@ body {
   border-color: rgba(109, 40, 217, 0.42);
 }
 
+.subscribe-form input[aria-invalid="true"] {
+  border-color: #b42318;
+  outline-color: rgba(180, 35, 24, 0.2);
+}
+
+.email-hint {
+  color: #b42318;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .topic-choice-group {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

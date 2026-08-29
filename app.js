@@ -3031,12 +3031,25 @@ $("#exportUnsubscribers").addEventListener("click", () => {
 // Add subscriber form
 $("#subForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const email = $("#subEmail").value.trim();
+  const emailInput = $("#subEmail");
+  const email = emailInput.value.trim();
   const full_name = $("#subName").value.trim();
   const phone_number = $("#subPhone").value.trim();
   const topics = selectedSubscriberTopics();
   const group_id = $("#subAddGroup").value;
-  if (!email) return;
+  const domainTypo = {
+    "gamil.com": "gmail.com", "gmial.com": "gmail.com", "gmai.com": "gmail.com",
+    "gmail.con": "gmail.com", "hotmai.com": "hotmail.com", "yahoo.con": "yahoo.com", "outlook.con": "outlook.com"
+  };
+  const [localPart, domainPart] = email.toLowerCase().split("@");
+  const emailError = !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    ? "Enter a valid email address."
+    : domainTypo[domainPart] ? `Check the domain. Did you mean ${localPart}@${domainTypo[domainPart]}?` : "";
+  emailInput.setCustomValidity(emailError);
+  if (emailError) {
+    emailInput.reportValidity();
+    return;
+  }
   try {
     const res = await api("POST", cfg.subscribers, { action: "add", email, full_name, phone_number, topics, group_id });
     $("#subEmail").value = "";

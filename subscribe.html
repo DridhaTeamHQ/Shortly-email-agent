@@ -71,7 +71,8 @@
             </label>
             <label>
               <span>Email</span>
-              <input id="subEmail" type="email" placeholder="you@example.com" required />
+              <input id="subEmail" type="email" placeholder="you@example.com" autocomplete="email" required />
+              <small id="emailHint" class="email-hint" aria-live="polite" hidden></small>
             </label>
             <fieldset class="topic-choice-group">
               <legend>Choose your plan</legend>
