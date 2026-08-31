@@ -319,15 +319,28 @@ Deno.serve(async (request) => {
       }
     };
 
+    const loadAllMemberships = async () => {
+      const pageSize = 1000;
+      const memberships: Record<string, unknown>[] = [];
+      for (let from = 0; ; from += pageSize) {
+        const result = await supabase
+          .from("subscriber_group_members")
+          .select("subscriber_id,group_id")
+          .range(from, from + pageSize - 1);
+        if (result.error) return { data: null, error: result.error };
+        const page = result.data ?? [];
+        memberships.push(...page);
+        if (page.length < pageSize) return { data: memberships, error: null };
+      }
+    };
+
     const [subscriberResult, groupResult, membershipResult] = await Promise.all([
       loadAllSubscribers(),
       supabase
         .from("subscriber_groups")
         .select("id,name,created_at")
         .order("name", { ascending: true }),
-      supabase
-        .from("subscriber_group_members")
-        .select("subscriber_id,group_id"),
+      loadAllMemberships(),
     ]);
     const error = subscriberResult.error || groupResult.error || membershipResult.error;
     if (error) return json({ error: error.message }, 500);
@@ -384,14 +397,17 @@ Deno.serve(async (request) => {
 
       const { data: subscribers, error } = await supabase
         .from("subscribers")
-        .select("email,full_name")
+        .select("id,email,full_name,welcome_sent_at")
         .in("email", emails);
       if (error) return json({ error: error.message }, 500);
 
-      const known = new Map((subscribers ?? []).map((subscriber) => [subscriber.email, subscriber.full_name ?? null]));
+      const known = new Map((subscribers ?? []).map((subscriber) => [subscriber.email, subscriber]));
       const results = [];
       for (const email of emails) {
-        const welcome = await sendWelcome(email, known.get(email) ?? null);
+        const subscriber = known.get(email);
+        const welcome = subscriber
+          ? await sendWelcomeIfNeeded(supabase, subscriber.id, email, subscriber.full_name ?? null, subscriber.welcome_sent_at)
+          : await sendWelcome(email, null);
         results.push({ email, ...welcome });
       }
       return json({ ok: true, results });
