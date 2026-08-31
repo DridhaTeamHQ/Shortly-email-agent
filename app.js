@@ -563,6 +563,7 @@ const state = {
   subscriberSearch: "",
   subscriberGroupFilter: "",
   subscriberPage: 1,
+  listPages: {},
   // The default list is the actual sending audience; other statuses remain
   // available in the filter for subscriber management.
   subscriberStatusFilter: "subscribed",
@@ -1154,6 +1155,41 @@ function breakingChipHtml(a) {
   return `<span class="breaking-chip" title="${esc(tipParts)}"><span class="breaking-dot"></span>BREAKING ${Math.round(hit.breaking_score)}</span>`;
 }
 
+const LIST_PAGE_SIZE = 25;
+
+function pagedList(items, key, pageSize = LIST_PAGE_SIZE) {
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const page = Math.min(Math.max(state.listPages[key] || 1, 1), pageCount);
+  state.listPages[key] = page;
+  const start = (page - 1) * pageSize;
+  return { items: items.slice(start, start + pageSize), page, pageCount, pageSize, total: items.length, start };
+}
+
+function renderListPager(node, key, page) {
+  const id = `pagination-${key}`;
+  let pager = document.getElementById(id);
+  if (!pager) {
+    pager = document.createElement("nav");
+    pager.id = id;
+    pager.className = "list-pagination";
+    pager.setAttribute("aria-label", "List pagination");
+    node.insertAdjacentElement("afterend", pager);
+  }
+  pager.hidden = page.total <= page.pageSize;
+  pager.innerHTML = pager.hidden ? "" : `
+    <button class="btn-ghost" type="button" data-list-page-action="first" data-list-page-key="${esc(key)}" ${page.page === 1 ? "disabled" : ""}>First</button>
+    <button class="btn-ghost" type="button" data-list-page-action="previous" data-list-page-key="${esc(key)}" ${page.page === 1 ? "disabled" : ""}>Previous</button>
+    <span>Page ${page.page} of ${page.pageCount}</span>
+    <button class="btn-ghost" type="button" data-list-page-action="next" data-list-page-key="${esc(key)}" ${page.page === page.pageCount ? "disabled" : ""}>Next</button>
+    <button class="btn-ghost" type="button" data-list-page-action="last" data-list-page-key="${esc(key)}" ${page.page === page.pageCount ? "disabled" : ""}>Last</button>`;
+}
+
+function renderPagedContent(node, key, items, renderItems, emptyHtml, prefixHtml = "") {
+  const page = pagedList(items, key);
+  node.innerHTML = items.length ? `${prefixHtml}${renderItems(page.items)}` : emptyHtml;
+  renderListPager(node, key, page);
+}
+
 function renderReview() {
   // While searching, look across EVERY status — an approved/sent/rejected
   // article must still be findable (it just renders with the right actions
@@ -1174,10 +1210,9 @@ function renderReview() {
     a.status === "summarized" ? "review"
     : (a.status === "approved" || a.status === "sent") ? "approved"
     : "rejected";
-  const list = items.length
-    ? items.map((a) => cardHtml(a, searching ? modeFor(a) : "review")).join("")
-    : `<p class="muted">${emptyMessage}</p>`;
-  node.innerHTML = list;
+  renderPagedContent(node, "review", items,
+    (pageItems) => pageItems.map((a) => cardHtml(a, searching ? modeFor(a) : "review")).join(""),
+    `<p class="muted">${emptyMessage}</p>`);
 }
 
 // Approved = the QA's selected short articles, shown per category section.
@@ -1187,22 +1222,12 @@ function renderApproved() {
   const node = $("#approvedList");
   if (!node) return;
   const approved = state.articles.filter(isApprovedToday);
-  const cats = state.shortCategory && state.shortCategory !== "General" ? [state.shortCategory] : [];
-  let html = "";
-  for (const c of cats) {
-    const items = approved.filter((a) => articleCategory(a) === c);
-    html += `<h3 class="approved-group-title">${esc(c)} — ${items.length} approved</h3>`;
-    html += items.length
-      ? items.map((a) => cardHtml(a, "approved")).join("")
-      : `<p class="muted" style="margin:0 0 14px">No ${esc(c)} articles selected yet.</p>`;
-  }
-  // General approved stories.
-  if (!state.shortCategory || state.shortCategory === "General") {
-    const general = approved.filter(isGeneralArticle);
-    if (general.length) html += `<h3 class="approved-group-title">General — ${general.length} approved</h3>${general.map((a) => cardHtml(a, "approved")).join("")}`;
-    if (!general.length) html += `<h3 class="approved-group-title">General — 0 approved</h3><p class="muted" style="margin:0 0 14px">No General articles selected yet.</p>`;
-  }
-  node.innerHTML = html || `<p class="muted">Nothing approved yet.</p>`;
+  const category = state.shortCategory && state.shortCategory !== "General" ? state.shortCategory : "General";
+  const items = category === "General" ? approved.filter(isGeneralArticle) : approved.filter((a) => articleCategory(a) === category);
+  renderPagedContent(node, "approved", items,
+    (pageItems) => pageItems.map((a) => cardHtml(a, "approved")).join(""),
+    `<p class="muted">No ${esc(category)} articles selected yet.</p>`,
+    `<h3 class="approved-group-title">${esc(category)} — ${items.length} approved</h3>`);
 }
 
 function renderEmailBuilder() {
@@ -1211,26 +1236,26 @@ function renderEmailBuilder() {
   const plan = resolveDigestComposition();
   if (plan.caseLimit > 0 && plan.dailyLimit === 0) {
     const cards = topicDraftCards("all-topics", "approved");
-    node.innerHTML = cards.length
-      ? cards.map((card) => topicDraftCardHtml(card, { selectable: true })).join("")
-      : `<p class="muted">No approved case studies available for email selection.</p>`;
+    renderPagedContent(node, "email-cases", cards,
+      (pageItems) => pageItems.map((card) => topicDraftCardHtml(card, { selectable: true })).join(""),
+      `<p class="muted">No approved case studies available for email selection.</p>`);
     return;
   }
   const category = plan.category || state.digestCategory || "";
   const items = digestFormatConfig().generalOnly
     ? sortedApprovedGeneralArticles()
     : sortedApprovedDailyArticles(category);
-  node.innerHTML = items.length
-    ? items.map((a) => cardHtml(a, "email")).join("")
-    : `<p class="muted">No approved ${digestFormatConfig().generalOnly ? "General" : category ? esc(category) : "article"} items available for email selection.</p>`;
+  renderPagedContent(node, "email-daily", items,
+    (pageItems) => pageItems.map((a) => cardHtml(a, "email")).join(""),
+    `<p class="muted">No approved ${digestFormatConfig().generalOnly ? "General" : category ? esc(category) : "article"} items available for email selection.</p>`);
 }
 
 function renderRejected() {
   const items = state.articles.filter((a) => a.status === "rejected" && (!state.shortCategory || articleMatchesShortCategory(a)));
   const node = $("#rejectedList");
-  node.innerHTML = items.length
-    ? items.map((a) => cardHtml(a, "rejected")).join("")
-    : `<p class="muted">No rejected articles.</p>`;
+  renderPagedContent(node, "rejected", items,
+    (pageItems) => pageItems.map((a) => cardHtml(a, "rejected")).join(""),
+    `<p class="muted">No rejected articles.</p>`);
 }
 
 function topicDraftCards(topicSlug = state.activeTopicDraft, statusFilter = "") {
@@ -1373,9 +1398,9 @@ function renderTopicDrafts() {
   const label = topicLabel(state.activeTopicDraft);
   $("#topicDraftHint").textContent =
     `${label} drafts use article-style cards. Hybrid topics split five briefs and the feature/take into separate cards.`;
-  list.innerHTML = cards.length
-    ? cards.map(topicDraftCardHtml).join("")
-    : `<p class="muted">No ${esc(label)} drafts yet. Use "Scrape" to create one.</p>`;
+  renderPagedContent(list, "topic-drafts", cards,
+    (pageItems) => pageItems.map(topicDraftCardHtml).join(""),
+    `<p class="muted">No ${esc(label)} drafts yet. Use "Scrape" to create one.</p>`);
 }
 
 function renderCaseStatusLists() {
@@ -1386,9 +1411,9 @@ function renderCaseStatusLists() {
   for (const view of views) {
     if (!view.node) continue;
     const cards = topicDraftCards("all-topics", view.status);
-    view.node.innerHTML = cards.length
-      ? cards.map(topicDraftCardHtml).join("")
-      : `<p class="muted">No ${view.label} case studies.</p>`;
+    renderPagedContent(view.node, `cases-${view.status}-review`, cards,
+      (pageItems) => pageItems.map(topicDraftCardHtml).join(""),
+      `<p class="muted">No ${view.label} case studies.</p>`);
   }
 }
 
@@ -1467,9 +1492,9 @@ function renderTrending() {
   const node = $("#trendingList");
   if (!node) return;
   const items = state.trending.topics.filter((topic) => (topic.status || "suggested") === state.trending.filter);
-  node.innerHTML = items.length
-    ? items.map(trendingTopicCardHtml).join("")
-    : `<p class="muted">No ${esc(state.trending.filter)} topics yet — run a scrape to generate them.</p>`;
+  renderPagedContent(node, "trending", items,
+    (pageItems) => pageItems.map(trendingTopicCardHtml).join(""),
+    `<p class="muted">No ${esc(state.trending.filter)} topics yet — run a scrape to generate them.</p>`);
 }
 
 function renderTrendingAddMenu(input) {
@@ -1507,9 +1532,9 @@ function renderCasesApproved() {
   const plannedCaseId = state.casesSendMode === "case-study-only" && topic === "all-topics"
     ? (selectedDigestCaseStudies()[0]?.id || sortedApprovedCaseStudies()[0]?.id || "")
     : "";
-  node.innerHTML = cards.length
-    ? cards.map((card) => topicDraftCardHtml(card, { selectable: false, plannedCaseId })).join("")
-    : `<p class="muted">No approved ${esc(topicLabel(topic))} items yet.</p>`;
+  renderPagedContent(node, "cases-approved", cards,
+    (pageItems) => pageItems.map((card) => topicDraftCardHtml(card, { selectable: false, plannedCaseId })).join(""),
+    `<p class="muted">No approved ${esc(topicLabel(topic))} items yet.</p>`);
 }
 
 function renderCasesSendControls() {
@@ -1838,10 +1863,12 @@ async function parseSubscriberFile(file) {
 function renderHistory() {
   if (state.digests.length === 0) {
     $("#historyRows").innerHTML = `<tr><td colspan="7" class="muted" style="padding:20px;text-align:center">No digests sent yet.</td></tr>`;
+    renderListPager($("#historyRows").closest(".table-wrap"), "history", pagedList([], "history"));
     return;
   }
   const analyticsByDigest = new Map((state.analytics?.digests || []).map((digest) => [digest.id, digest]));
-  const rows = state.digests.map((d) => {
+  const page = pagedList(state.digests, "history");
+  const rows = page.items.map((d) => {
     const date = new Date(d.sent_at).toLocaleDateString("en-US", {
       weekday: "short", month: "short", day: "numeric", year: "numeric"
     });
@@ -1870,6 +1897,7 @@ function renderHistory() {
     </tr>`;
   }).join("");
   $("#historyRows").innerHTML = rows;
+  renderListPager($("#historyRows").closest(".table-wrap"), "history", page);
 }
 
 function renderAnalytics() {
@@ -1885,16 +1913,19 @@ function renderAnalytics() {
   $("#statBounces").textContent = stats ? stats.bounced : "-";
   $("#statComplaints").textContent = stats ? stats.complained : "-";
 
-  const recent = analytics?.digests?.slice(0, 10) || [];
-  if (recent.length === 0) {
+  const digests = analytics?.digests || [];
+  if (digests.length === 0) {
     $("#analyticsRows").innerHTML = `<tr><td colspan="6" class="muted" style="padding:20px;text-align:center">No analytics data yet.</td></tr>`;
+    renderListPager($("#analyticsRows").closest(".table-wrap"), "analytics", pagedList([], "analytics"));
     return;
   }
-  const rows = recent.map((d) => {
+  const page = pagedList(digests, "analytics");
+  const rows = page.items.map((d) => {
     const date = new Date(d.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
     return `<tr><td>${date}</td><td>${d.accepted}</td><td>${d.failed}</td><td>${d.delivered}</td><td>${d.bounced}</td><td>${d.pending}</td></tr>`;
   }).join("");
   $("#analyticsRows").innerHTML = rows;
+  renderListPager($("#analyticsRows").closest(".table-wrap"), "analytics", page);
 }
 
 function renderAll() {
@@ -3033,6 +3064,20 @@ $("#subscriberPagination")?.addEventListener("click", (e) => {
   if (action === "next") state.subscriberPage = Math.min(pageCount, state.subscriberPage + 1);
   if (action === "last") state.subscriberPage = pageCount;
   renderSubscribers();
+});
+
+document.addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-list-page-action]");
+  if (!button) return;
+  const key = button.dataset.listPageKey;
+  const pager = button.closest("nav");
+  const pageCount = Number((pager?.textContent || "").match(/of\s+(\d+)/)?.[1] || 1);
+  const current = state.listPages[key] || 1;
+  if (button.dataset.listPageAction === "first") state.listPages[key] = 1;
+  if (button.dataset.listPageAction === "previous") state.listPages[key] = Math.max(1, current - 1);
+  if (button.dataset.listPageAction === "next") state.listPages[key] = Math.min(pageCount, current + 1);
+  if (button.dataset.listPageAction === "last") state.listPages[key] = pageCount;
+  renderAll();
 });
 
 $("#createSubscriberGroup").addEventListener("click", async () => {
