@@ -15,7 +15,7 @@ async function sendWelcome(email: string, name: string | null) {
   try {
     const result = await sendEmail({
       to: email,
-      subject: "Welcome to dailymattr",
+      subject: "🎉Yayy! \"dailymattr\" is here and you're part of the club",
       html: await renderWelcomeEmail(email, name),
     });
     /* One line per welcome attempt, in the function logs.
