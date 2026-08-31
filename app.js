@@ -1650,7 +1650,7 @@ function renderSubscribers() {
       ? "active email recipients"
       : state.subscriberStatusFilter ? `${state.subscriberStatusFilter} contacts` : "all contacts";
     const range = visible.length ? `${pageStart + 1}-${pageEnd} of ${visible.length}` : "0";
-    audienceNote.textContent = `Showing ${range} ${statusLabel}. Only subscribed contacts receive emails.`;
+    audienceNote.innerHTML = `Showing <strong class="subscriber-audience-count">${esc(range)}</strong> ${esc(statusLabel)}. Only subscribed contacts receive emails.`;
   }
   const subscribed = visible.filter((s) => subscriberMatchesCurrentAudience(s));
   const allChecked = subscribed.length > 0 && subscribed.every((s) => state.selectedSubscribers.has(s.id));
