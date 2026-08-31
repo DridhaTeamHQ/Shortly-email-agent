@@ -560,6 +560,9 @@ const state = {
   subscribers: [],
   subscriberGroups: [],
   subscriberGroupMemberships: [],
+  subscriberGroupIdsBySubscriber: new Map(),
+  subscriberGroupsById: new Map(),
+  subscriberGroupControlsNeedRefresh: true,
   subscriberSearch: "",
   subscriberGroupFilter: "",
   subscriberPage: 1,
@@ -1577,24 +1580,24 @@ function selectedSubscriberTopics() {
 }
 
 function groupIdsForSubscriber(subscriberId) {
-  return state.subscriberGroupMemberships
-    .filter((membership) => membership.subscriber_id === subscriberId)
-    .map((membership) => membership.group_id);
+  return state.subscriberGroupIdsBySubscriber.get(subscriberId) || [];
 }
 
 function groupsForSubscriber(subscriberId) {
-  const memberIds = new Set(groupIdsForSubscriber(subscriberId));
-  return state.subscriberGroups.filter((group) => memberIds.has(group.id));
+  return groupIdsForSubscriber(subscriberId)
+    .map((groupId) => state.subscriberGroupsById.get(groupId))
+    .filter(Boolean);
 }
 
 function visibleSubscribers() {
   const query = state.subscriberSearch.trim().toLowerCase();
   return state.subscribers.filter((subscriber) => {
-    const groups = groupsForSubscriber(subscriber.id);
-    if (state.subscriberGroupFilter && !groups.some((group) => group.id === state.subscriberGroupFilter)) return false;
+    const groupIds = groupIdsForSubscriber(subscriber.id);
+    if (state.subscriberGroupFilter && !groupIds.includes(state.subscriberGroupFilter)) return false;
     if (state.subscriberStatusFilter && subscriber.status !== state.subscriberStatusFilter) return false;
     if (!query) return true;
-    return [subscriber.email, subscriber.full_name, subscriber.phone_number, ...groups.map((group) => group.name)]
+    const groupNames = groupIds.map((groupId) => state.subscriberGroupsById.get(groupId)?.name);
+    return [subscriber.email, subscriber.full_name, subscriber.phone_number, ...groupNames]
       .some((value) => String(value || "").toLowerCase().includes(query));
   });
 }
@@ -1630,7 +1633,10 @@ function formatSubscriberTimestamp(value) {
 
 function renderSubscribers() {
   syncSelectedSubscribersForAudience();
-  renderSubscriberGroupControls();
+  if (state.subscriberGroupControlsNeedRefresh) {
+    renderSubscriberGroupControls();
+    state.subscriberGroupControlsNeedRefresh = false;
+  }
   const visible = visibleSubscribers();
   const pageSize = 50;
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
@@ -1652,7 +1658,7 @@ function renderSubscribers() {
     .map(
       (s) => {
         const eligible = subscriberMatchesCurrentAudience(s);
-        const assignedGroupIds = new Set(groupIdsForSubscriber(s.id));
+        const assignedGroupIds = groupIdsForSubscriber(s.id);
         const groups = groupsForSubscriber(s.id);
         const checkbox = s.status === "subscribed"
           ? `<input type="checkbox" class="sub-check" data-id="${s.id}" ${state.selectedSubscribers.has(s.id) ? "checked" : ""} ${eligible ? "" : "disabled"}>`
@@ -1669,7 +1675,7 @@ function renderSubscribers() {
             <summary>${groups.length ? groups.map((group) => esc(group.name)).join(", ") : "Add to group"}</summary>
             <div class="subscriber-group-options">
               ${state.subscriberGroups.length
-                ? state.subscriberGroups.map((group) => `<label><input type="checkbox" data-group-id="${esc(group.id)}" ${assignedGroupIds.has(group.id) ? "checked" : ""}>${esc(group.name)}</label>`).join("")
+                ? state.subscriberGroups.map((group) => `<label><input type="checkbox" data-group-id="${esc(group.id)}" ${assignedGroupIds.includes(group.id) ? "checked" : ""}>${esc(group.name)}</label>`).join("")
                 : `<span class="muted">Create a group first.</span>`}
             </div>
             ${state.subscriberGroups.length ? `<button class="btn-ghost subscriber-group-save" data-action="save-groups" type="button">Save groups</button>` : ""}
@@ -1947,6 +1953,28 @@ function renderAll() {
   updateBulkBar();
 }
 
+// Paging one list must not rebuild every hidden dashboard view. Besides being
+// visibly faster, this keeps large subscriber and article collections from
+// allocating card markup that the user is not looking at.
+function renderPagedView(key) {
+  const renderers = {
+    review: renderReview,
+    approved: renderApproved,
+    "email-cases": renderEmailBuilder,
+    "email-daily": renderEmailBuilder,
+    rejected: renderRejected,
+    "topic-drafts": renderTopicDrafts,
+    "cases-approved-review": renderCaseStatusLists,
+    "cases-rejected-review": renderCaseStatusLists,
+    trending: renderTrending,
+    "cases-approved": renderCasesApproved,
+    history: renderHistory,
+    analytics: renderAnalytics,
+  };
+  const renderer = renderers[key];
+  if (renderer) renderer();
+}
+
 // ---------- data loaders ----------
 async function loadArticles() {
   // Load each relevant status separately to avoid high-rank pending articles
@@ -1974,6 +2002,14 @@ async function loadSubscribers() {
   state.subscribers = data.subscribers || [];
   state.subscriberGroups = data.groups || [];
   state.subscriberGroupMemberships = data.memberships || [];
+  state.subscriberGroupsById = new Map(state.subscriberGroups.map((group) => [group.id, group]));
+  state.subscriberGroupIdsBySubscriber = new Map();
+  for (const membership of state.subscriberGroupMemberships) {
+    const groupIds = state.subscriberGroupIdsBySubscriber.get(membership.subscriber_id) || [];
+    groupIds.push(membership.group_id);
+    state.subscriberGroupIdsBySubscriber.set(membership.subscriber_id, groupIds);
+  }
+  state.subscriberGroupControlsNeedRefresh = true;
   const validIds = new Set(state.subscribers.filter((s) => s.status === "subscribed").map((s) => s.id));
   state.selectedSubscribers.forEach((id) => {
     if (!validIds.has(id)) state.selectedSubscribers.delete(id);
@@ -3077,7 +3113,7 @@ document.addEventListener("click", (e) => {
   if (button.dataset.listPageAction === "previous") state.listPages[key] = Math.max(1, current - 1);
   if (button.dataset.listPageAction === "next") state.listPages[key] = Math.min(pageCount, current + 1);
   if (button.dataset.listPageAction === "last") state.listPages[key] = pageCount;
-  renderAll();
+  renderPagedView(key);
 });
 
 $("#createSubscriberGroup").addEventListener("click", async () => {
