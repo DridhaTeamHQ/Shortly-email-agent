@@ -562,6 +562,7 @@ const state = {
   subscriberGroupMemberships: [],
   subscriberSearch: "",
   subscriberGroupFilter: "",
+  subscriberPage: 1,
   // The default list is the actual sending audience; other statuses remain
   // available in the filter for subscriber management.
   subscriberStatusFilter: "subscribed",
@@ -1606,16 +1607,23 @@ function renderSubscribers() {
   syncSelectedSubscribersForAudience();
   renderSubscriberGroupControls();
   const visible = visibleSubscribers();
+  const pageSize = 50;
+  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
+  state.subscriberPage = Math.min(Math.max(state.subscriberPage, 1), pageCount);
+  const pageStart = (state.subscriberPage - 1) * pageSize;
+  const pageEnd = Math.min(pageStart + pageSize, visible.length);
+  const pageSubscribers = visible.slice(pageStart, pageEnd);
   const audienceNote = $("#subscriberAudienceNote");
   if (audienceNote) {
     const statusLabel = state.subscriberStatusFilter === "subscribed"
       ? "active email recipients"
       : state.subscriberStatusFilter ? `${state.subscriberStatusFilter} contacts` : "all contacts";
-    audienceNote.textContent = `Showing ${visible.length} ${statusLabel}. Only subscribed contacts receive emails.`;
+    const range = visible.length ? `${pageStart + 1}-${pageEnd} of ${visible.length}` : "0";
+    audienceNote.textContent = `Showing ${range} ${statusLabel}. Only subscribed contacts receive emails.`;
   }
   const subscribed = visible.filter((s) => subscriberMatchesCurrentAudience(s));
   const allChecked = subscribed.length > 0 && subscribed.every((s) => state.selectedSubscribers.has(s.id));
-  const rows = visible
+  const rows = pageSubscribers
     .map(
       (s) => {
         const eligible = subscriberMatchesCurrentAudience(s);
@@ -1657,6 +1665,16 @@ function renderSubscribers() {
     )
     .join("");
   $("#subRows").innerHTML = rows || `<tr><td colspan="8" class="muted" style="padding:18px">No subscribers match this search, group, or status.</td></tr>`;
+  const pagination = $("#subscriberPagination");
+  if (pagination) {
+    pagination.hidden = visible.length <= pageSize;
+    pagination.innerHTML = visible.length <= pageSize ? "" : `
+      <button class="btn-ghost" type="button" data-page-action="first" ${state.subscriberPage === 1 ? "disabled" : ""}>First</button>
+      <button class="btn-ghost" type="button" data-page-action="previous" ${state.subscriberPage === 1 ? "disabled" : ""}>Previous</button>
+      <span>Page ${state.subscriberPage} of ${pageCount}</span>
+      <button class="btn-ghost" type="button" data-page-action="next" ${state.subscriberPage === pageCount ? "disabled" : ""}>Next</button>
+      <button class="btn-ghost" type="button" data-page-action="last" ${state.subscriberPage === pageCount ? "disabled" : ""}>Last</button>`;
+  }
   const selectAll = $("#subSelectAll");
   if (selectAll) {
     selectAll.checked = allChecked;
@@ -2990,16 +3008,30 @@ $("#clearRecipientSelection").addEventListener("click", () => {
 
 $("#subSearch").addEventListener("input", (e) => {
   state.subscriberSearch = e.target.value;
+  state.subscriberPage = 1;
   renderSubscribers();
 });
 
 $("#subGroupFilter").addEventListener("change", (e) => {
   state.subscriberGroupFilter = e.target.value;
+  state.subscriberPage = 1;
   renderSubscribers();
 });
 
 $("#subStatusFilter").addEventListener("change", (e) => {
   state.subscriberStatusFilter = e.target.value;
+  state.subscriberPage = 1;
+  renderSubscribers();
+});
+
+$("#subscriberPagination")?.addEventListener("click", (e) => {
+  const action = e.target.closest("button[data-page-action]")?.dataset.pageAction;
+  if (!action) return;
+  const pageCount = Math.max(1, Math.ceil(visibleSubscribers().length / 50));
+  if (action === "first") state.subscriberPage = 1;
+  if (action === "previous") state.subscriberPage = Math.max(1, state.subscriberPage - 1);
+  if (action === "next") state.subscriberPage = Math.min(pageCount, state.subscriberPage + 1);
+  if (action === "last") state.subscriberPage = pageCount;
   renderSubscribers();
 });
 
