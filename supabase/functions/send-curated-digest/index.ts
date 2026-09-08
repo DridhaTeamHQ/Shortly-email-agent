@@ -2,11 +2,18 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { sendInBatches } from "../_shared/send-batches.ts";
+import { screenRecipients, checkBounceRate } from "../_shared/send-guard.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
 import { matchesCategoryContent } from "../_shared/category-quality.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 
-type Subscriber = { id: string; email: string; full_name: string | null; topics?: string[] | null };
+type Subscriber = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  topics?: string[] | null;
+  verification_status?: string | null;
+};
 type DailyArticle = {
   id: string;
   title: string;
@@ -44,10 +51,12 @@ const INSTAGRAM_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Short
 const GOOGLE_PLAY_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-google-play.png";
 const APP_STORE_ICON_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/icon-app-store.png";
 const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "").replace(/\/+$/, "");
+// requiresCategory is spelled out on every entry so the union stays uniform;
+// without it TypeScript cannot prove the property exists when reading it below.
 const FORMATS = {
-  "daily-wrap-10": { dailyLimit: 5, caseLimit: 0, label: "General 5 Articles" },
+  "daily-wrap-10": { dailyLimit: 5, caseLimit: 0, label: "General 5 Articles", requiresCategory: false },
   "category-5-case-1": { dailyLimit: 5, caseLimit: 0, label: "Category 5 Articles", requiresCategory: true },
-  "case-study-only": { dailyLimit: 0, caseLimit: 1, label: "Case Study Only" }
+  "case-study-only": { dailyLimit: 0, caseLimit: 1, label: "Case Study Only", requiresCategory: false }
 } as const;
 
 type DigestFormat = keyof typeof FORMATS;
@@ -116,10 +125,42 @@ Deno.serve(async (request) => {
     return json({ error: "No approved corporate case study available" }, 400);
   }
 
-  const subscribers = testEmail
+  const candidates = testEmail
     ? [{ id: "test-recipient", email: testEmail, full_name: testName, topics: ["daily-wrap"] }]
     : await loadSubscribers(supabase, format, subscriberIds, category);
-  if (subscribers.length === 0) return json({ error: "No subscribers" }, 400);
+  if (candidates.length === 0) return json({ error: "No subscribers" }, 400);
+
+  // ---- sending-reputation brakes (see _shared/send-guard.ts) ----------------
+  // A single-recipient test send deliberately bypasses both brakes: proving the
+  // pipeline works to your own inbox must stay possible while the list is still
+  // unverified. Every real audience send is gated.
+  let subscribers = candidates;
+  let screenCounts: ReturnType<typeof screenRecipients>["counts"] | null = null;
+  let bounceRatePct: number | null = null;
+  if (!testEmail) {
+    const bounce = await checkBounceRate(supabase);
+    if (!bounce.ok) {
+      return json({
+        error: "Send blocked by the bounce guard.",
+        reason: bounce.reason,
+        bounce_rate_pct: bounce.rate,
+        delivered: bounce.delivered,
+        bounced: bounce.bounced,
+        blind: bounce.blind,
+      }, 409);
+    }
+    bounceRatePct = bounce.rate;
+    const screened = screenRecipients(candidates);
+    subscribers = screened.send;
+    screenCounts = screened.counts;
+    if (subscribers.length === 0) {
+      return json({
+        error: "No eligible recipients after verification screening.",
+        screened: screenCounts,
+        hint: "Run verify-subscribers first, or set SEND_REQUIRE_VERIFIED=0 to disable the gate.",
+      }, 400);
+    }
+  }
 
   if (!dryRun && !forceSend) {
     const recentDuplicate = await findRecentDuplicateDigest(
@@ -157,7 +198,7 @@ Deno.serve(async (request) => {
 
   // Small paced batches: concurrent within a batch, a pause between batches,
   // so a full-audience send never bursts past provider rate limits.
-  const { sent, failed } = await sendInBatches(subscribers, async (subscriber) => {
+  const { sent, failed, batchSize, pauseMs } = await sendInBatches(subscribers, async (subscriber) => {
     const result = await sendEmail({
       to: subscriber.email,
       subject,
@@ -192,7 +233,18 @@ Deno.serve(async (request) => {
 
   await supabase.from("digests").update({ sent, failed }).eq("id", digestId);
 
-  return json({ digestId, format, category, recipients: subscribers.length, daily: dailyArticles.length, corporate: corporateCases.length, sent, failed, test: Boolean(testEmail), provider: provider ?? "default" });
+  return json({
+    digestId, format, category,
+    recipients: subscribers.length,
+    daily: dailyArticles.length,
+    corporate: corporateCases.length,
+    sent, failed,
+    test: Boolean(testEmail),
+    provider: provider ?? "default",
+    screened: screenCounts,
+    pacing: { batchSize, pauseMs },
+    bounce_rate_pct: bounceRatePct,
+  });
 });
 
 function normalizeFormat(value: unknown): DigestFormat | null {
@@ -299,7 +351,7 @@ async function loadSubscribers(supabase: any, format: DigestFormat, subscriberId
   const audienceTopic = normalizeTopicSlug(category);
   let query = supabase
     .from("subscribers")
-    .select("id,email,full_name,topics")
+    .select("id,email,full_name,topics,verification_status")
     .eq("status", "subscribed");
   if (format === "case-study-only") {
     query = query.overlaps("topics", ["real-estate", "automobile", "health-wellness", "tech-ai", "markets-startups"]);

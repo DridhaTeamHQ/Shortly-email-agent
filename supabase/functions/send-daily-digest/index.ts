@@ -7,6 +7,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { sendInBatches } from "../_shared/send-batches.ts";
+import { screenRecipients, checkBounceRate } from "../_shared/send-guard.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
 
@@ -27,7 +28,13 @@ type Article = {
   reviewed_at: string | null;
 };
 
-type Subscriber = { id: string; email: string; full_name: string | null; topics?: string[] | null };
+type Subscriber = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  topics?: string[] | null;
+  verification_status?: string | null;
+};
 
 const TOTAL_ARTICLES = 5;
 // Selected articles older than this are treated as stale and dropped, so a
@@ -169,7 +176,7 @@ Deno.serve(async (request) => {
 
   let subQuery = supabase
     .from("subscribers")
-    .select("id,email,full_name,topics")
+    .select("id,email,full_name,topics,verification_status")
     .eq("status", "subscribed");
   if (subscriberIds.length > 0) {
     subQuery = subQuery.in("id", subscriberIds);
@@ -178,8 +185,34 @@ Deno.serve(async (request) => {
   }
   const { data: subs, error: subError } = await subQuery;
   if (subError) return json({ error: subError.message }, 500);
-  const subscribers = (subs ?? []) as Subscriber[];
-  if (subscribers.length === 0) return json({ error: "No subscribers" }, 400);
+  const candidates = (subs ?? []) as Subscriber[];
+  if (candidates.length === 0) return json({ error: "No subscribers" }, 400);
+
+  // ---- sending-reputation brakes (see _shared/send-guard.ts) ----------------
+  // The previous SES account was suspended at a 15.51% bounce rate that built
+  // up unseen. Refuse to start when bounce feedback says it is unsafe, or when
+  // no feedback is being recorded at all.
+  const bounce = await checkBounceRate(supabase);
+  if (!bounce.ok) {
+    return json({
+      error: "Send blocked by the bounce guard.",
+      reason: bounce.reason,
+      bounce_rate_pct: bounce.rate,
+      delivered: bounce.delivered,
+      bounced: bounce.bounced,
+      blind: bounce.blind,
+    }, 409);
+  }
+
+  // Verified-only gate + domain hold + per-run warm-up cap.
+  const { send: subscribers, counts } = screenRecipients(candidates);
+  if (subscribers.length === 0) {
+    return json({
+      error: "No eligible recipients after verification screening.",
+      screened: counts,
+      hint: "Run verify-subscribers to verify the list, or set SEND_REQUIRE_VERIFIED=0 to disable the gate.",
+    }, 400);
+  }
 
   const { data: digest, error: digestError } = await supabase
     .from("digests")
@@ -194,7 +227,7 @@ Deno.serve(async (request) => {
 
   // Small paced batches: concurrent within a batch, a pause between batches,
   // so a full-audience send never bursts past provider rate limits.
-  const { sent, failed } = await sendInBatches(subscribers, async (sub) => {
+  const { sent, failed, batchSize, pauseMs } = await sendInBatches(subscribers, async (sub) => {
     const html = await renderDigest(wrapped, sub);
     const result = await sendEmail({ to: sub.email, subject, html });
     await supabase.from("article_deliveries").insert({
@@ -215,7 +248,19 @@ Deno.serve(async (request) => {
 
   await supabase.from("digests").update({ sent, failed }).eq("id", digestId);
 
-  return json({ digestId, wrapped: wrapped.length, recipients: subscribers.length, sent, failed, ignoredOldSelected });
+  return json({
+    digestId,
+    wrapped: wrapped.length,
+    recipients: subscribers.length,
+    sent,
+    failed,
+    ignoredOldSelected,
+    // Visibility into every brake that ran, so a small send can be inspected
+    // before the next one is widened.
+    screened: counts,
+    pacing: { batchSize, pauseMs },
+    bounce_rate_pct: bounce.rate,
+  });
 });
 
 function escapeHtml(v = "") {

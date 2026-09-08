@@ -5,11 +5,18 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { sendInBatches } from "../_shared/send-batches.ts";
+import { screenRecipients, checkBounceRate } from "../_shared/send-guard.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
 import { matchesCategoryContent } from "../_shared/category-quality.ts";
 
-type Subscriber = { id: string; email: string; full_name: string | null; topics?: string[] | null };
+type Subscriber = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  topics?: string[] | null;
+  verification_status?: string | null;
+};
 type DailyArticle = {
   id: string;
   title: string;
@@ -114,6 +121,29 @@ Deno.serve(async (request) => {
   if (items.length === 0) return json({ error: `No approved ${topicLabel(topic)} items available to send` }, 400);
   if (subscribers.length === 0) return json({ error: "No subscribers" }, 400);
 
+  // ---- sending-reputation brakes (see _shared/send-guard.ts) ----------------
+  const bounce = await checkBounceRate(supabase);
+  if (!bounce.ok && !dryRun) {
+    return json({
+      error: "Send blocked by the bounce guard.",
+      reason: bounce.reason,
+      bounce_rate_pct: bounce.rate,
+      delivered: bounce.delivered,
+      bounced: bounce.bounced,
+      blind: bounce.blind,
+    }, 409);
+  }
+  const screened = screenRecipients(subscribers);
+  const screenCounts = screened.counts;
+  subscribers = screened.send;
+  if (subscribers.length === 0 && !dryRun) {
+    return json({
+      error: "No eligible recipients after verification screening.",
+      screened: screenCounts,
+      hint: "Run verify-subscribers first, or set SEND_REQUIRE_VERIFIED=0 to disable the gate.",
+    }, 400);
+  }
+
   if (!dryRun && !forceSend) {
     const recentDuplicate = await findRecentDuplicateDigest(
       supabase,
@@ -151,7 +181,7 @@ Deno.serve(async (request) => {
 
   // Small paced batches: concurrent within a batch, a pause between batches,
   // so a full-audience send never bursts past provider rate limits.
-  const { sent, failed } = await sendInBatches(subscribers, async (sub) => {
+  const { sent, failed, batchSize, pauseMs } = await sendInBatches(subscribers, async (sub) => {
     const result = await sendEmail({ to: sub.email, subject, html: await renderDigest(items, sub, topic) });
     await supabase.from("article_deliveries").insert({
       digest_id: digestId,
@@ -181,7 +211,15 @@ Deno.serve(async (request) => {
     }
   }
 
-  return json({ digestId, topic, items: items.length, recipients: subscribers.length, sent, failed });
+  return json({
+    digestId, topic,
+    items: items.length,
+    recipients: subscribers.length,
+    sent, failed,
+    screened: screenCounts,
+    pacing: { batchSize, pauseMs },
+    bounce_rate_pct: bounce.rate,
+  });
 });
 
 function normalizeTopic(value: unknown): string {
@@ -241,7 +279,7 @@ function istDayWindow() {
 async function loadSubscribers(supabase: any, topic: string, subscriberIds: string[]): Promise<Subscriber[]> {
   let query = supabase
     .from("subscribers")
-    .select("id,email,full_name,topics")
+    .select("id,email,full_name,topics,verification_status")
     .eq("status", "subscribed");
   if (topic === "case-study-pool") {
     query = query.overlaps("topics", CASE_STUDY_TOPICS);
