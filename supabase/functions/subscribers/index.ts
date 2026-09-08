@@ -10,6 +10,7 @@ import {
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { renderWelcomeEmail } from "../_shared/welcome-email.ts";
+import { staticVerify, verifyDomain, verifyEmailAddress } from "../_shared/email-verify.ts";
 
 async function sendWelcome(email: string, name: string | null) {
   try {
@@ -309,7 +310,7 @@ Deno.serve(async (request) => {
       for (let from = 0; ; from += pageSize) {
         const result = await supabase
           .from("subscribers")
-          .select("id,email,full_name,phone_number,topics,plan,category,rhythm,send_days,news_categories,source_preference,status,created_at,unsubscribed_at")
+          .select("id,email,full_name,phone_number,topics,plan,category,rhythm,send_days,news_categories,source_preference,status,created_at,unsubscribed_at,verification_status,verified_at,verification_reason")
           .order("created_at", { ascending: false })
           .range(from, from + pageSize - 1);
         if (result.error) return { data: null, error: result.error };
@@ -497,6 +498,12 @@ Deno.serve(async (request) => {
       const { email, full_name, phone_number } = body;
       const { email: normalizedEmail, error: emailError } = validateEmailAddress(email);
       if (emailError) return json({ error: emailError }, 400);
+      // Full pre-send verification (disposable domain, MX lookup). Reject only
+      // provably-dead addresses; 'risky' is recorded but accepted.
+      const verification = await verifyEmailAddress(normalizedEmail);
+      if (verification.verdict === "invalid") {
+        return json({ error: `This email can't receive mail: ${verification.reason}` }, 400);
+      }
       const normalizedName = full_name?.trim() || null;
       const normalizedPhone = phone_number?.trim() || null;
       const groupId = String(body.group_id ?? "").trim();
@@ -532,6 +539,9 @@ Deno.serve(async (request) => {
           category,
           topics: normalizedTopics,
           unsubscribed_at: null,
+          verification_status: verification.verdict,
+          verified_at: new Date().toISOString(),
+          verification_reason: verification.reason,
           updated_at: new Date().toISOString()
         };
         if (normalizedName) patch.full_name = normalizedName;
@@ -568,7 +578,10 @@ Deno.serve(async (request) => {
 
       const { data: created, error } = await supabase
         .from("subscribers")
-        .insert({ email: normalizedEmail, full_name: normalizedName, phone_number: normalizedPhone, plan, category, topics: normalizedTopics })
+        .insert({
+          email: normalizedEmail, full_name: normalizedName, phone_number: normalizedPhone, plan, category, topics: normalizedTopics,
+          verification_status: verification.verdict, verified_at: new Date().toISOString(), verification_reason: verification.reason
+        })
         .select("id")
         .single();
       if (error) return json({ error: error.message }, 400);
@@ -602,10 +615,15 @@ Deno.serve(async (request) => {
       const normalizedByEmail = new Map<string, Record<string, unknown>>();
       let validRows = 0;
       let invalidEmailRows = 0;
+      const invalidSamples: Array<{ email: string; reason: string }> = [];
       for (const row of rows) {
         const { email, error: emailError } = validateEmailAddress(row?.email);
-        if (emailError) {
+        // Static verification on top of the shape check: typo'd, disposable,
+        // and malformed addresses never enter the audience.
+        const staticFail = emailError ? null : staticVerify(email);
+        if (emailError || staticFail) {
           invalidEmailRows++;
+          if (staticFail && invalidSamples.length < 20) invalidSamples.push({ email, reason: staticFail.reason });
           continue;
         }
         validRows++;
@@ -623,6 +641,33 @@ Deno.serve(async (request) => {
           unsubscribed_at: null,
           updated_at: updatedAt
         });
+      }
+
+      // Domain-level DNS check on the unique domains in the file (one lookup
+      // per domain, cached). Rows on dead domains are dropped and reported;
+      // everything else gets its verification verdict stamped so the batch
+      // verifier doesn't have to redo it.
+      const domains = [...new Set([...normalizedByEmail.keys()].map((e) => e.split("@")[1]))];
+      const domainVerdicts = new Map<string, { verdict: string; reason: string }>();
+      const DOMAIN_GROUP = 10;
+      for (let i = 0; i < domains.length; i += DOMAIN_GROUP) {
+        await Promise.all(domains.slice(i, i + DOMAIN_GROUP).map(async (d) => {
+          domainVerdicts.set(d, await verifyDomain(d));
+        }));
+      }
+      for (const [email, record] of [...normalizedByEmail.entries()]) {
+        const check = domainVerdicts.get(email.split("@")[1]);
+        if (!check) continue;
+        if (check.verdict === "invalid") {
+          normalizedByEmail.delete(email);
+          invalidEmailRows++;
+          validRows--;
+          if (invalidSamples.length < 20) invalidSamples.push({ email, reason: check.reason });
+          continue;
+        }
+        record.verification_status = check.verdict;
+        record.verified_at = updatedAt;
+        record.verification_reason = check.reason;
       }
       const normalizedRows = Array.from(normalizedByEmail.values());
 
@@ -663,6 +708,7 @@ Deno.serve(async (request) => {
         updated: existingCount,
         duplicates_in_file: validRows - normalizedRows.length,
         invalid_email_rows: invalidEmailRows,
+        invalid_samples: invalidSamples,
       });
     }
 

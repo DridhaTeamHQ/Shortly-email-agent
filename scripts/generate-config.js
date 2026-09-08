@@ -28,6 +28,7 @@ window.SHORTLY = {
   topicDigest: "${functionsBase}/send-topic-digest",
   submit:      "${functionsBase}/send-article",
   subscribers: "${functionsBase}/subscribers",
+  verifySubscribers: "${functionsBase}/verify-subscribers",
   scrape:      "${functionsBase}/scrape-news",
   summarize:   "${functionsBase}/summarize-articles",
   editorialTopics: "${functionsBase}/editorial-topic-agent",

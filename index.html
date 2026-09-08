@@ -388,6 +388,9 @@
             <input id="subCsvFile" type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
             <select id="subImportGroup" aria-label="Add imported subscribers to group"><option value="">No group</option></select>
             <button id="importCsvBtn" class="btn-ghost" type="button">Upload File</button>
+            <button id="verifyEmailsBtn" class="btn-ghost" type="button" title="Check subscriber emails (syntax, disposable domains, mail servers) and remove dead addresses from sends">
+              <span id="verifyEmailsText">Verify emails</span>
+            </button>
             <span class="muted">Accepted columns: name, email, phone number, topics/category. Supported files: CSV, XLSX, XLS.</span>
           </div>
           <div class="subscriber-tools" aria-label="Subscriber search and groups">
@@ -398,6 +401,7 @@
               <option value="subscribed" selected>Subscribed</option>
               <option value="unsubscribed">Unsubscribed</option>
               <option value="bounced">Bounced</option>
+              <option value="invalid">Invalid</option>
             </select>
             <button id="createSubscriberGroup" class="btn-ghost" type="button"><i class="ph ph-plus" aria-hidden="true"></i> Create group</button>
           </div>

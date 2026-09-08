@@ -1683,6 +1683,9 @@ function renderSubscribers() {
         </td>
         <td class="subscriber-status-cell">
           <span><span class="dot ${s.status}"></span>${esc(s.status)}</span>
+          ${s.verification_status && s.verification_status !== "unverified"
+            ? `<span class="verify-chip ${esc(s.verification_status)}" title="${esc(s.verification_reason || "")}">${esc(s.verification_status)}</span>`
+            : ""}
           ${s.unsubscribed_at ? `<span class="subscriber-status-time">Unsubscribed ${esc(formatSubscriberTimestamp(s.unsubscribed_at))}</span>` : ""}
         </td>
         <td class="row-actions">
@@ -3202,8 +3205,44 @@ $("#importCsvBtn").addEventListener("click", async () => {
     if (res.updated) details.push(`${res.updated} updated`);
     if (res.duplicates_in_file) details.push(`${res.duplicates_in_file} duplicate row${res.duplicates_in_file === 1 ? "" : "s"} skipped`);
     toast(`Processed ${processed} subscriber${processed === 1 ? "" : "s"}${details.length ? `: ${details.join(", ")}.` : "."}`);
+    if (res.invalid_email_rows) {
+      toast(`${res.invalid_email_rows} row${res.invalid_email_rows === 1 ? "" : "s"} skipped: unworkable email address${res.invalid_email_rows === 1 ? "" : "es"}.`);
+    }
   } catch (e) {
     toast(`Import failed: ${e.message}`);
+  }
+});
+
+// Verify subscriber emails in slices until the whole audience is checked.
+// Dead addresses (bad syntax, disposable domains, nonexistent domains) are
+// flagged status=invalid, which removes them from every send.
+$("#verifyEmailsBtn")?.addEventListener("click", async () => {
+  if (!cfg.verifySubscribers) return toast("Verify endpoint is not configured.");
+  const btn = $("#verifyEmailsBtn");
+  const label = $("#verifyEmailsText");
+  btn.disabled = true;
+  const tally = { checked: 0, valid: 0, risky: 0, removed: 0 };
+  try {
+    // Bounded loop: each call verifies one slice; stop when the backlog is
+    // drained or after enough slices for ~6,000 subscribers in one click.
+    for (let round = 0; round < 30; round++) {
+      if (label) label.textContent = `Verifying... (${tally.checked} checked)`;
+      const res = await api("POST", cfg.verifySubscribers, { limit: 200 });
+      tally.checked += res.checked ?? 0;
+      tally.valid += res.valid ?? 0;
+      tally.risky += res.risky ?? 0;
+      tally.removed += res.removed ?? 0;
+      if (res.done || !res.checked) break;
+    }
+    await refreshSubscribersView();
+    toast(tally.checked === 0
+      ? "All subscriber emails are already verified."
+      : `Verified ${tally.checked}: ${tally.valid} valid, ${tally.risky} risky, ${tally.removed} dead address${tally.removed === 1 ? "" : "es"} removed from sends.`);
+  } catch (e) {
+    toast(`Verification failed: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    if (label) label.textContent = "Verify emails";
   }
 });
 

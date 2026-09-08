@@ -835,6 +835,17 @@ a:hover { text-decoration-color: var(--ink); }
 .dot.subscribed   { background: var(--ink); }
 .dot.unsubscribed { background: transparent; border: 1.5px solid var(--line-strong); }
 .dot.bounced      { background: var(--line-strong); box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--line-strong); }
+.dot.invalid      { background: transparent; border: 1.5px solid var(--line-strong); position: relative; }
+
+/* Email verification verdict chip (hover shows the reason) */
+.verify-chip {
+  display: inline-block; margin-left: 6px; padding: 2px 8px;
+  border-radius: 999px; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em; cursor: default;
+}
+.verify-chip.valid   { background: var(--brand-soft); color: var(--brand-deep); }
+.verify-chip.risky   { background: transparent; color: var(--muted); border: 1px dashed var(--line-strong); }
+.verify-chip.invalid { background: var(--soft); color: var(--muted); text-decoration: line-through; }
 
 /* Fetch today card */
 .fetch-today-card {

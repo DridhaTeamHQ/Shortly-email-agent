@@ -4,6 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
+import { sendInBatches } from "../_shared/send-batches.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
 import { matchesCategoryContent } from "../_shared/category-quality.ts";
@@ -148,27 +149,20 @@ Deno.serve(async (request) => {
     ? `${subjectDate} - Dailymattr topic digest is here!`
     : `${subjectDate} - ${topicLabel(topic)} from Dailymattr`;
 
-  let sent = 0;
-  let failed = 0;
-  const batchSize = 5;
-
-  for (let i = 0; i < subscribers.length; i += batchSize) {
-    const batch = subscribers.slice(i, i + batchSize);
-    const results = await Promise.all(batch.map(async (sub) => {
-      const result = await sendEmail({ to: sub.email, subject, html: await renderDigest(items, sub, topic) });
-      await supabase.from("article_deliveries").insert({
-        digest_id: digestId,
-        subscriber_id: sub.id,
-        email: sub.email,
-        status: result.ok ? "sent" : "failed",
-        provider_message_id: result.messageId ?? null,
-        error: result.error ?? null,
-      });
-      return result.ok;
-    }));
-    sent += results.filter(Boolean).length;
-    failed += results.length - results.filter(Boolean).length;
-  }
+  // Small paced batches: concurrent within a batch, a pause between batches,
+  // so a full-audience send never bursts past provider rate limits.
+  const { sent, failed } = await sendInBatches(subscribers, async (sub) => {
+    const result = await sendEmail({ to: sub.email, subject, html: await renderDigest(items, sub, topic) });
+    await supabase.from("article_deliveries").insert({
+      digest_id: digestId,
+      subscriber_id: sub.id,
+      email: sub.email,
+      status: result.ok ? "sent" : "failed",
+      provider_message_id: result.messageId ?? null,
+      error: result.error ?? null,
+    });
+    return result.ok;
+  }, { batchSize: 8, pauseMs: 1000 });
 
   await supabase.from("digests").update({ sent, failed }).eq("id", digestId);
 
