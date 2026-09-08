@@ -17,6 +17,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
+import { screenRecipients, checkBounceRate } from "../_shared/send-guard.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
 import { logoSvg } from "../_shared/brand.ts";
 import { buildWrapOrder } from "../_shared/editorial-picks.ts";
@@ -67,6 +68,7 @@ type Subscriber = {
   full_name: string | null;
   plan: string | null;
   category: string | null;
+  verification_status?: string | null;
 };
 
 const CATEGORIES = ["Real Estate", "Automobile", "Health & Wellness", "Tech & AI", "Markets & Startups"];
@@ -724,18 +726,53 @@ Deno.serve(async (request) => {
 
     // Page through subscribers: a bare select is capped by PostgREST's max-rows,
     // which would silently enqueue only the first page and look like a success.
+    // ---- sending-reputation brakes (see _shared/send-guard.ts) --------------
+    // Screened HERE, at queue time, rather than at drain time: an address that
+    // never enters the outbox can never be sent to, even if the drain is later
+    // run by hand. The previous SES account was suspended at a 15.51% bounce
+    // rate that accumulated with no feedback recorded at all.
+    const bounce = await checkBounceRate(supabase);
+    if (!bounce.ok) {
+      return json({
+        error: "Planning blocked by the bounce guard.",
+        reason: bounce.reason,
+        bounce_rate_pct: bounce.rate,
+        delivered: bounce.delivered,
+        bounced: bounce.bounced,
+        blind: bounce.blind,
+      }, 409);
+    }
+
+    // Collect every page first, then screen once, so SEND_MAX_PER_RUN caps the
+    // whole run rather than each page independently.
     const PAGE = 1000;
-    let enqueued = 0;
+    const allSubs: Subscriber[] = [];
     for (let from = 0; ; from += PAGE) {
       const { data: subs, error: sErr } = await supabase
         .from("subscribers")
-        .select("id,email,full_name,plan,category")
+        .select("id,email,full_name,plan,category,verification_status")
         .eq("status", "subscribed")
         .order("id")
         .range(from, from + PAGE - 1);
       if (sErr) return json({ error: sErr.message }, 500);
       const page = (subs ?? []) as Subscriber[];
       if (page.length === 0) break;
+      allSubs.push(...page);
+      if (page.length < PAGE) break;
+    }
+
+    const { send: screenedSubs, counts: screenCounts } = screenRecipients(allSubs);
+    if (screenedSubs.length === 0) {
+      return json({
+        error: "No eligible recipients after verification screening; nothing queued.",
+        screened: screenCounts,
+        hint: "Run verify-subscribers first, or set SEND_REQUIRE_VERIFIED=0 to disable the gate.",
+      }, 400);
+    }
+
+    let enqueued = 0;
+    for (let i = 0; i < screenedSubs.length; i += PAGE) {
+      const page = screenedSubs.slice(i, i + PAGE);
 
       const rows = page
         .filter((s) => !accountEmailSet.has(normalizeEmail(s.email)))
@@ -766,10 +803,15 @@ Deno.serve(async (request) => {
         if (insErr) return json({ error: insErr.message }, 500);
         enqueued += ins?.length ?? 0;
       }
-      if (page.length < PAGE) break;
     }
 
-    return json({ mode: "plan", digestId: digestRow!.id, enqueued });
+    return json({
+      mode: "plan",
+      digestId: digestRow!.id,
+      enqueued,
+      screened: screenCounts,
+      bounce_rate_pct: bounce.rate,
+    });
   }
 
   // ---- Test/recipients override: explicit recipients with independent shorts/case

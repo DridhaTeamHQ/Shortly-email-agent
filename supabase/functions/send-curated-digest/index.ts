@@ -214,7 +214,7 @@ Deno.serve(async (request) => {
       error: result.error ?? null
     });
     return result.ok;
-  }, { batchSize: 8, pauseMs: 1000 });
+  }); // pacing from SEND_BATCH_SIZE / SEND_BATCH_PAUSE_MS (default 5 per 2s)
 
   // Keep content available when any recipient failed so it can be retried.
   if (!testEmail && dailyArticles.length > 0 && failed === 0) {

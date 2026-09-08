@@ -38,6 +38,8 @@
 //   SEND_MAX_PER_RUN        cap recipients per invocation ("0"/unset = no cap)
 //   SEND_BOUNCE_ABORT_PCT   abort at/above this bounce % (default 5)
 //   SEND_BOUNCE_WINDOW_DAYS lookback for the bounce rate (default 7)
+//   SEND_BLIND_MIN_SENDS    recent sends with zero feedback that count as a
+//                           broken loop rather than a cold start (default 50)
 //   SEND_ALLOW_BLIND        "1" permits sending with no bounce data recorded
 
 export type Recipient = {
