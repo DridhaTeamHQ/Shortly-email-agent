@@ -1,0 +1,52 @@
+{
+  "_comment": [
+    "Minimal IAM policy for the Dailymattr sending user.",
+    "Attach to the SAME IAM user whose access keys are stored in Supabase as",
+    "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.",
+    "",
+    "SendOnly is what the daily send needs. The other two statements exist so the",
+    "ses-setup-events function can build the bounce feedback loop for you:",
+    "  SES  -> configuration set -> SNS topic -> https -> email-events function",
+    "Without that loop SES accepts mail and bounces silently, which is how a",
+    "15.51% bounce rate accumulated unseen until AWS paused the previous account.",
+    "",
+    "The SNS statement is scoped to one topic name so this policy cannot touch",
+    "any other topic in the account."
+  ],
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SendMail",
+      "Effect": "Allow",
+      "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManageEventDestination",
+      "Effect": "Allow",
+      "Action": [
+        "ses:CreateConfigurationSet",
+        "ses:GetConfigurationSetEventDestinations",
+        "ses:CreateConfigurationSetEventDestination",
+        "ses:UpdateConfigurationSetEventDestination",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManageBounceTopic",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:SetTopicAttributes",
+        "sns:GetTopicAttributes",
+        "sns:ListSubscriptionsByTopic",
+        "sns:Subscribe"
+      ],
+      "Resource": "arn:aws:sns:*:*:dailymattr-ses-events"
+    }
+  ]
+}
