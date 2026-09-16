@@ -68,6 +68,8 @@ const store = {
   subscribers: [
     { id: SUB_IDS[0], email: "reader@example.com", full_name: "Reader", phone_number: null, topics: ["daily-wrap"], status: "subscribed", created_at: now(), verification_status: "valid", verification_reason: "Mail server found", verified_at: now() },
     { id: SUB_IDS[1], email: "analyst@example.com", full_name: "Analyst", phone_number: null, topics: ["corporate-case", "money-matters"], status: "subscribed", created_at: now(), verification_status: "risky", verification_reason: "Role account (info@) — often unmonitored", verified_at: now() },
+    { id: "11111111-1111-4111-8111-111111111111", email: "hr@tamadamedia.com", full_name: "HR", phone_number: null, topics: ["daily-wrap"], status: "subscribed", created_at: now(), verification_status: "risky", verification_reason: "Role account (hr@) — often unmonitored", verified_at: now() },
+    { id: "22222222-2222-4222-8222-222222222222", email: "gone@nowhere-zz.com", full_name: "Dead Domain", phone_number: null, topics: ["daily-wrap"], status: "invalid", created_at: now(), verification_status: "invalid", verification_reason: "Domain does not exist (nowhere-zz.com)", verified_at: now() },
     { id: SUB_IDS[2], email: "left@example.com", full_name: "Opted Out", phone_number: null, topics: ["daily-wrap"], status: "unsubscribed", created_at: now() },
     { id: SUB_IDS[3], email: "dead@example.com", full_name: "Hard Bounce", phone_number: null, topics: ["daily-wrap"], status: "bounced", created_at: now() }
   ],

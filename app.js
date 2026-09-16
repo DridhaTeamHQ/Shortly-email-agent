@@ -570,6 +570,7 @@ const state = {
   // The default list is the actual sending audience; other statuses remain
   // available in the filter for subscriber management.
   subscriberStatusFilter: "subscribed",
+  subscriberVerifyFilter: "",
   digests: [],
   analytics: null,
   editorialDrafts: [],
@@ -1595,6 +1596,10 @@ function visibleSubscribers() {
     const groupIds = groupIdsForSubscriber(subscriber.id);
     if (state.subscriberGroupFilter && !groupIds.includes(state.subscriberGroupFilter)) return false;
     if (state.subscriberStatusFilter && subscriber.status !== state.subscriberStatusFilter) return false;
+    if (state.subscriberVerifyFilter) {
+      const verdict = subscriber.verification_status || "unverified";
+      if (verdict !== state.subscriberVerifyFilter) return false;
+    }
     if (!query) return true;
     const groupNames = groupIds.map((groupId) => state.subscriberGroupsById.get(groupId)?.name);
     return [subscriber.email, subscriber.full_name, subscriber.phone_number, ...groupNames]
@@ -1650,7 +1655,16 @@ function renderSubscribers() {
       ? "active email recipients"
       : state.subscriberStatusFilter ? `${state.subscriberStatusFilter} contacts` : "all contacts";
     const range = visible.length ? `${pageStart + 1}-${pageEnd} of ${visible.length}` : "0";
-    audienceNote.innerHTML = `Showing <strong class="subscriber-audience-count">${esc(range)}</strong> ${esc(statusLabel)}. Only subscribed contacts receive emails.`;
+    const VERIFY_LABELS = {
+      valid: "verified as deliverable",
+      risky: "flagged risky (deliverable but low-confidence, e.g. role accounts)",
+      invalid: "unworkable - already excluded from every send",
+      unverified: "not yet checked",
+    };
+    const verifyNote = state.subscriberVerifyFilter
+      ? ` &middot; ${esc(VERIFY_LABELS[state.subscriberVerifyFilter] || state.subscriberVerifyFilter)}`
+      : "";
+    audienceNote.innerHTML = `Showing <strong class="subscriber-audience-count">${esc(range)}</strong> ${esc(statusLabel)}${verifyNote}. Only subscribed contacts receive emails.`;
   }
   const subscribed = visible.filter((s) => subscriberMatchesCurrentAudience(s));
   const allChecked = subscribed.length > 0 && subscribed.every((s) => state.selectedSubscribers.has(s.id));
@@ -3090,6 +3104,15 @@ $("#subGroupFilter").addEventListener("change", (e) => {
 
 $("#subStatusFilter").addEventListener("change", (e) => {
   state.subscriberStatusFilter = e.target.value;
+  state.subscriberPage = 1;
+  renderSubscribers();
+});
+
+// Verification verdict is separate from subscriber status: a 'risky' address
+// stays subscribed, so it is invisible to the status filter. Without this the
+// only way to find two risky rows in 1,483 is to page through by eye.
+$("#subVerifyFilter")?.addEventListener("change", (e) => {
+  state.subscriberVerifyFilter = e.target.value;
   state.subscriberPage = 1;
   renderSubscribers();
 });
