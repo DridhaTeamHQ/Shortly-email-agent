@@ -36,11 +36,21 @@
 //   SEND_REQUIRE_VERIFIED   "0" disables the verified-only gate (default on)
 //   SEND_HOLD_DOMAINS       comma-separated domains to exclude, e.g. "a.com,b.com"
 //   SEND_MAX_PER_RUN        cap recipients per invocation ("0"/unset = no cap)
-//   SEND_BOUNCE_ABORT_PCT   abort at/above this bounce % (default 5)
-//   SEND_BOUNCE_WINDOW_DAYS lookback for the bounce rate (default 7)
+//   SEND_BOUNCE_ABORT_PCT   abort at/above this HARD-bounce % (default 2 -- the
+//                           figure committed to AWS; SES reviews at 5%)
+//   SEND_COMPLAINT_ABORT_PCT abort at/above this spam-complaint % (default 0.08;
+//                           SES reviews at 0.1%)
+//   SEND_COMPLAINT_MIN_DELIVERED  deliveries needed before the complaint rate
+//                           is trusted -- one complaint in 50 is noise (default 500)
+//   SEND_BOUNCE_WINDOW_DAYS lookback for both rates (default 7)
 //   SEND_BLIND_MIN_SENDS    recent sends with zero feedback that count as a
 //                           broken loop rather than a cold start (default 50)
 //   SEND_ALLOW_BLIND        "1" permits sending with no bounce data recorded
+//   SEND_ALWAYS_INCLUDE     emails and/or whole domains (comma/space/newline
+//                           separated) that are sent to on top of the cap and
+//                           despite the domain hold -- e.g. the team, during
+//                           warm-up. Invalid or unverified addresses are
+//                           still held.
 
 export type Recipient = {
   email: string;
@@ -54,6 +64,7 @@ export type ScreenCounts = {
   held_invalid: number;
   held_domain: number;
   held_over_cap: number;
+  always_included: number;
 };
 
 const flag = (name: string, fallback: string) => (Deno.env.get(name) ?? fallback).trim();
@@ -71,14 +82,30 @@ function holdDomains(): Set<string> {
   );
 }
 
+// Entries are full addresses ("a@b.com") or whole domains ("b.com" / "@b.com").
+function alwaysInclude(): { emails: Set<string>; domains: Set<string> } {
+  const emails = new Set<string>();
+  const domains = new Set<string>();
+  for (const raw of flag("SEND_ALWAYS_INCLUDE", "").split(/[\s,;]+/)) {
+    const entry = raw.trim().toLowerCase();
+    if (!entry) continue;
+    if (entry.startsWith("@")) domains.add(entry.slice(1));
+    else if (entry.includes("@")) emails.add(entry);
+    else domains.add(entry);
+  }
+  return { emails, domains };
+}
+
 /**
  * Apply the verified-only gate, the domain hold, and the per-run cap.
+ * Addresses in SEND_ALWAYS_INCLUDE skip the domain hold and the cap.
  * Pure and synchronous: callers can log the counts before committing to a send.
  */
 export function screenRecipients<T extends Recipient>(rows: T[]): { send: T[]; counts: ScreenCounts } {
   const requireVerified = flag("SEND_REQUIRE_VERIFIED", "1") !== "0";
   const held = holdDomains();
   const cap = num("SEND_MAX_PER_RUN", 0);
+  const always = alwaysInclude();
 
   const counts: ScreenCounts = {
     considered: rows.length,
@@ -87,8 +114,10 @@ export function screenRecipients<T extends Recipient>(rows: T[]): { send: T[]; c
     held_invalid: 0,
     held_domain: 0,
     held_over_cap: 0,
+    always_included: 0,
   };
 
+  const included: T[] = [];
   const eligible: T[] = [];
   for (const row of rows) {
     const verdict = String(row.verification_status ?? "unverified");
@@ -102,7 +131,12 @@ export function screenRecipients<T extends Recipient>(rows: T[]): { send: T[]; c
       counts.held_unverified++;
       continue;
     }
-    const domain = String(row.email ?? "").trim().toLowerCase().split("@")[1] ?? "";
+    const email = String(row.email ?? "").trim().toLowerCase();
+    const domain = email.split("@")[1] ?? "";
+    if (always.emails.has(email) || always.domains.has(domain)) {
+      included.push(row);
+      continue;
+    }
     if (held.has(domain)) {
       counts.held_domain++;
       continue;
@@ -110,15 +144,19 @@ export function screenRecipients<T extends Recipient>(rows: T[]): { send: T[]; c
     eligible.push(row);
   }
 
-  const send = cap > 0 ? eligible.slice(0, cap) : eligible;
-  counts.held_over_cap = eligible.length - send.length;
+  const capped = cap > 0 ? eligible.slice(0, cap) : eligible;
+  const send = [...included, ...capped];
+  counts.held_over_cap = eligible.length - capped.length;
+  counts.always_included = included.length;
   counts.sending = send.length;
   return { send, counts };
 }
 
 export type BounceCheck = {
   ok: boolean;
-  rate: number | null;      // percent, null when nothing has been measured
+  rate: number | null;      // hard-bounce percent, null when nothing has been measured
+  complaintRate?: number;   // complaints as a percent of deliveries
+  blockedBySes?: number;    // sends SES stopped itself (Auto Validation / suppression list)
   delivered: number;
   bounced: number;
   complained: number;
@@ -138,23 +176,46 @@ export type BounceCheck = {
 // couples this guard to a supabase-js version.
 // deno-lint-ignore no-explicit-any
 export async function checkBounceRate(supabase: any): Promise<BounceCheck> {
-  const abortPct = num("SEND_BOUNCE_ABORT_PCT", 5);
+  const abortPct = num("SEND_BOUNCE_ABORT_PCT", 2);
+  const complaintAbortPct = num("SEND_COMPLAINT_ABORT_PCT", 0.08);
+  const complaintMinDelivered = num("SEND_COMPLAINT_MIN_DELIVERED", 500);
   const windowDays = num("SEND_BOUNCE_WINDOW_DAYS", 7);
   const allowBlind = flag("SEND_ALLOW_BLIND", "0") === "1";
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
 
+  // Bounces count only when Permanent. SES's reputation metric is hard bounces;
+  // a full mailbox (Transient) bouncing every morning is not a list problem and
+  // must not be able to halt every send on its own.
+  //
+  // Nor do sends SES blocked itself: Auto Validation (EmailValidationSuppressed)
+  // and the account suppression list never reach a mailbox, so no provider saw
+  // a bounce. Counting them would let SES doing its job pause our sending.
+  const PREVENTED = "(EmailValidationSuppressed,OnAccountSuppressionList,Suppressed)";
   const countOf = async (eventType: string): Promise<number> => {
-    const { count } = await supabase
+    let query = supabase
       .from("email_events")
       .select("id", { count: "exact", head: true })
       .gte("received_at", since)
       .eq("event_type", eventType);
+    if (eventType === "bounce") {
+      query = query.eq("bounce_type", "Permanent").or(`bounce_sub.is.null,bounce_sub.not.in.${PREVENTED}`);
+    }
+    if (eventType === "prevented") {
+      query = supabase
+        .from("email_events")
+        .select("id", { count: "exact", head: true })
+        .gte("received_at", since)
+        .eq("event_type", "bounce")
+        .in("bounce_sub", PREVENTED.slice(1, -1).split(","));
+    }
+    const { count } = await query;
     return count ?? 0;
   };
 
   let delivered = 0;
   let bounced = 0;
   let complained = 0;
+  let blockedBySes = 0;
   let recentSends = 0;
   try {
     const { count: sendCount } = await supabase
@@ -162,10 +223,11 @@ export async function checkBounceRate(supabase: any): Promise<BounceCheck> {
       .select("id", { count: "exact", head: true })
       .gte("created_at", since);
     recentSends = sendCount ?? 0;
-    [delivered, bounced, complained] = await Promise.all([
+    [delivered, bounced, complained, blockedBySes] = await Promise.all([
       countOf("delivery"),
       countOf("bounce"),
       countOf("complaint"),
+      countOf("prevented"),
     ]);
   } catch (error) {
     // Never let a telemetry read failure become a silent green light.
@@ -204,16 +266,24 @@ export async function checkBounceRate(supabase: any): Promise<BounceCheck> {
   }
 
   const rate = (bounced / total) * 100;
+  const complaintRate = delivered > 0 ? (complained / delivered) * 100 : 0;
+  const complaintsTrip = delivered >= complaintMinDelivered && complaintRate >= complaintAbortPct;
+  const bouncesTrip = rate >= abortPct;
   return {
-    ok: rate < abortPct,
+    ok: !bouncesTrip && !complaintsTrip,
     rate: Number(rate.toFixed(2)),
+    complaintRate: Number(complaintRate.toFixed(3)),
+    blockedBySes,
     delivered,
     bounced,
     complained,
     blind: false,
-    reason: rate < abortPct
-      ? undefined
-      : `bounce rate ${rate.toFixed(2)}% is at or above the ${abortPct}% abort threshold ` +
-        `(AWS suspends around 10%). Clean the list before sending again.`,
+    reason: bouncesTrip
+      ? `hard-bounce rate ${rate.toFixed(2)}% is at or above the ${abortPct}% abort threshold ` +
+        `(SES reviews at 5%). Clean the list before sending again.`
+      : complaintsTrip
+      ? `spam-complaint rate ${complaintRate.toFixed(3)}% is at or above the ${complaintAbortPct}% ` +
+        `abort threshold (SES reviews at 0.1%). Stop and check which batch the complaints came from.`
+      : undefined,
   };
 }

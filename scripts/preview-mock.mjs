@@ -143,6 +143,42 @@ async function api(req, res, pathname, url) {
       memberships: store.subscriberMemberships,
     });
     const b = await readBody(req);
+    // Daily batches: add-only, same rules as the real import-batch action.
+    if (b.action === "import-batch") {
+      const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+      let batch = store.subscriberGroups.find((g) => g.name === `Batch ${day}`);
+      if (!batch) store.subscriberGroups.push(batch = { id: randomUUID(), name: `Batch ${day}`, created_at: now(), is_daily_batch: true, received_on: day });
+      const known = new Set(store.subscribers.map((s) => s.email.toLowerCase()));
+      const seen = new Set();
+      const out = { added: 0, welcome_queued: 0, held_risky: 0, already_known: 0, suppressed: 0, duplicates_in_upload: 0, invalid: 0, over_daily_limit: 0 };
+      const dailyMax = Number(process.env.DAILY_BATCH_MAX) || 2500;
+      let inBatch = store.subscriberMemberships.filter((m) => m.group_id === batch.id).length;
+      for (const row of b.subscribers || []) {
+        for (const email of String(row.email || "").toLowerCase().split(/[,;\s]+/).filter(Boolean)) {
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { out.invalid++; continue; }
+          if (seen.has(email)) { out.duplicates_in_upload++; continue; }
+          seen.add(email);
+          if (known.has(email)) { out.already_known++; continue; }
+          if (inBatch >= dailyMax) { out.over_daily_limit++; continue; }
+          inBatch++;
+          const id = randomUUID();
+          store.subscribers.push({ id, email, full_name: row.full_name || null, topics: ["daily-wrap"], status: "subscribed", created_at: now(), verification_status: "valid", welcome_requested_at: now() });
+          store.subscriberMemberships.push({ subscriber_id: id, group_id: batch.id });
+          out.added++; out.welcome_queued++;
+        }
+      }
+      return sendJson(res, { ok: true, batch: { id: batch.id, name: batch.name, received_on: day }, rows: (b.subscribers || []).length, ...out });
+    }
+    if (b.action === "batch-status") {
+      const batches = store.subscriberGroups.filter((g) => g.is_daily_batch).map((g) => {
+        const members = store.subscriberMemberships.filter((m) => m.group_id === g.id)
+          .map((m) => store.subscribers.find((s) => s.id === m.subscriber_id)).filter(Boolean);
+        return { batch_id: g.id, name: g.name, received_on: g.received_on, added_count: members.length,
+          welcome_sent: 0, welcome_pending: members.length, welcome_failed: 0, held_unverified: 0,
+          newsletter_from: null, unsubscribed: 0, bounced: 0 };
+      });
+      return sendJson(res, { batches, sending: { ok: true, hard_bounce_rate_pct: 0, complaint_rate_pct: 0 } });
+    }
     if (b.action === "add") store.subscribers.push({ id: randomUUID(), email: b.email, full_name: b.full_name || null, phone_number: b.phone_number || null, topics: b.topics || ["daily-wrap"], status: "subscribed", created_at: now() });
     else if (b.action === "update") { const s = store.subscribers.find((x) => x.id === b.id); if (s && b.status) s.status = b.status; }
     else if (b.action === "delete") store.subscribers = store.subscribers.filter((x) => x.id !== b.id);

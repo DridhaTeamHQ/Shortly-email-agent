@@ -1827,7 +1827,7 @@ function parseSubscriberCsv(text) {
   if (lines.length < 2) return [];
   const normalizeHeader = (header) => header.toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "_");
   const headers = parseCsvLine(lines[0]).map((header) => normalizeHeader(header));
-  const emailIndex = headers.findIndex((header) => ["email", "e-mail"].includes(header));
+  const emailIndex = headers.findIndex((header) => ["email", "e-mail", "email_id", "emailid", "email_address", "mail_id"].includes(header));
   const nameIndex = headers.findIndex((header) => ["name", "full_name", "full_name_(optional)", "full_name_optional"].includes(header));
   const phoneIndex = headers.findIndex((header) => ["phone", "phone_number", "phone_no", "mobileno", "mobile", "mobile_number"].includes(header));
   const topicsIndex = headers.findIndex((header) => ["topic", "topics", "category", "categories", "newsletter", "newsletters"].includes(header));
@@ -1871,7 +1871,7 @@ async function parseSubscriberFile(file) {
           ])
         );
         return {
-          email: normalized.email || normalized["e-mail"] || "",
+          email: normalized.email || normalized["e-mail"] || normalized.email_id || normalized.emailid || normalized.email_address || normalized.mail_id || "",
           full_name: normalized.name || normalized.full_name || "",
           phone_number: normalized.phone || normalized.phone_number || normalized.phone_no || normalized.mobileno || normalized.mobile || normalized.mobile_number || "",
           topics: normalizeTopicList(normalized.topic || normalized.topics || normalized.category || normalized.categories || normalized.newsletter || normalized.newsletters || "")
@@ -2035,6 +2035,7 @@ async function loadSubscribers() {
 
 async function refreshSubscribersView() {
   await loadSubscribers();
+  loadBatchStatus();
   refreshChrome();
   renderSubscribers();
 }
@@ -2110,6 +2111,7 @@ async function reload({ silent = false } = {}) {
   try {
     await Promise.all([loadArticles(), loadSubscribers(), loadDigests(), loadAnalytics(), loadTopicDrafts(), loadTrending()]);
     renderAll();
+    loadBatchStatus();
   } catch (e) {
     if (!silent) toast(`Load failed: ${e.message}`);
   }
@@ -3205,6 +3207,80 @@ $("#subForm").addEventListener("submit", async (e) => {
   }
 });
 
+// ---- Daily batches -------------------------------------------------------
+// One upload (any number of files) = today's batch. The server adds only new
+// addresses and queues their welcome email; the newsletter follows next day.
+async function loadBatchStatus() {
+  const rowsEl = $("#batchRows");
+  const sendingEl = $("#batchSending");
+  if (!rowsEl || !sendingEl) return;
+  try {
+    const res = await api("POST", cfg.subscribers, { action: "batch-status" });
+    const sending = res.sending || {};
+    sendingEl.classList.toggle("is-paused", sending.ok === false);
+    sendingEl.textContent = sending.ok === false
+      ? `Sending paused: ${sending.reason || "safety threshold exceeded"}`
+      : `Sending active. Last 7 days: ${sending.hard_bounce_rate_pct ?? 0}% hard bounces, ${sending.complaint_rate_pct ?? 0}% complaints, ${sending.blocked_by_ses_7d ?? 0} blocked by SES validation.`;
+    const batches = res.batches || [];
+    rowsEl.innerHTML = batches.length
+      ? batches.map((b) => `<tr>
+          <td>${esc(b.received_on || b.name)}</td>
+          <td>${Number(b.added_count || 0)}</td>
+          <td>${Number(b.welcome_sent || 0)}</td>
+          <td>${Number(b.welcome_pending || 0)}</td>
+          <td>${Number(b.welcome_failed || 0)}</td>
+          <td>${Number(b.held_unverified || 0)}</td>
+          <td>${esc(b.newsletter_from || "after welcome")}</td>
+          <td>${Number(b.unsubscribed || 0)}</td>
+          <td>${Number(b.bounced || 0)}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="9" class="muted">No daily batches yet.</td></tr>`;
+  } catch (e) {
+    sendingEl.textContent = `Could not load batch status: ${e.message}`;
+  }
+}
+
+$("#uploadBatchBtn").addEventListener("click", async () => {
+  const files = [...($("#batchFiles").files || [])];
+  if (!files.length) {
+    toast("Choose one or more CSV, XLSX, or XLS files first.");
+    return;
+  }
+  const button = $("#uploadBatchBtn");
+  button.disabled = true;
+  try {
+    const rows = [];
+    for (const file of files) rows.push(...await parseSubscriberFile(file));
+    if (!rows.length) {
+      toast("No email addresses found. The file needs an Email (or Email ID) column.");
+      return;
+    }
+    const total = { added: 0, welcome_queued: 0, held_risky: 0, already_known: 0, suppressed: 0, duplicates_in_upload: 0, invalid: 0, over_daily_limit: 0 };
+    let batchName = "";
+    for (let i = 0; i < rows.length; i += 2000) {
+      const res = await api("POST", cfg.subscribers, { action: "import-batch", subscribers: rows.slice(i, i + 2000) });
+      batchName = res.batch?.name || batchName;
+      for (const key of Object.keys(total)) total[key] += Number(res[key] || 0);
+    }
+    $("#batchFiles").value = "";
+    await refreshSubscribersView();
+    const skipped = [];
+    if (total.already_known) skipped.push(`${total.already_known} already on the list`);
+    if (total.suppressed) skipped.push(`${total.suppressed} on the suppression list (bounced, complained or unsubscribed)`);
+    if (total.duplicates_in_upload) skipped.push(`${total.duplicates_in_upload} duplicates`);
+    if (total.invalid) skipped.push(`${total.invalid} invalid`);
+    if (total.held_risky) skipped.push(`${total.held_risky} held as risky`);
+    toast(`${batchName}: ${total.added} added, ${total.welcome_queued} welcome emails queued${skipped.length ? ` (${skipped.join(", ")})` : ""}.`);
+    if (total.over_daily_limit) {
+      toast(`${total.over_daily_limit} not added: today's batch is full (2,500 max per day). Upload them with tomorrow's batch.`);
+    }
+  } catch (e) {
+    toast(`Batch upload failed: ${e.message}`);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $("#importCsvBtn").addEventListener("click", async () => {
   const file = $("#subCsvFile").files?.[0];
   if (!file) {
@@ -3227,6 +3303,7 @@ $("#importCsvBtn").addEventListener("click", async () => {
     if (res.created) details.push(`${res.created} new`);
     if (res.updated) details.push(`${res.updated} updated`);
     if (res.duplicates_in_file) details.push(`${res.duplicates_in_file} duplicate row${res.duplicates_in_file === 1 ? "" : "s"} skipped`);
+    if (res.skipped_opted_out) details.push(`${res.skipped_opted_out} unsubscribed/bounced left alone`);
     toast(`Processed ${processed} subscriber${processed === 1 ? "" : "s"}${details.length ? `: ${details.join(", ")}.` : "."}`);
     if (res.invalid_email_rows) {
       toast(`${res.invalid_email_rows} row${res.invalid_email_rows === 1 ? "" : "s"} skipped: unworkable email address${res.invalid_email_rows === 1 ? "" : "es"}.`);

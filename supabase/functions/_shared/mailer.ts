@@ -4,6 +4,7 @@
 
 import { requiredEnv } from "./http.ts";
 import { generateUnsubToken } from "./unsub.ts";
+import { htmlToText } from "./plain-text.ts";
 import { SESv2Client, SendEmailCommand } from "npm:@aws-sdk/client-sesv2";
 
 type SendOpts = {
@@ -11,6 +12,10 @@ type SendOpts = {
   subject: string;
   html: string;
   provider?: "ses" | "brevo";
+  /* false for one-to-one mail such as the welcome email: skips the
+   * List-Unsubscribe headers, which are Gmail's clearest "bulk mail" marker and
+   * file a message under Promotions. Newsletters keep the default. */
+  bulk?: boolean;
 };
 
 /* One-click unsubscribe headers.
@@ -70,7 +75,8 @@ export async function sendEmail(opts: SendOpts) {
   // the field is simply omitted.
   const configurationSet = Deno.env.get("SES_CONFIGURATION_SET");
 
-  const headers = await unsubscribeHeaders(opts.to);
+  const headers = opts.bulk === false ? [] : await unsubscribeHeaders(opts.to);
+  const text = htmlToText(opts.html);
 
   if (opts.provider !== "brevo" && awsKey && awsSecret && awsRegion) {
     try {
@@ -93,6 +99,7 @@ export async function sendEmail(opts: SendOpts) {
             Subject: { Data: opts.subject, Charset: "UTF-8" },
             Body: {
               Html: { Data: opts.html, Charset: "UTF-8" },
+              Text: { Data: text, Charset: "UTF-8" },
             },
             ...(headers.length ? { Headers: headers } : {}),
           },
@@ -130,6 +137,7 @@ export async function sendEmail(opts: SendOpts) {
       to: [{ email: opts.to }],
       subject: opts.subject,
       htmlContent: opts.html,
+      textContent: text,
       ...(headers.length
         ? {
           headers: Object.fromEntries(headers.map((h) => [h.Name, h.Value])),

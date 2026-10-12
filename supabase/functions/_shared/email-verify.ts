@@ -59,12 +59,28 @@ const DISPOSABLE_DOMAINS = new Set([
   "temp-mail.io", "moakt.com", "tmail.ws", "linshiyouxiang.net",
 ]);
 
+// Shared / role mailboxes. A newsletter is for a person: these inboxes are
+// read by nobody in particular (or nobody), and are the classic source of
+// spam complaints and bounces. Not accepted on any domain.
 const ROLE_LOCAL_PARTS = new Set([
-  "admin", "administrator", "webmaster", "hostmaster", "postmaster",
+  // general
+  "hello", "info", "contact", "team", "office",
+  // support
+  "support", "help", "care", "feedback",
+  // business
+  "sales", "partnerships", "business", "brands", "creators", "marketing",
+  // editorial / media
+  "news", "editor", "tips", "press", "newsletter",
+  // hiring
+  "careers", "jobs", "hr",
+  // finance / legal
+  "billing", "accounts", "legal", "privacy",
+  // tech / system
+  "admin", "administrator", "webmaster", "hostmaster", "postmaster", "abuse",
+  "security", "alerts", "root", "mailer-daemon",
   "noreply", "no-reply", "donotreply", "do-not-reply",
-  "info", "contact", "support", "help", "sales", "billing", "office",
-  "abuse", "security", "root", "mailer-daemon", "marketing", "newsletter",
-  "team", "hello", "hr", "jobs", "careers",
+  // founder
+  "founder", "ceo",
 ]);
 
 // Domains so well-known that a DNS lookup is wasted work (and a resolver
@@ -99,7 +115,34 @@ export function staticVerify(rawEmail: unknown): VerifyResult | null {
   if (DISPOSABLE_DOMAINS.has(domain)) {
     return { email, verdict: "invalid", reason: `Disposable email provider (${domain})` };
   }
+  if (ROLE_LOCAL_PARTS.has(local.split("+")[0])) {
+    return { email, verdict: "invalid", reason: `Shared mailbox (${local.split("+")[0]}@) — not accepted, use a personal address` };
+  }
+  if (GMAIL_DOMAINS.has(domain) && !isPossibleGmailLocal(local)) {
+    return { email, verdict: "invalid", reason: "Not a possible Gmail address (6-30 letters, numbers or dots)" };
+  }
   return null;
+}
+
+// Gmail usernames are 6-30 characters of letters, digits and dots (dots are
+// ignored, a "+tag" suffix is allowed). Anything else cannot exist, so mailing
+// it is a guaranteed hard bounce.
+const GMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com"]);
+function isPossibleGmailLocal(local: string) {
+  const base = local.split("+")[0];
+  if (!/^[a-z0-9.]+$/.test(base) || base.startsWith(".") || base.endsWith(".") || base.includes("..")) return false;
+  const length = base.replaceAll(".", "").length;
+  return length >= 6 && length <= 30;
+}
+
+// Keyboard-mash addresses ("rthftrtrtrttrrtrtrtt@gmail.com") pass every
+// syntax and DNS check and then hard-bounce. Two cheap tells: a long run of
+// letters with no vowels at all, or one two-letter pattern repeated four times.
+// Flagged risky, not invalid -- held from every send, recoverable by hand.
+function looksRandomlyTyped(local: string) {
+  const letters = local.split("+")[0].replace(/[^a-z]/g, "");
+  if (letters.length >= 8 && !/[aeiouy]/.test(letters)) return true;
+  return /([a-z]{2})\1{3,}/.test(letters);
 }
 
 type DomainCheck = { verdict: EmailVerdict; reason: string };
@@ -154,8 +197,8 @@ export async function verifyEmailAddress(rawEmail: unknown): Promise<VerifyResul
   const dns = await verifyDomain(domain);
   if (dns.verdict !== "valid") return { email, verdict: dns.verdict, reason: dns.reason };
 
-  if (ROLE_LOCAL_PARTS.has(local.replace(/\+.*$/, ""))) {
-    return { email, verdict: "risky", reason: `Role account (${local}@) — often unmonitored` };
+  if (looksRandomlyTyped(local)) {
+    return { email, verdict: "risky", reason: "Looks randomly typed — held until checked" };
   }
   return { email, verdict: "valid", reason: dns.reason };
 }

@@ -721,6 +721,11 @@ a:hover { text-decoration-color: var(--ink); }
 .sub-import-row .muted {
   flex: 1 1 320px;
 }
+.batch-import-row { margin-top: 10px; }
+.batch-status { margin: 10px 0 16px; }
+.batch-sending { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.batch-sending.is-paused { color: #b42318; }
+.batch-table-wrap { overflow-x: auto; }
 .subscriber-tools {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--panel-border);

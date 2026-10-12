@@ -18,6 +18,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { screenRecipients, checkBounceRate } from "../_shared/send-guard.ts";
+import { allSuppressed } from "../_shared/suppression.ts";
 import { renderPrivacyFooter } from "../_shared/privacy.ts";
 import { logoSvg } from "../_shared/brand.ts";
 import { buildWrapOrder } from "../_shared/editorial-picks.ts";
@@ -112,6 +113,15 @@ function istDayWindow() {
   const startMs = Date.UTC(value("year"), value("month") - 1, value("day")) - (5.5 * 60 * 60 * 1000);
   const endMs = startMs + (24 * 60 * 60 * 1000);
   return { start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString() };
+}
+
+// PostgREST filter for who may receive today's newsletter. Daily-batch members
+// (welcome_requested_at set) join only from the IST day after their welcome
+// went out -- send-welcomes writes newsletter_from when it sends. Everyone else
+// (site sign-ups, manual adds, the pre-batch list) is unaffected.
+function newsletterEligibleFilter() {
+  const istDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  return `welcome_requested_at.is.null,newsletter_from.lte.${istDate}`;
 }
 
 Deno.serve(async (request) => {
@@ -535,6 +545,19 @@ Deno.serve(async (request) => {
   // so a timeout mid-batch loses nothing: unfinished rows stay 'sending' and
   // are re-claimed after the stale window.
   if (drain) {
+    // Re-check the brakes before every slice, not just at plan time: the queue
+    // drains for over an hour, and bounces from the first slices arrive while
+    // the rest are still waiting. Rows stay queued, so a pause loses nothing.
+    const brake = await checkBounceRate(supabase);
+    if (!brake.ok) {
+      return json({
+        mode: "drain",
+        paused: true,
+        reason: brake.reason,
+        bounce_rate_pct: brake.rate,
+        complaint_rate_pct: brake.complaintRate ?? null,
+      }, 409);
+    }
     const { data: claimed, error: claimErr } = await supabase
       .rpc("claim_email_batch", { p_limit: drainLimit, p_stale_minutes: 10 });
     if (claimErr) return json({ error: claimErr.message }, 500);
@@ -713,6 +736,17 @@ Deno.serve(async (request) => {
       digestRow = existing as { id: string };
     }
 
+    // Retire anything an earlier day left unsent (a brake pause, a timeout).
+    // The drain claims every queued row regardless of digest, so without this
+    // yesterday's edition would go out this morning alongside today's -- two
+    // newsletters to the same person on one day.
+    const { error: expireErr } = await supabase
+      .from("email_outbox")
+      .update({ status: "skipped", error: "expired: not sent on its day" })
+      .in("status", ["queued", "sending"])
+      .neq("digest_id", digestRow!.id);
+    if (expireErr) return json({ error: expireErr.message }, 500);
+
     const { data: accountRows } = await supabase
       .from("newsletter_subscriptions").select("user_id").eq("status", "active");
     const uids = [...new Set((accountRows ?? []).map((r: any) => r.user_id))];
@@ -752,6 +786,7 @@ Deno.serve(async (request) => {
         .from("subscribers")
         .select("id,email,full_name,plan,category,verification_status")
         .eq("status", "subscribed")
+        .or(newsletterEligibleFilter())
         .order("id")
         .range(from, from + PAGE - 1);
       if (sErr) return json({ error: sErr.message }, 500);
@@ -761,7 +796,17 @@ Deno.serve(async (request) => {
       if (page.length < PAGE) break;
     }
 
-    const { send: screenedSubs, counts: screenCounts } = screenRecipients(allSubs);
+    // Belt and braces on top of status='subscribed': nobody on the suppression
+    // list (hard bounce, complaint, repeated soft bounce, unsubscribe) is ever
+    // queued, even if their row was re-added or edited by hand.
+    let suppressed: Set<string>;
+    try {
+      suppressed = await allSuppressed(supabase);
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+    const unsuppressed = allSubs.filter((s) => !suppressed.has(normalizeEmail(s.email)));
+    const { send: screenedSubs, counts: screenCounts } = screenRecipients(unsuppressed);
     if (screenedSubs.length === 0) {
       return json({
         error: "No eligible recipients after verification screening; nothing queued.",
@@ -891,6 +936,12 @@ Deno.serve(async (request) => {
   // Skipped for targeted (subscriber_ids) sends, which address the legacy
   // subscribers table directly.
   const accountEmails = new Set<string>();
+  let suppressedEmails: Set<string>;
+  try {
+    suppressedEmails = await allSuppressed(supabase);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+  }
   if (subscriberIds.length === 0) {
     const { data: accountSubs } = await supabase
       .from("newsletter_subscriptions")
@@ -907,7 +958,10 @@ Deno.serve(async (request) => {
     }
     for (const p of Object.values(profMap)) accountEmails.add(normalizeEmail(p.email));
     const today = istWeekday();
-    const jobs = subsList.filter((s) => profMap[s.user_id as string]);
+    const jobs = subsList.filter((s) => {
+      const prof = profMap[s.user_id as string];
+      return prof && (testEmail || !suppressedEmails.has(normalizeEmail(prof.email)));
+    });
     for (let i = 0; i < jobs.length; i += 5) {
       const batch = jobs.slice(i, i + 5);
       const results = await Promise.all(batch.map(async (s) => {
@@ -943,11 +997,15 @@ Deno.serve(async (request) => {
       .from("subscribers")
       .select("id,email,full_name,plan,category")
       .eq("status", "subscribed");
+    // An explicit id list is a deliberate manual send; only the broadcast path
+    // applies the next-day rule for daily batches.
     if (subscriberIds.length > 0) subQuery = subQuery.in("id", subscriberIds);
+    else subQuery = subQuery.or(newsletterEligibleFilter());
     const { data: subs, error: subError } = await subQuery;
     if (subError) return json({ error: subError.message }, 500);
     subscribers = ((subs ?? []) as Subscriber[])
-      .filter((s) => subscriberIds.length > 0 || !accountEmails.has(normalizeEmail(s.email)));
+      .filter((s) => subscriberIds.length > 0 || !accountEmails.has(normalizeEmail(s.email)))
+      .filter((s) => !suppressedEmails.has(normalizeEmail(s.email)));
   }
 
   // Concurrency per batch. Measured 2026-08-15: a batch takes ~855ms

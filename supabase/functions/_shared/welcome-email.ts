@@ -1,12 +1,16 @@
 import { renderPrivacyFooter } from "./privacy.ts";
 
 // Same banner the daily newsletter uses, so the welcome mail matches the
-// editions that follow it.
-const BANNER_URL =
-  Deno.env.get("SHORTLY_BANNER_URL") ??
-  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner-v3.jpg";
-const LOGO_URL = "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/dailymattr-primary-logo.png";
-const SITE_URL = (Deno.env.get("SHORTLY_SITE_URL") ?? "https://longmattr.com").replace(/\/+$/, "");
+// editions that follow it. Served from the sending domain: images on a
+// third-party host (raw.githubusercontent.com) read as bulk mail to Gmail.
+const BANNER_URL = "https://www.dailymattr.com/assets/email/email-banner-v3.jpg";
+const LOGO_URL = "https://www.dailymattr.com/assets/email/dailymattr-primary-logo.png";
+
+// Stays on the sending domain; the site redirects it to the News Studio page.
+const NEWS_STUDIO_URL = "https://www.dailymattr.com/news-studio";
+
+// No emoji: Gmail's tab classifier weighs emoji subjects as promotional.
+export const WELCOME_SUBJECT = "Yayy! \"dailymattr\" is here and you're part of the club";
 
 function escapeHtml(value = "") {
   return value
@@ -37,11 +41,10 @@ export async function renderWelcomeEmail(email: string, name: string | null): Pr
             <p style="margin:0 0 8px;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">One email, five stories. Every morning.</p>
             <p style="margin:0 0 8px;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">Handpicked and fact-checked. Straight to the point.</p>
             <p style="margin:0 0 20px;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">A habit worth keeping - 30 seconds, done before your first coffee.</p>
-            <p style="margin:0 0 16px;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">The first one lands tomorrow morning. If it turns out not to be for you, the unsubscribe link below works instantly and nobody will think anything of it.</p>
-            <p style="margin:0;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">Want to see our standards first? Take a look at our <a href="${SITE_URL}/general" style="color:#3979ff;text-decoration:underline;font-weight:700">NewsStudio</a>.</p>
+            <p style="margin:0;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">The first one lands tomorrow morning. If it turns out not to be for you, the unsubscribe link below works instantly and nobody will think anything of it.</p>
             <p style="margin:20px 0 0;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">- Team dailymattr</p>
           </td></tr>
-          <tr><td align="center" style="border-top:1px solid #e5e5e1;padding:22px 32px;color:#777;font:13px/1.6 Roboto,Arial,sans-serif"><img src="${LOGO_URL}" alt="dailymattr" width="145" style="display:block;width:145px;max-width:100%;height:auto;margin:0 auto 16px;border:0;outline:none;text-decoration:none">Can be forwarded to others.<br><a href="${SITE_URL}/general" style="display:inline-block;margin-top:14px;background:#3979ff;color:#ffffff;border-radius:22px;padding:10px 18px;text-decoration:none;font:700 14px/1 Roboto,Arial,sans-serif">More news</a>${privacyFooter}</td></tr>
+          <tr><td align="center" style="border-top:1px solid #e5e5e1;padding:22px 32px;color:#777;font:13px/1.6 Roboto,Arial,sans-serif"><img src="${LOGO_URL}" alt="dailymattr" width="145" style="display:block;width:145px;max-width:100%;height:auto;margin:0 auto 16px;border:0;outline:none;text-decoration:none">Can be forwarded to others.<br><a href="${NEWS_STUDIO_URL}" style="display:inline-block;margin-top:14px;background:#3979ff;color:#ffffff;border-radius:22px;padding:10px 18px;text-decoration:none;font:700 14px/1 Roboto,Arial,sans-serif">Open News Studio</a>${privacyFooter}</td></tr>
         </table>
       </td></tr>
     </table>

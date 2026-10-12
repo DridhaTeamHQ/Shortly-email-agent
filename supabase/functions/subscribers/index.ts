@@ -8,17 +8,18 @@ import {
   WEEKDAYS,
 } from "../_shared/news-categories.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
-import { sendEmail } from "../_shared/mailer.ts";
-import { renderWelcomeEmail } from "../_shared/welcome-email.ts";
+import { sendWelcomeEmail } from "../_shared/welcome-send.ts";
 import { staticVerify, verifyDomain, verifyEmailAddress } from "../_shared/email-verify.ts";
+import { checkBounceRate } from "../_shared/send-guard.ts";
+import { isSuppressed, suppressedAmong } from "../_shared/suppression.ts";
+
+function istToday() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+}
 
 async function sendWelcome(email: string, name: string | null) {
   try {
-    const result = await sendEmail({
-      to: email,
-      subject: "🎉Yayy! \"dailymattr\" is here and you're part of the club",
-      html: await renderWelcomeEmail(email, name),
-    });
+    const result = await sendWelcomeEmail(email, name);
     /* One line per welcome attempt, in the function logs.
      *
      * "welcome_sent: true" on its own cannot answer "did the intro mail go
@@ -53,6 +54,11 @@ async function sendWelcomeIfNeeded(
 ) {
   if (welcomeSentAt) {
     return { sent: false, skipped: true, provider: null, messageId: null, error: null };
+  }
+  // Never mail an address on the suppression list (hard bounce, complaint,
+  // unsubscribed...), whichever path asked for the welcome.
+  if (await isSuppressed(supabase, email)) {
+    return { sent: false, skipped: true, provider: null, messageId: null, error: "on the suppression list" };
   }
 
   const welcome = await sendWelcome(email, name);
@@ -403,8 +409,13 @@ Deno.serve(async (request) => {
       if (error) return json({ error: error.message }, 500);
 
       const known = new Map((subscribers ?? []).map((subscriber) => [subscriber.email, subscriber]));
+      const suppressed = await suppressedAmong(supabase, emails as string[]);
       const results = [];
       for (const email of emails) {
+        if (suppressed.has(email as string)) {
+          results.push({ email, sent: false, skipped: true, error: "on the suppression list" });
+          continue;
+        }
         const subscriber = known.get(email);
         const welcome = subscriber
           ? await sendWelcomeIfNeeded(supabase, subscriber.id, email, subscriber.full_name ?? null, subscriber.welcome_sent_at)
@@ -603,6 +614,191 @@ Deno.serve(async (request) => {
       });
     }
 
+    // ---- Daily batch: ADD-ONLY import ------------------------------------
+    // Unlike "import", this never touches an address already in the table: an
+    // unsubscribed or bounced person stays that way, and someone enrolled by an
+    // earlier batch keeps their dates. New addresses join today's batch
+    // ("Batch <IST date>"; several uploads on one day share it) and are queued
+    // for a welcome email; send-welcomes sends it and sets their newsletter
+    // start to the following day.
+    if (action === "import-batch") {
+      const rows = Array.isArray(body.subscribers) ? body.subscribers : [];
+      if (rows.length === 0) return json({ error: "No rows in this upload." }, 400);
+      if (rows.length > 5000) return json({ error: "Upload at most 5,000 rows at a time." }, 400);
+      const receivedOn = /^\d{4}-\d{2}-\d{2}$/.test(String(body.received_on ?? "")) ? String(body.received_on) : istToday();
+      const batchName = `Batch ${receivedOn}`;
+
+      const findBatch = () => supabase
+        .from("subscriber_groups")
+        .select("id,name,is_daily_batch,received_on,added_count")
+        .ilike("name", batchName)
+        .maybeSingle();
+      let { data: batch, error: batchError } = await findBatch();
+      if (batchError) return json({ error: batchError.message }, 500);
+      if (!batch) {
+        const { error: createError } = await supabase
+          .from("subscriber_groups")
+          .insert({ name: batchName, is_daily_batch: true, received_on: receivedOn });
+        // 23505: a parallel upload created it first -- use theirs.
+        if (createError && createError.code !== "23505") return json({ error: createError.message }, 500);
+        ({ data: batch, error: batchError } = await findBatch());
+        if (batchError || !batch) return json({ error: batchError?.message ?? "Could not create today's batch." }, 500);
+      }
+      if (!batch.is_daily_batch) {
+        return json({ error: `A regular group is already named "${batchName}". Rename it, then upload again.` }, 409);
+      }
+
+      // A cell may hold several addresses ("a@x.com, a@x.com"); split them.
+      let invalid = 0;
+      let duplicates = 0;
+      const invalidSamples: Array<{ email: string; reason: string }> = [];
+      const byEmail = new Map<string, string | null>();
+      for (const row of rows) {
+        const parts = String(row?.email ?? "").split(/[,;\s]+/).map((part) => part.trim()).filter(Boolean);
+        if (parts.length === 0) { invalid++; continue; }
+        for (const part of parts) {
+          const { email, error: emailError } = validateEmailAddress(part);
+          const staticFail = emailError ? null : staticVerify(email);
+          if (emailError || staticFail) {
+            invalid++;
+            if (invalidSamples.length < 20) invalidSamples.push({ email, reason: staticFail?.reason ?? emailError ?? "invalid" });
+            continue;
+          }
+          if (byEmail.has(email)) { duplicates++; continue; }
+          byEmail.set(email, String(row?.full_name ?? "").trim() || null);
+        }
+      }
+
+      // Anyone already in the table, in any state, is left alone. Looked up in
+      // chunks: one .in() with thousands of addresses overflows the URL.
+      const emails = [...byEmail.keys()];
+      const known = new Set<string>();
+      for (let i = 0; i < emails.length; i += 100) {
+        const { data, error } = await supabase.from("subscribers").select("email").in("email", emails.slice(i, i + 100));
+        if (error) return json({ error: error.message }, 500);
+        for (const r of data ?? []) known.add(String(r.email).toLowerCase());
+      }
+
+      // The suppression list outlives deleted rows: an address that hard-
+      // bounced, complained or unsubscribed is never re-added by a batch.
+      let suppressedSet: Set<string>;
+      try {
+        suppressedSet = await suppressedAmong(supabase, emails.filter((email) => !known.has(email)));
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+      }
+
+      // Verify only the new addresses (syntax, typo/disposable, Gmail rules,
+      // mail server, role account, randomly-typed). Dead ones are dropped;
+      // risky ones are stored but never welcomed or mailed until re-verified.
+      const now = new Date().toISOString();
+      const fresh = emails.filter((email) => !known.has(email) && !suppressedSet.has(email));
+      const insertRows: Record<string, unknown>[] = [];
+      const VERIFY_GROUP = 10;
+      for (let i = 0; i < fresh.length; i += VERIFY_GROUP) {
+        await Promise.all(fresh.slice(i, i + VERIFY_GROUP).map(async (email) => {
+          const check = await verifyEmailAddress(email);
+          if (check.verdict === "invalid") {
+            invalid++;
+            if (invalidSamples.length < 20) invalidSamples.push({ email, reason: check.reason });
+            return;
+          }
+          insertRows.push({
+            email,
+            full_name: byEmail.get(email) ?? null,
+            plan: "daily-wrap",
+            topics: topicsForPlan("daily-wrap", null),
+            status: "subscribed",
+            verification_status: check.verdict,
+            verified_at: now,
+            verification_reason: check.reason,
+            welcome_requested_at: now,
+          });
+        }));
+      }
+
+      // At most DAILY_BATCH_MAX new addresses per day across all of that day's
+      // uploads. Anything past the limit is reported, not added, so it can go
+      // into the next day's batch.
+      const dailyMax = Number(Deno.env.get("DAILY_BATCH_MAX")) || 2500;
+      const room = Math.max(0, dailyMax - Number(batch.added_count ?? 0));
+      const overLimit = Math.max(0, insertRows.length - room);
+      if (overLimit > 0) insertRows.splice(room);
+
+      const addedIds: string[] = [];
+      let raceSkipped = 0;
+      for (let i = 0; i < insertRows.length; i += 500) {
+        const chunk = insertRows.slice(i, i + 500);
+        // ignoreDuplicates: an address added by a parallel upload in the
+        // meantime is skipped, never overwritten.
+        const { data, error } = await supabase
+          .from("subscribers")
+          .upsert(chunk, { onConflict: "email", ignoreDuplicates: true })
+          .select("id");
+        if (error) return json({ error: error.message }, 500);
+        addedIds.push(...(data ?? []).map((r) => String(r.id)));
+        raceSkipped += chunk.length - (data?.length ?? 0);
+      }
+      try {
+        for (let i = 0; i < addedIds.length; i += 500) {
+          await addSubscribersToGroup(supabase, batch.id, addedIds.slice(i, i + 500));
+        }
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "Could not add the new addresses to the batch." }, 500);
+      }
+
+      const { error: bumpError } = await supabase.rpc("bump_batch_counts", {
+        p_batch_id: batch.id,
+        p_rows: rows.length,
+        p_added: addedIds.length,
+        p_duplicates: duplicates,
+        p_invalid: invalid,
+        p_already_known: known.size + raceSkipped,
+        p_suppressed: suppressedSet.size,
+      });
+      if (bumpError) console.error("bump_batch_counts failed", bumpError);
+
+      const heldRisky = insertRows.filter((r) => r.verification_status !== "valid").length;
+      return json({
+        ok: true,
+        batch: { id: batch.id, name: batchName, received_on: receivedOn },
+        rows: rows.length,
+        added: addedIds.length,
+        welcome_queued: addedIds.length - heldRisky,
+        held_risky: heldRisky,
+        already_known: known.size + raceSkipped,
+        suppressed: suppressedSet.size,
+        over_daily_limit: overLimit,
+        daily_limit: dailyMax,
+        duplicates_in_upload: duplicates,
+        invalid,
+        invalid_samples: invalidSamples,
+      });
+    }
+
+    if (action === "batch-status") {
+      const { data, error } = await supabase
+        .from("daily_batch_status")
+        .select("*")
+        .order("received_on", { ascending: false })
+        .limit(60);
+      if (error) return json({ error: error.message }, 500);
+      const brake = await checkBounceRate(supabase);
+      return json({
+        batches: data ?? [],
+        sending: {
+          ok: brake.ok,
+          reason: brake.reason ?? null,
+          hard_bounce_rate_pct: brake.rate,
+          complaint_rate_pct: brake.complaintRate ?? null,
+          delivered_7d: brake.delivered,
+          hard_bounced_7d: brake.bounced,
+          complained_7d: brake.complained,
+          blocked_by_ses_7d: brake.blockedBySes ?? 0,
+        },
+      });
+    }
+
     if (action === "import") {
       const rows = Array.isArray(body.subscribers) ? body.subscribers : [];
       const groupId = String(body.group_id ?? "").trim();
@@ -669,19 +865,46 @@ Deno.serve(async (request) => {
         record.verified_at = updatedAt;
         record.verification_reason = check.reason;
       }
+      // Never re-activate an address that opted out, bounced, complained or
+      // is otherwise on the suppression list: this import upserts, and an
+      // upsert would set them back to 'subscribed'. Looked up in chunks so a
+      // large file does not overflow the request URL.
+      const candidateEmails = [...normalizedByEmail.keys()];
+      const existingStatus = new Map<string, string>();
+      for (let i = 0; i < candidateEmails.length; i += 100) {
+        const { data, error: lookupError } = await supabase
+          .from("subscribers")
+          .select("email,status")
+          .in("email", candidateEmails.slice(i, i + 100));
+        if (lookupError) return json({ error: lookupError.message }, 500);
+        for (const r of data ?? []) existingStatus.set(String(r.email).toLowerCase(), String(r.status));
+      }
+      let suppressedSet: Set<string>;
+      try {
+        suppressedSet = await suppressedAmong(supabase, candidateEmails);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+      }
+      let skippedOptedOut = 0;
+      for (const email of candidateEmails) {
+        const status = existingStatus.get(email);
+        if (suppressedSet.has(email) || (status && status !== "subscribed")) {
+          normalizedByEmail.delete(email);
+          skippedOptedOut++;
+        }
+      }
       const normalizedRows = Array.from(normalizedByEmail.values());
 
       if (normalizedRows.length === 0) {
-        return json({ error: "No valid subscribers found in CSV" }, 400);
+        return json({
+          error: skippedOptedOut
+            ? `Nothing to import: ${skippedOptedOut} address(es) are unsubscribed, bounced or on the suppression list.`
+            : "No valid subscribers found in CSV",
+        }, 400);
       }
 
       const importedEmails = normalizedRows.map((row) => String(row.email));
-      const { data: existingSubscribers, error: existingLookupError } = await supabase
-        .from("subscribers")
-        .select("email")
-        .in("email", importedEmails);
-      if (existingLookupError) return json({ error: existingLookupError.message }, 500);
-      const existingCount = existingSubscribers?.length ?? 0;
+      const existingCount = importedEmails.filter((email) => existingStatus.has(email)).length;
 
       const { error } = await supabase
         .from("subscribers")
@@ -689,13 +912,17 @@ Deno.serve(async (request) => {
       if (error) return json({ error: error.message, code: error.code, details: error.details }, 400);
 
       if (groupId) {
-        const { data: importedSubscribers, error: lookupError } = await supabase
-          .from("subscribers")
-          .select("id")
-          .in("email", importedEmails);
-        if (lookupError) return json({ error: lookupError.message }, 500);
+        const importedIds: string[] = [];
+        for (let i = 0; i < importedEmails.length; i += 100) {
+          const { data, error: lookupError } = await supabase
+            .from("subscribers")
+            .select("id")
+            .in("email", importedEmails.slice(i, i + 100));
+          if (lookupError) return json({ error: lookupError.message }, 500);
+          importedIds.push(...(data ?? []).map((subscriber) => String(subscriber.id)));
+        }
         try {
-          await addSubscribersToGroup(supabase, groupId, (importedSubscribers ?? []).map((subscriber) => subscriber.id));
+          await addSubscribersToGroup(supabase, groupId, importedIds);
         } catch (error) {
           return json({ error: error instanceof Error ? error.message : "Failed to add imported subscribers to group." }, 400);
         }
@@ -706,7 +933,8 @@ Deno.serve(async (request) => {
         imported: normalizedRows.length,
         created: normalizedRows.length - existingCount,
         updated: existingCount,
-        duplicates_in_file: validRows - normalizedRows.length,
+        duplicates_in_file: validRows - normalizedRows.length - skippedOptedOut,
+        skipped_opted_out: skippedOptedOut,
         invalid_email_rows: invalidEmailRows,
         invalid_samples: invalidSamples,
       });

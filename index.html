@@ -393,6 +393,20 @@
             </button>
             <span class="muted">Accepted columns: name, email, phone number, topics/category. Supported files: CSV, XLSX, XLS.</span>
           </div>
+          <div class="sub-form sub-import-row batch-import-row">
+            <input id="batchFiles" type="file" multiple aria-label="Daily batch files" accept=".csv,text/csv,.xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            <button id="uploadBatchBtn" class="btn-primary" type="button">Upload daily batch</button>
+            <span class="muted">New addresses get the welcome email today and the newsletter from tomorrow. Addresses already on the list, including unsubscribed ones, are left alone. You can pick many files at once.</span>
+          </div>
+          <div class="batch-status">
+            <p class="batch-sending" id="batchSending">Loading batch status...</p>
+            <div class="batch-table-wrap">
+              <table class="history-table">
+                <thead><tr><th>Batch</th><th>Added</th><th>Welcome sent</th><th>Pending</th><th>Failed</th><th>Held</th><th>Newsletter from</th><th>Unsubscribed</th><th>Bounced</th></tr></thead>
+                <tbody id="batchRows"><tr><td colspan="9" class="muted">No daily batches yet.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
           <div class="subscriber-tools" aria-label="Subscriber search and groups">
             <label class="subscriber-search" for="subSearch"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input id="subSearch" type="search" placeholder="Search name, email, phone, or group" /></label>
             <select id="subGroupFilter" aria-label="Filter subscribers by group"><option value="">All groups</option></select>
