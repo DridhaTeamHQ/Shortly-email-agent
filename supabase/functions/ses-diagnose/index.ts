@@ -15,7 +15,7 @@
 // Read-only. It sends nothing and changes nothing. Same requireAgent() gate as
 // every other operational function, because the suppression list is a list of
 // real addresses.
-import { SESv2Client, GetAccountCommand, GetConfigurationSetCommand, GetEmailIdentityCommand, GetSuppressedDestinationCommand, ListSuppressedDestinationsCommand } from "npm:@aws-sdk/client-sesv2";
+import { SESv2Client, GetAccountCommand, GetConfigurationSetCommand, GetEmailAddressInsightsCommand, GetEmailIdentityCommand, GetSuppressedDestinationCommand, ListSuppressedDestinationsCommand } from "npm:@aws-sdk/client-sesv2";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 
@@ -25,10 +25,17 @@ Deno.serve(async (request) => {
   if (denied) return denied;
 
   let emails: string[] = [];
+  // Addresses to run through SES Email Validation (GetEmailAddressInsights).
+  // Billed by SES per address ($0.01), so it only runs on an explicit list.
+  let insightEmails: string[] = [];
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     if (Array.isArray(body?.emails)) {
       emails = body.emails.map((e: unknown) => String(e).trim().toLowerCase()).filter(Boolean);
+    }
+    if (Array.isArray(body?.insights)) {
+      insightEmails = [...new Set(body.insights.map((e: unknown) => String(e).trim().toLowerCase()).filter(Boolean))]
+        .slice(0, 100) as string[];
     }
   }
 
@@ -98,6 +105,29 @@ Deno.serve(async (request) => {
     }
   }
   out.checked = checked;
+
+  // SES Email Validation verdicts: overall IsValid plus each individual check
+  // (syntax, DNS, mailbox exists, role, disposable, random). Read-only.
+  if (insightEmails.length > 0) {
+    const insights: Array<Record<string, unknown>> = [];
+    for (const email of insightEmails) {
+      try {
+        const r = await client.send(new GetEmailAddressInsightsCommand({ EmailAddress: email }));
+        // deno-lint-ignore no-explicit-any
+        const v = (r as any).MailboxValidation ?? {};
+        // deno-lint-ignore no-explicit-any
+        const ev = (v.Evaluations ?? {}) as Record<string, any>;
+        insights.push({
+          email,
+          isValid: v.IsValid?.ConfidenceVerdict ?? null,
+          checks: Object.fromEntries(Object.entries(ev).map(([k, x]) => [k, x?.ConfidenceVerdict ?? null])),
+        });
+      } catch (e) {
+        insights.push({ email, error: `${(e as { name?: string })?.name ?? "Error"}: ${String((e as Error)?.message ?? e).slice(0, 200)}` });
+      }
+    }
+    out.insights = insights;
+  }
 
   // Authentication is the other way a fully-accepted send disappears. If the
   // sending domain is not DKIM-signed by SES, the recipient sees mail claiming

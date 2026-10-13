@@ -16,6 +16,10 @@ type SendOpts = {
    * List-Unsubscribe headers, which are Gmail's clearest "bulk mail" marker and
    * file a message under Promotions. Newsletters keep the default. */
   bulk?: boolean;
+  /* true: if SES refuses (e.g. throttled), report the failure instead of
+   * falling back to Brevo -- Brevo is not authenticated for this domain, so a
+   * fallback copy lands in spam. Callers that can retry later should set it. */
+  noFallback?: boolean;
 };
 
 /* One-click unsubscribe headers.
@@ -117,6 +121,10 @@ export async function sendEmail(opts: SendOpts) {
         error: null,
       };
     } catch (error) {
+      if (opts.noFallback) {
+        const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        return { ok: false, messageId: undefined, provider: "ses" as const, from: `${senderName} <${senderEmail}>`, error: message };
+      }
       // Keep Brevo as an emergency fallback while SES is being configured or
       // temporarily rejects a message.
       console.error("SES send failed; falling back to Brevo", error);

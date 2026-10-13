@@ -12,6 +12,7 @@ import { sendWelcomeEmail } from "../_shared/welcome-send.ts";
 import { staticVerify, verifyDomain, verifyEmailAddress } from "../_shared/email-verify.ts";
 import { checkBounceRate } from "../_shared/send-guard.ts";
 import { isSuppressed, suppressedAmong } from "../_shared/suppression.ts";
+import { neverSendReason, neverSendStatus, neverSendWhy } from "../_shared/never-send-status.ts";
 
 function istToday() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
@@ -653,6 +654,15 @@ Deno.serve(async (request) => {
       let duplicates = 0;
       const invalidSamples: Array<{ email: string; reason: string }> = [];
       const byEmail = new Map<string, string | null>();
+      // Every address the pre-check rejects goes on the never-send list with
+      // its status (precheck_domain / precheck_validity), so it can never be
+      // re-added by a later upload.
+      const rejects = new Map<string, { code: string; reason: string }>();
+      const reject = (email: string, code: string | undefined, reason: string) => {
+        invalid++;
+        if (invalidSamples.length < 20) invalidSamples.push({ email, reason });
+        if (email.includes("@") && !rejects.has(email)) rejects.set(email, { code: code ?? "precheck_validity", reason });
+      };
       for (const row of rows) {
         const parts = String(row?.email ?? "").split(/[,;\s]+/).map((part) => part.trim()).filter(Boolean);
         if (parts.length === 0) { invalid++; continue; }
@@ -660,8 +670,7 @@ Deno.serve(async (request) => {
           const { email, error: emailError } = validateEmailAddress(part);
           const staticFail = emailError ? null : staticVerify(email);
           if (emailError || staticFail) {
-            invalid++;
-            if (invalidSamples.length < 20) invalidSamples.push({ email, reason: staticFail?.reason ?? emailError ?? "invalid" });
+            reject(email, staticFail?.code, staticFail?.reason ?? emailError ?? "invalid");
             continue;
           }
           if (byEmail.has(email)) { duplicates++; continue; }
@@ -698,9 +707,9 @@ Deno.serve(async (request) => {
       for (let i = 0; i < fresh.length; i += VERIFY_GROUP) {
         await Promise.all(fresh.slice(i, i + VERIFY_GROUP).map(async (email) => {
           const check = await verifyEmailAddress(email);
-          if (check.verdict === "invalid") {
-            invalid++;
-            if (invalidSamples.length < 20) invalidSamples.push({ email, reason: check.reason });
+          // Only a clean pass is accepted; anything risky is rejected too.
+          if (check.verdict !== "valid") {
+            reject(email, check.code, check.reason);
             return;
           }
           insertRows.push({
@@ -747,6 +756,19 @@ Deno.serve(async (request) => {
         return json({ error: error instanceof Error ? error.message : "Could not add the new addresses to the batch." }, 500);
       }
 
+      let rejectedToNeverSend = 0;
+      const rejectRows = [...rejects.entries()].map(([email, r]) => ({
+        email, reason: r.code, detail: r.reason, source: `import-batch ${receivedOn}`,
+      }));
+      for (let i = 0; i < rejectRows.length; i += 500) {
+        const { data, error } = await supabase
+          .from("email_suppressions")
+          .upsert(rejectRows.slice(i, i + 500), { onConflict: "email,reason", ignoreDuplicates: true })
+          .select("email");
+        if (error) console.error("could not record pre-check rejects", error);
+        rejectedToNeverSend += data?.length ?? 0;
+      }
+
       const { error: bumpError } = await supabase.rpc("bump_batch_counts", {
         p_batch_id: batch.id,
         p_rows: rows.length,
@@ -768,12 +790,42 @@ Deno.serve(async (request) => {
         held_risky: heldRisky,
         already_known: known.size + raceSkipped,
         suppressed: suppressedSet.size,
+        rejected_to_never_send: rejectedToNeverSend,
+        rejected_not_gmail: [...rejects.values()].filter((r) => r.code === "precheck_domain").length,
         over_daily_limit: overLimit,
         daily_limit: dailyMax,
         duplicates_in_upload: duplicates,
         invalid,
         invalid_samples: invalidSamples,
       });
+    }
+
+    // Never-send list for download: who will never be mailed, and why. Dates
+    // are IST calendar days; omit both for the whole list.
+    if (action === "never-send-export") {
+      const isDate = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? ""));
+      const istStart = (d: string) => new Date(`${d}T00:00:00+05:30`).toISOString();
+      const rows: Array<Record<string, unknown>> = [];
+      for (let from = 0; ; from += 1000) {
+        let query = supabase
+          .from("email_suppressions")
+          .select("email,reason,detail,source,created_at")
+          .order("created_at", { ascending: false })
+          .range(from, from + 999);
+        if (isDate(body.from)) query = query.gte("created_at", istStart(String(body.from)));
+        if (isDate(body.to)) {
+          const next = new Date(new Date(`${body.to}T00:00:00+05:30`).getTime() + 86400000).toISOString();
+          query = query.lt("created_at", next);
+        }
+        const { data, error } = await query;
+        if (error) return json({ error: error.message }, 500);
+        rows.push(...(data ?? []).map((r) => {
+          const reason = neverSendReason(r as { reason: string; detail: string | null });
+          return { ...r, reason, status: neverSendStatus(reason), why: neverSendWhy(reason) };
+        }));
+        if ((data?.length ?? 0) < 1000) break;
+      }
+      return json({ rows, count: rows.length });
     }
 
     if (action === "batch-status") {

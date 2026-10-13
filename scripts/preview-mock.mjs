@@ -169,6 +169,14 @@ async function api(req, res, pathname, url) {
       }
       return sendJson(res, { ok: true, batch: { id: batch.id, name: batch.name, received_on: day }, rows: (b.subscribers || []).length, ...out });
     }
+    if (b.action === "never-send-export") {
+      const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+      return sendJson(res, { rows: [
+        { email: "someone@outlook.com", reason: "precheck_domain", status: "precheck-domain (not an allowed domain)", detail: "Not @gmail.com (outlook.com)", source: `import-batch ${day}`, created_at: now() },
+        { email: "deadaccount12@gmail.com", reason: "ses_medium_confidence", status: "medium-overall-confidence (SES)", detail: "SES overall validity MEDIUM, mailbox exists LOW", source: "ses-event", created_at: now() },
+        { email: "info@gmail.com", reason: "precheck_validity", status: "precheck-validity", detail: "Shared mailbox (info@) — not accepted, use a personal address", source: `import-batch ${day}`, created_at: now() },
+      ] });
+    }
     if (b.action === "batch-status") {
       const batches = store.subscriberGroups.filter((g) => g.is_daily_batch).map((g) => {
         const members = store.subscriberMemberships.filter((m) => m.group_id === g.id)

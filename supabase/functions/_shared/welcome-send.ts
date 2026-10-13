@@ -10,5 +10,7 @@ export async function sendWelcomeEmail(email: string, name: string | null) {
     html: await renderWelcomeEmail(email, name),
     // One-to-one mail: no List-Unsubscribe headers (see mailer.ts).
     bulk: false,
+    // A refused send is retried by send-welcomes, never re-routed via Brevo.
+    noFallback: true,
   });
 }

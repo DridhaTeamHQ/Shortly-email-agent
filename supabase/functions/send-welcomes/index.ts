@@ -20,6 +20,8 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { checkBounceRate } from "../_shared/send-guard.ts";
 import { sendWelcomeEmail } from "../_shared/welcome-send.ts";
+import { labelBlockedAddresses } from "../_shared/ses-insights.ts";
+import { reportFinishedBatches } from "../_shared/stats-report.ts";
 
 const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 500;
@@ -27,6 +29,9 @@ const MAX_LIMIT = 500;
 // never pushes a send into throttling -- a throttled send falls back to Brevo,
 // which is not authenticated for this domain.
 const GROUP = 5;
+// Each group of GROUP sends takes at least this long, which caps the welcome
+// sender at ~10/s -- under the SES account rate of 14/s, so SES never throttles.
+const MIN_GROUP_MS = 500;
 
 function istDate(offsetDays = 0) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" })
@@ -42,6 +47,18 @@ Deno.serve(async (request) => {
   const limit = Math.min(MAX_LIMIT, Math.max(1, Number(body?.limit) || DEFAULT_LIMIT));
   const dryRun = body?.dry_run === true;
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"));
+
+  // Housekeeping first: give addresses SES Auto Validation blocked their exact
+  // status (medium / low overall confidence) on the never-send list. A failure
+  // here must never stop welcome emails, so it is logged and skipped.
+  let labelled = 0;
+  if (!dryRun) {
+    try {
+      labelled = await labelBlockedAddresses(supabase, 25);
+    } catch (e) {
+      console.error(JSON.stringify({ tag: "send-welcomes", labelling_failed: String(e).slice(0, 200) }));
+    }
+  }
 
   const { count: queued, error: queueErr } = await supabase
     .from("subscribers")
@@ -67,7 +84,7 @@ Deno.serve(async (request) => {
   if (dryRun) {
     return json({ dry_run: true, queued: queued ?? 0, would_send: Math.min(limit, queued ?? 0), brake });
   }
-  if (!queued) return json({ claimed: 0, sent: 0, failed: 0, queued: 0 });
+  if (!queued) return json({ claimed: 0, sent: 0, failed: 0, queued: 0, labelled });
 
   const { data: claimed, error: claimErr } = await supabase
     .rpc("claim_welcome_batch", { p_limit: limit, p_stale_minutes: 15 });
@@ -79,6 +96,7 @@ Deno.serve(async (request) => {
   const viaFallback: string[] = [];
   const failures: Array<{ id: string; email: string; error: string }> = [];
   for (let i = 0; i < rows.length; i += GROUP) {
+    const groupStarted = Date.now();
     await Promise.all(rows.slice(i, i + GROUP).map(async (row) => {
       try {
         const result = await sendWelcomeEmail(row.email, row.full_name);
@@ -95,6 +113,8 @@ Deno.serve(async (request) => {
         failures.push({ id: row.id, email: row.email, error: error instanceof Error ? error.message : String(error) });
       }
     }));
+    const wait = MIN_GROUP_MS - (Date.now() - groupStarted);
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
   }
 
   if (sentIds.length > 0) {
@@ -121,8 +141,19 @@ Deno.serve(async (request) => {
       .eq("id", f.id);
   }
 
+  // A batch whose welcomes are now all sent gets its stats emailed to the team
+  // straight away. Best effort: a report failure never affects the sending.
+  let reported: string[] = [];
+  if (sentIds.length > 0) {
+    try {
+      reported = await reportFinishedBatches(supabase);
+    } catch (e) {
+      console.error(JSON.stringify({ tag: "send-welcomes", welcome_report_failed: String(e).slice(0, 200) }));
+    }
+  }
+
   console.log(JSON.stringify({
-    tag: "send-welcomes", claimed: rows.length, sent: sentIds.length, failed: failures.length,
+    tag: "send-welcomes", claimed: rows.length, sent: sentIds.length, failed: failures.length, reported,
     via_fallback: viaFallback.length, newsletter_from: newsletterFrom,
   }));
   return json({
@@ -132,6 +163,8 @@ Deno.serve(async (request) => {
     sent_via_fallback: viaFallback.slice(0, 20),
     failures: failures.slice(0, 20).map(({ email, error }) => ({ email, error })),
     newsletter_from: newsletterFrom,
+    labelled,
+    welcome_report_sent_for: reported,
     queued_after: Math.max(0, (queued ?? 0) - sentIds.length),
   });
 });

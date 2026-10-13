@@ -23,7 +23,24 @@ export type VerifyResult = {
   email: string;
   verdict: EmailVerdict;
   reason: string;
+  // Why a pre-check failed, for the never-send list: the domain is not on the
+  // allow-list, or the address itself failed a validity check.
+  code?: "precheck_domain" | "precheck_validity";
 };
+
+// Only these domains are accepted anywhere (batch upload, imports, sign-ups).
+// The owner's rule: @gmail.com only, other domains only when explicitly
+// allowed. Comma-separated; change with the ALLOWED_EMAIL_DOMAINS secret.
+const ALLOWED_DOMAINS = new Set(
+  (Deno.env.get("ALLOWED_EMAIL_DOMAINS") ?? "gmail.com")
+    .split(",").map((d) => d.trim().toLowerCase().replace(/^@/, "")).filter(Boolean),
+);
+// Single addresses on other domains that the owner has explicitly allowed
+// (e.g. one person's @yahoo.com). Only that address passes, not its domain.
+const ALLOWED_ADDRESSES = new Set(
+  (Deno.env.get("ALLOWED_EMAIL_ADDRESSES") ?? "")
+    .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean),
+);
 
 const COMMON_EMAIL_DOMAIN_TYPOS: Record<string, string> = {
   "gmial.com": "gmail.com",
@@ -101,26 +118,23 @@ export function normalizeEmailAddress(value: unknown): string {
 /** Cheap, synchronous checks only (no network). Returns null when they pass. */
 export function staticVerify(rawEmail: unknown): VerifyResult | null {
   const email = normalizeEmailAddress(rawEmail);
-  if (!email || email.length > 254 || !SYNTAX_RE.test(email)) {
-    return { email, verdict: "invalid", reason: "Not a valid email address" };
-  }
+  const bad = (reason: string): VerifyResult => ({ email, verdict: "invalid", reason, code: "precheck_validity" });
+  if (!email || email.length > 254 || !SYNTAX_RE.test(email)) return bad("Not a valid email address");
   const [local, domain] = email.split("@");
-  if (local.length > 64 || email.includes("..")) {
-    return { email, verdict: "invalid", reason: "Not a valid email address" };
-  }
+  if (local.length > 64 || email.includes("..")) return bad("Not a valid email address");
   const suggestion = COMMON_EMAIL_DOMAIN_TYPOS[domain];
-  if (suggestion) {
-    return { email, verdict: "invalid", reason: `Misspelled domain — did you mean ${local}@${suggestion}?` };
+  if (suggestion) return bad(`Misspelled domain — did you mean ${local}@${suggestion}?`);
+  if (!ALLOWED_DOMAINS.has(domain) && !ALLOWED_ADDRESSES.has(email)) {
+    return { email, verdict: "invalid", reason: `Only @${[...ALLOWED_DOMAINS].join(", @")} addresses are accepted (${domain})`, code: "precheck_domain" };
   }
-  if (DISPOSABLE_DOMAINS.has(domain)) {
-    return { email, verdict: "invalid", reason: `Disposable email provider (${domain})` };
-  }
+  if (DISPOSABLE_DOMAINS.has(domain)) return bad(`Disposable email provider (${domain})`);
   if (ROLE_LOCAL_PARTS.has(local.split("+")[0])) {
-    return { email, verdict: "invalid", reason: `Shared mailbox (${local.split("+")[0]}@) — not accepted, use a personal address` };
+    return bad(`Shared mailbox (${local.split("+")[0]}@) — not accepted, use a personal address`);
   }
   if (GMAIL_DOMAINS.has(domain) && !isPossibleGmailLocal(local)) {
-    return { email, verdict: "invalid", reason: "Not a possible Gmail address (6-30 letters, numbers or dots)" };
+    return bad("Not a possible Gmail address (6-30 letters, numbers or dots)");
   }
+  if (looksRandomlyTyped(local)) return bad("Looks randomly typed");
   return null;
 }
 
@@ -197,8 +211,5 @@ export async function verifyEmailAddress(rawEmail: unknown): Promise<VerifyResul
   const dns = await verifyDomain(domain);
   if (dns.verdict !== "valid") return { email, verdict: dns.verdict, reason: dns.reason };
 
-  if (looksRandomlyTyped(local)) {
-    return { email, verdict: "risky", reason: "Looks randomly typed — held until checked" };
-  }
   return { email, verdict: "valid", reason: dns.reason };
 }

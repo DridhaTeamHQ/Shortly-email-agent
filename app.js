@@ -3207,6 +3207,54 @@ $("#subForm").addEventListener("submit", async (e) => {
   }
 });
 
+// ---- Never-send list download --------------------------------------------
+// Every address that will never be mailed, with its status (precheck-domain,
+// precheck-validity, medium-overall-confidence, hard-bounce, ...).
+function istDateString(offsetDays = 0) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" })
+    .format(new Date(Date.now() + offsetDays * 86400000));
+}
+
+$("#exportNeverSend").addEventListener("click", async () => {
+  const range = $("#neverSendRange").value;
+  const filter = range === "today" ? { from: istDateString(0), to: istDateString(0) }
+    : range === "7d" ? { from: istDateString(-6), to: istDateString(0) }
+    : {};
+  try {
+    const res = await api("POST", cfg.subscribers, { action: "never-send-export", ...filter });
+    const rows = (res.rows || []).map((r) => ({
+      Email: r.email,
+      Status: r.status,
+      "Why it is on the never-send list": r.why || "",
+      Detail: r.detail || "",
+      "Added (IST)": r.created_at ? new Date(r.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "",
+      Source: r.source || "",
+    }));
+    if (!rows.length) {
+      toast(range === "today" ? "No new never-send addresses today." : "No never-send addresses in this period.");
+      return;
+    }
+    const name = `never-send-${range === "all" ? "all" : filter.from + (filter.from === filter.to ? "" : "_to_" + filter.to)}`;
+    if (window.XLSX) {
+      const sheet = window.XLSX.utils.json_to_sheet(rows);
+      sheet["!cols"] = [{ wch: 36 }, { wch: 40 }, { wch: 70 }, { wch: 50 }, { wch: 22 }, { wch: 28 }];
+      const book = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(book, sheet, "Never-send");
+      window.XLSX.writeFile(book, `${name}.xlsx`);
+    } else {
+      const csvCell = (v) => `"${String(v).replaceAll('"', '""')}"`;
+      const csv = [Object.keys(rows[0]).join(","), ...rows.map((r) => Object.values(r).map(csvCell).join(","))].join("\n");
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      link.download = `${name}.csv`;
+      link.click();
+    }
+    toast(`Downloaded ${rows.length} never-send address${rows.length === 1 ? "" : "es"}.`);
+  } catch (e) {
+    toast(`Download failed: ${e.message}`);
+  }
+});
+
 // ---- Daily batches -------------------------------------------------------
 // One upload (any number of files) = today's batch. The server adds only new
 // addresses and queues their welcome email; the newsletter follows next day.
@@ -3255,7 +3303,7 @@ $("#uploadBatchBtn").addEventListener("click", async () => {
       toast("No email addresses found. The file needs an Email (or Email ID) column.");
       return;
     }
-    const total = { added: 0, welcome_queued: 0, held_risky: 0, already_known: 0, suppressed: 0, duplicates_in_upload: 0, invalid: 0, over_daily_limit: 0 };
+    const total = { added: 0, welcome_queued: 0, held_risky: 0, already_known: 0, suppressed: 0, duplicates_in_upload: 0, invalid: 0, rejected_not_gmail: 0, over_daily_limit: 0 };
     let batchName = "";
     for (let i = 0; i < rows.length; i += 2000) {
       const res = await api("POST", cfg.subscribers, { action: "import-batch", subscribers: rows.slice(i, i + 2000) });
@@ -3268,7 +3316,8 @@ $("#uploadBatchBtn").addEventListener("click", async () => {
     if (total.already_known) skipped.push(`${total.already_known} already on the list`);
     if (total.suppressed) skipped.push(`${total.suppressed} on the suppression list (bounced, complained or unsubscribed)`);
     if (total.duplicates_in_upload) skipped.push(`${total.duplicates_in_upload} duplicates`);
-    if (total.invalid) skipped.push(`${total.invalid} invalid`);
+    if (total.rejected_not_gmail) skipped.push(`${total.rejected_not_gmail} not @gmail.com`);
+    if (total.invalid - total.rejected_not_gmail > 0) skipped.push(`${total.invalid - total.rejected_not_gmail} failed the pre-check`);
     if (total.held_risky) skipped.push(`${total.held_risky} held as risky`);
     toast(`${batchName}: ${total.added} added, ${total.welcome_queued} welcome emails queued${skipped.length ? ` (${skipped.join(", ")})` : ""}.`);
     if (total.over_daily_limit) {

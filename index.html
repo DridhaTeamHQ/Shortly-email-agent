@@ -430,6 +430,12 @@
             <span class="subscriber-export-label"><i class="ph ph-download-simple" aria-hidden="true"></i> Download contact lists</span>
             <button id="exportSubscribers" class="btn-ghost" type="button">Download subscribers</button>
             <button id="exportUnsubscribers" class="btn-ghost" type="button">Download unsubscribers</button>
+            <select id="neverSendRange" aria-label="Never-send list period">
+              <option value="today" selected>Never-send: today</option>
+              <option value="7d">Never-send: last 7 days</option>
+              <option value="all">Never-send: all</option>
+            </select>
+            <button id="exportNeverSend" class="btn-ghost" type="button">Download never-send list</button>
           </div>
           <p class="subscriber-audience-note" id="subscriberAudienceNote">Loading active email recipients...</p>
           <div class="subscriber-bulk-bar" id="subscriberBulkBar">

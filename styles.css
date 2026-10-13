@@ -735,7 +735,8 @@ a:hover { text-decoration-color: var(--ink); }
 .subscriber-search i { color: var(--brand); font-size: 18px; }
 .subscriber-search input { width: 100%; }
 #subGroupFilter { flex: 0 1 200px; min-width: 160px; }
-#createSubscriberGroup, #exportSubscribers, #exportUnsubscribers { white-space: nowrap; }
+#createSubscriberGroup, #exportSubscribers, #exportUnsubscribers, #exportNeverSend { white-space: nowrap; }
+#neverSendRange { flex: 0 1 200px; min-width: 170px; }
 .subscriber-export-bar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin: -6px 0 16px; padding: 10px 14px;

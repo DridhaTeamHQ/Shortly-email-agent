@@ -80,6 +80,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("paths", nargs="+")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--functions-url", help="e.g. http://localhost:8787/functions/v1 to use scripts/local-functions.ts")
     a = ap.parse_args()
 
     files = collect(a.paths)
@@ -92,8 +93,10 @@ def main():
         return
 
     env = load_env()
-    url = env["SUPABASE_URL"].rstrip("/") + "/functions/v1/subscribers"
-    totals = {k: 0 for k in ("added", "welcome_queued", "held_risky", "already_known", "suppressed", "duplicates_in_upload", "invalid", "over_daily_limit")}
+    url = (a.functions_url or env["SUPABASE_URL"].rstrip("/") + "/functions/v1").rstrip("/") + "/subscribers"
+    report["endpoint"] = url
+    totals = {k: 0 for k in ("added", "welcome_queued", "held_risky", "already_known", "suppressed", "duplicates_in_upload",
+                             "invalid", "rejected_not_gmail", "rejected_to_never_send", "over_daily_limit")}
     samples = []
     for i in range(0, len(rows), 2000):
         res = post(url, env["SUPABASE_SERVICE_ROLE_KEY"], {"action": "import-batch", "subscribers": rows[i:i + 2000]})
