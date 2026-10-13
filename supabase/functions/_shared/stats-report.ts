@@ -74,7 +74,7 @@ function healthAndList(s: Stats) {
     ["Unsubscribed today", n(h.unsubscribed_today)],
   ]) + table("Subscriber list", [
     ["Active subscribers", n(l.subscribed)],
-    ["Non-gmail subscribers (should be 0)", n(l.non_gmail_subscribed)],
+    ["Non-gmail subscribers (only addresses you allowed)", n(l.non_gmail_subscribed)],
     ["Eligible for the next newsletter", n(l.eligible_next_newsletter)],
   ]);
 }
