@@ -4,7 +4,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
-import { verifyUnsubToken } from "../_shared/unsub.ts";
+import { unsubSecrets, verifyUnsubTokenAny } from "../_shared/unsub.ts";
 import { logoSvg } from "../_shared/brand.ts";
 
 function escapeHtml(v = "") {
@@ -224,7 +224,7 @@ async function processUnsubscribe(
   email: string | null,
   token: string | null,
   action = "unsubscribe",
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; notSubscriber?: boolean }> {
   // action is one of: unsubscribe | delete | resubscribe
   if (!email?.trim() || !token?.trim()) {
     return { ok: false, error: "Missing email or token parameter." };
@@ -232,7 +232,7 @@ async function processUnsubscribe(
 
   const normalizedEmail = email.trim().toLowerCase();
   const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const valid = await verifyUnsubToken(normalizedEmail, token, serviceKey);
+  const valid = await verifyUnsubTokenAny(normalizedEmail, token, unsubSecrets(serviceKey));
   if (!valid) {
     return { ok: false, error: "Invalid or expired unsubscribe link." };
   }
@@ -265,7 +265,24 @@ async function processUnsubscribe(
   }
 
   if (!subscriber && accountIds.length === 0) {
-    return { ok: false, error: "Email address not found in our subscriber list." };
+    // A valid token proves we emailed this address (a test send, or a row
+    // deleted since), so the opt-out must still work: put it on the
+    // never-send list, which every send path checks, and report success.
+    if (action === "unsubscribe") {
+      const { error: suppressError } = await supabase.from("email_suppressions").upsert({
+        email: normalizedEmail,
+        reason: "unsubscribed",
+        detail: "Unsubscribe link used; address was not on the subscriber list",
+        source: "unsubscribe",
+      }, { onConflict: "email,reason", ignoreDuplicates: true });
+      if (suppressError) return { ok: false, error: "Failed to update subscription. Please try again later." };
+      // Never subscribed, so there is nothing a "Resubscribe" button could restore.
+      return { ok: true, notSubscriber: true };
+    }
+    // delete: nothing is stored for this address, so there is nothing to remove.
+    if (action === "delete") return { ok: true };
+    // resubscribe: never subscribed, so there is nothing to restore.
+    return { ok: false, error: "This address isn't on our list. Sign up at www.dailymattr.com to get the newsletter." };
   }
 
   // ---- resubscribe: the "changed my mind" path from the confirmation page --
@@ -397,7 +414,7 @@ Deno.serve(async (request) => {
       "You have unsubscribed successfully",
       "You will no longer receive emails from dailymattr.",
       true,
-      email && token ? { email, token } : undefined,
+      email && token && !result.notSubscriber ? { email, token } : undefined,
     );
   }
 
@@ -448,6 +465,9 @@ Deno.serve(async (request) => {
             : action === "resubscribe"
             ? "You're subscribed again."
             : "Successfully unsubscribed.",
+          // false: the address was never a subscriber -- pages should not
+          // offer "Resubscribe", which would have nothing to restore.
+          can_resubscribe: !result.notSubscriber,
         });
       }
 

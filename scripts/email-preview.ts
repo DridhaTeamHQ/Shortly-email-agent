@@ -24,6 +24,9 @@ const { renderWelcomeEmail, WELCOME_SUBJECT } = await import(
   new URL("supabase/functions/_shared/welcome-email.ts", ROOT).href
 );
 const { htmlToText } = await import(new URL("supabase/functions/_shared/plain-text.ts", ROOT).href);
+const { unsubscribeHeaders } = await import(new URL("supabase/functions/_shared/mailer.ts", ROOT).href);
+// Production has ONE_CLICK_UNSUB=1 (List-Unsubscribe-Post); mirror it here.
+if (!Deno.env.get("ONE_CLICK_UNSUB")) Deno.env.set("ONE_CLICK_UNSUB", "1");
 
 const SENDING_DOMAIN = "dailymattr.com";
 
@@ -50,7 +53,8 @@ async function render(params: URLSearchParams) {
   const email = (params.get("email") || "reader@example.com").trim().toLowerCase();
   const name = params.get("name")?.trim() || null;
   const html = await renderWelcomeEmail(email, name);
-  return { email, name, html, text: htmlToText(html) };
+  // The welcome is sent with the mailer's default headers (see welcome-send.ts).
+  return { email, name, html, text: htmlToText(html), headers: await unsubscribeHeaders(email) };
 }
 
 function page(r: Awaited<ReturnType<typeof render>>) {
@@ -80,7 +84,7 @@ function page(r: Awaited<ReturnType<typeof render>>) {
 <dl><dt>From</dt><dd>${escapeHtml(FROM)}</dd><dt>To</dt><dd>${escapeHtml(r.email)}</dd>
 <dt>Subject</dt><dd>${escapeHtml(WELCOME_SUBJECT)}</dd>
 <dt>Parts</dt><dd>text/html (${r.html.length.toLocaleString()} chars) + text/plain (${r.text.length.toLocaleString()} chars)</dd>
-<dt>Headers</dt><dd>No List-Unsubscribe (welcome is sent with bulk: false)</dd></dl>
+<dt>Headers</dt><dd>${r.headers.length ? r.headers.map((h: { Name: string; Value: string }) => `${escapeHtml(h.Name)}: ${escapeHtml(h.Value.replace(/token=[^&>]+/, "token=..."))}`).join("<br>") : "No List-Unsubscribe"}</dd></dl>
 <h2>Hosts in links and images</h2>
 <table><tr><td></td><td>Host</td><td>Used for</td><td>Count</td></tr>${rows}</table>
 <div class="cols"><div><h2>HTML</h2><iframe title="HTML part" src="/welcome.html?${q}"></iframe></div>

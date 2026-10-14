@@ -17,7 +17,11 @@ export async function renderPrivacyFooter(
 ): Promise<string> {
   const normalizedEmail = email.trim().toLowerCase();
   const serviceKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const base = `${requiredEnv("SUPABASE_URL")}/functions/v1/unsubscribe`;
+  // The reader-facing page on our own domain (it forwards email + token to the
+  // unsubscribe function). Links that stay on the sender's domain read as more
+  // trustworthy to Gmail than ones pointing at supabase.co. The one-click
+  // List-Unsubscribe header keeps the function URL (see mailer.ts).
+  const base = (Deno.env.get("UNSUB_LINK_BASE") ?? "https://www.dailymattr.com/unsubscribe").replace(/\/+$/, "");
   const token = await generateUnsubToken(normalizedEmail, serviceKey);
   const query = `email=${encodeURIComponent(normalizedEmail)}&token=${encodeURIComponent(token)}`;
   const unsubscribeUrl = `${base}?${query}&action=unsubscribe`;

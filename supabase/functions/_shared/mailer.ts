@@ -34,7 +34,7 @@ type SendOpts = {
  * this exposes no new surface. Building it must never break a send, hence the
  * catch: a missing header costs placement, a thrown error costs the email.
  */
-async function unsubscribeHeaders(to: string) {
+export async function unsubscribeHeaders(to: string) {
   try {
     const base = Deno.env.get("SUPABASE_URL");
     const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");

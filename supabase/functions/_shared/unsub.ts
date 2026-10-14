@@ -41,3 +41,28 @@ export async function verifyUnsubToken(
   }
   return mismatch === 0;
 }
+
+/**
+ * Secrets a token may have been signed with: the current service-role key,
+ * then any retired keys listed (comma-separated) in UNSUB_LEGACY_SECRETS.
+ * Links already sitting in inboxes must keep working after a key changes --
+ * e.g. the 2026-10-13 welcomes were signed with a key that no longer matches
+ * production. Tokens are only ever CREATED with the current key.
+ */
+export function unsubSecrets(currentKey: string): string[] {
+  const legacy = (Deno.env.get("UNSUB_LEGACY_SECRETS") ?? "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  return [currentKey, ...legacy.filter((s) => s !== currentKey)];
+}
+
+/** True when the token matches the HMAC under any of the given secrets. */
+export async function verifyUnsubTokenAny(
+  email: string,
+  token: string,
+  secrets: string[],
+): Promise<boolean> {
+  for (const secret of secrets) {
+    if (await verifyUnsubToken(email, token, secret)) return true;
+  }
+  return false;
+}
