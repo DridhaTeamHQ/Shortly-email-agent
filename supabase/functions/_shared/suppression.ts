@@ -44,3 +44,29 @@ export async function allSuppressed(supabase: Client): Promise<Set<string>> {
 export async function isSuppressed(supabase: Client, email: string): Promise<boolean> {
   return (await suppressedAmong(supabase, [email])).size > 0;
 }
+
+/** Never-send reasons per address (lower-cased), with when each address was
+ * first added. Used to tell "only unsubscribed" (the owner may approve these
+ * again) from hard blocks (bounce, complaint, pre-check, SES) that stay blocked. */
+export async function suppressionReasonsAmong(
+  supabase: Client,
+  emails: string[],
+): Promise<Map<string, { reasons: string[]; since: string }>> {
+  const wanted = [...new Set(emails.map((e) => String(e ?? "").trim().toLowerCase()).filter(Boolean))];
+  const found = new Map<string, { reasons: string[]; since: string }>();
+  for (let i = 0; i < wanted.length; i += 100) {
+    const { data, error } = await supabase
+      .from("email_suppressions")
+      .select("email,reason,created_at")
+      .in("email", wanted.slice(i, i + 100));
+    if (error) throw new Error(`could not read the suppression list: ${error.message}`);
+    for (const row of data ?? []) {
+      const email = String(row.email);
+      const entry = found.get(email) ?? { reasons: [], since: String(row.created_at) };
+      entry.reasons.push(String(row.reason));
+      if (String(row.created_at) < entry.since) entry.since = String(row.created_at);
+      found.set(email, entry);
+    }
+  }
+  return found;
+}

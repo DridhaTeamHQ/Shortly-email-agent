@@ -3305,11 +3305,14 @@ $("#uploadBatchBtn").addEventListener("click", async () => {
     }
     const total = { added: 0, welcome_queued: 0, held_risky: 0, already_known: 0, suppressed: 0, duplicates_in_upload: 0, invalid: 0, rejected_not_gmail: 0, over_daily_limit: 0 };
     let batchName = "";
+    const unsubscribedFound = new Map();
     for (let i = 0; i < rows.length; i += 2000) {
       const res = await api("POST", cfg.subscribers, { action: "import-batch", subscribers: rows.slice(i, i + 2000) });
       batchName = res.batch?.name || batchName;
       for (const key of Object.keys(total)) total[key] += Number(res[key] || 0);
+      for (const u of res.unsubscribed_found || []) unsubscribedFound.set(u.email, u);
     }
+    showUnsubscribedReview([...unsubscribedFound.values()]);
     $("#batchFiles").value = "";
     await refreshSubscribersView();
     const skipped = [];
@@ -3327,6 +3330,57 @@ $("#uploadBatchBtn").addEventListener("click", async () => {
     toast(`Batch upload failed: ${e.message}`);
   } finally {
     button.disabled = false;
+  }
+});
+
+// Addresses in an upload that unsubscribed before: never mailed again unless
+// the owner ticks them here ("resubscribe-selected": newsletter from the next
+// morning, no new welcome).
+function showUnsubscribedReview(list) {
+  const panel = $("#unsubReview");
+  if (!panel) return;
+  if (!list.length) { panel.hidden = true; return; }
+  $("#unsubReviewTitle").textContent = `${list.length} address${list.length === 1 ? "" : "es"} in this upload unsubscribed before`;
+  $("#unsubReviewRows").innerHTML = list.map((u) => `<tr>
+      <td><input type="checkbox" class="unsub-pick" value="${esc(u.email)}" aria-label="Send to ${esc(u.email)} again" /></td>
+      <td>${esc(u.email)}</td>
+      <td>${esc(u.name || "")}</td>
+      <td>${u.unsubscribed_on ? esc(new Date(u.unsubscribed_on).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })) : ""}</td>
+    </tr>`).join("");
+  $("#unsubSelectAll").checked = false;
+  updateUnsubApprove();
+  panel.hidden = false;
+}
+
+function updateUnsubApprove() {
+  const n = document.querySelectorAll(".unsub-pick:checked").length;
+  const btn = $("#unsubApproveBtn");
+  btn.disabled = n === 0;
+  btn.textContent = `Send newsletter to ticked (${n})`;
+}
+
+$("#unsubReviewRows")?.addEventListener("change", updateUnsubApprove);
+$("#unsubSelectAll")?.addEventListener("change", (e) => {
+  document.querySelectorAll(".unsub-pick").forEach((box) => { box.checked = e.target.checked; });
+  updateUnsubApprove();
+});
+$("#unsubDismissBtn")?.addEventListener("click", () => { $("#unsubReview").hidden = true; });
+$("#unsubApproveBtn")?.addEventListener("click", async () => {
+  const emails = [...document.querySelectorAll(".unsub-pick:checked")].map((box) => box.value);
+  if (!emails.length) return;
+  const ok = confirm(`These ${emails.length} people unsubscribed before. Mailing them again can lead to spam reports.\n\nSend them the newsletter again from tomorrow?`);
+  if (!ok) return;
+  const btn = $("#unsubApproveBtn");
+  btn.disabled = true;
+  try {
+    const res = await api("POST", cfg.subscribers, { action: "resubscribe-selected", emails });
+    const refused = (res.results || []).filter((r) => !r.ok);
+    toast(`${res.approved || 0} back on the newsletter from tomorrow (no new welcome).${refused.length ? ` ${refused.length} refused: ${refused.slice(0, 3).map((r) => `${r.email} (${r.result})`).join(", ")}` : ""}`);
+    $("#unsubReview").hidden = true;
+    await refreshSubscribersView();
+  } catch (e) {
+    toast(`Could not update: ${e.message}`);
+    btn.disabled = false;
   }
 });
 

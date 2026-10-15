@@ -1,9 +1,12 @@
-// Stats report emails for the team.
+// Stats report emails for the team. Two separate reports, labelled so they
+// can't be confused in the inbox:
 //
-//   daily    after the 9 AM newsletter: newsletter results, today's welcome
-//            mails, sending health, list size, never-send additions -- with the
-//            day's never-send list attached as Excel.
-//   welcome  as soon as a daily batch's welcome emails are all sent.
+//   daily    NEWSLETTER REPORT, 11:35 IST by cron, after the newsletter window
+//            (09:02-11:29) has closed: newsletter results only, sending health,
+//            list size, never-send additions -- with the day's never-send list
+//            attached as Excel.
+//   welcome  WELCOME MAIL REPORT, once per daily batch, after all its welcome
+//            mails are sent and SES has had time to report on them.
 //
 // All numbers come from email_report_stats() in one call.
 import { fetchNeverSend, istDate, istTime, neverSendWorkbook, reportRecipients, sendReportEmail } from "./report-mail.ts";
@@ -79,9 +82,17 @@ function healthAndList(s: Stats) {
   ]);
 }
 
-function wrap(heading: string, generatedAt: string, inner: string) {
+const KINDS = {
+  newsletter: { label: "NEWSLETTER REPORT", color: "#3979FF" },
+  welcome: { label: "WELCOME MAIL REPORT", color: "#1E8E3E" },
+};
+
+function wrap(kind: keyof typeof KINDS, heading: string, about: string, generatedAt: string, inner: string) {
+  const k = KINDS[kind];
   return `<div style="font:14px Arial,sans-serif;color:#222">` +
+    `<p style="margin:0 0 10px"><span style="display:inline-block;padding:4px 10px;border-radius:4px;background:${k.color};color:#fff;font:700 12px Arial,sans-serif;letter-spacing:.5px">${k.label}</span></p>` +
     `<h2 style="margin:0 0 4px;font:700 18px Arial,sans-serif;color:#111">${heading}</h2>` +
+    `<p style="margin:0 0 6px;color:#333">${about}</p>` +
     `<p style="margin:0 0 6px;color:#666">As of ${istTime(generatedAt)} IST. SES reports keep arriving for a while after sending; numbers can still change slightly.</p>` +
     inner + `</div>`;
 }
@@ -95,7 +106,9 @@ export async function statsFor(supabase: Client, day: string, batchId: string | 
 export async function sendDailyReport(supabase: Client, day = istDate(0), dryRun = false, toOverride?: string[]) {
   const s = await statsFor(supabase, day);
   const nl = s.newsletter, ns = s.never_send;
-  const html = wrap(`dailymattr daily report - ${day}`, s.generated_at,
+  const html = wrap("newsletter", `Newsletter report - ${day}`,
+    "Today's daily newsletter only, sent after the 9 AM send has finished. Welcome mails have their own Welcome mail report.",
+    s.generated_at,
     table("Newsletter (9 AM)", [
       ["Queued", n(nl.queued_total)],
       ["Sent", n(nl.sent)],
@@ -108,13 +121,12 @@ export async function sendDailyReport(supabase: Client, day = istDate(0), dryRun
       ["Not sent (still queued / failed)", n(nl.not_sent)],
       ["Website account emails", n(nl.website_accounts_sent)],
     ]) +
-    (s.welcome?.members ? batchTable(s.welcome.batches) + welcomeTable(s.welcome) : "") +
     healthAndList(s) +
     table(`Never-send list: ${n(ns.added_today)} added today, ${n(ns.total)} in total`, reasonRows(ns.added_today_by_reason)) +
     `<p style="margin:14px 0 0">The day's never-send addresses, each with its status and reason, are in the attached Excel file.</p>`);
-  const subject = `dailymattr daily report ${day}: newsletter ${n(nl.sent)} sent, ${n(nl.delivered)} delivered, ${n(nl.hard_bounces)} hard bounces`;
+  const subject = `[Newsletter report] dailymattr ${day}: ${n(nl.sent)} sent, ${n(nl.delivered)} delivered, ${n(nl.hard_bounces)} hard bounces`;
   const to = toOverride?.length ? toOverride : reportRecipients();
-  if (dryRun) return { dry_run: true, subject, to, stats: s };
+  if (dryRun) return { dry_run: true, subject, to, stats: s, html };
   if (!to.length) throw new Error("REPORT_EMAIL_TO is not set");
   const start = new Date(`${day}T00:00:00+05:30`);
   const end = new Date(start.getTime() + 86400000);
@@ -131,16 +143,23 @@ export async function sendWelcomeReport(
 ) {
   const s = await statsFor(supabase, batch.received_on, batch.id);
   const w = s.welcome;
-  const html = wrap(`dailymattr welcome report - ${batch.name}`, s.generated_at,
+  const html = wrap("welcome", `Welcome mail report - ${batch.name}`,
+    "Welcome mails for this upload only, sent once all of them have gone out. The daily newsletter has its own Newsletter report.",
+    s.generated_at,
     batchTable(w.batches) + welcomeTable(w) + healthAndList(s) +
     `<p style="margin:14px 0 0">Everyone who received the welcome joins the newsletter from the next morning.</p>`);
-  const subject = `dailymattr welcome report ${batch.name}: ${n(w.welcome_sent)} sent, ${n(w.delivered)} delivered, ${n(w.blocked_by_ses)} blocked, ${n(w.hard_bounces)} hard bounces`;
+  const subject = `[Welcome mail report] dailymattr ${batch.name}: ${n(w.welcome_sent)} sent, ${n(w.delivered)} delivered, ${n(w.blocked_by_ses)} blocked, ${n(w.hard_bounces)} hard bounces`;
   const to = toOverride?.length ? toOverride : reportRecipients();
-  if (dryRun) return { dry_run: true, subject, to, stats: s };
+  if (dryRun) return { dry_run: true, subject, to, stats: s, html };
   if (!to.length) throw new Error("REPORT_EMAIL_TO is not set");
   const messageId = await sendReportEmail({ to, subject, html });
   return { ok: true, kind: "welcome", batch: batch.name, to, subject, messageId };
 }
+
+// Wait this long after a batch's last welcome before reporting, so SES has
+// reported delivered/bounced for it (send-welcomes runs every 10 minutes, so
+// the report goes out on the next run).
+const WELCOME_REPORT_SETTLE_MS = 10 * 60 * 1000;
 
 /** Send the welcome report for every daily batch whose welcomes are all sent
  *  and that has not been reported yet. Called by send-welcomes after a run. */
@@ -156,6 +175,15 @@ export async function reportFinishedBatches(supabase: Client) {
   for (const b of (data ?? []) as Array<{ batch_id: string; name: string; received_on: string }>) {
     const { data: g } = await supabase.from("subscriber_groups").select("welcome_report_sent_at").eq("id", b.batch_id).maybeSingle();
     if (g?.welcome_report_sent_at) continue;
+    const cutoff = new Date(Date.now() - WELCOME_REPORT_SETTLE_MS).toISOString();
+    const { data: recent, error: recentError } = await supabase
+      .from("subscriber_group_members")
+      .select("subscriber_id, subscribers!inner(welcome_sent_at)")
+      .eq("group_id", b.batch_id)
+      .gt("subscribers.welcome_sent_at", cutoff)
+      .limit(1);
+    if (recentError) throw new Error(recentError.message);
+    if (recent?.length) continue; // last welcomes just went out -- report on the next run
     await sendWelcomeReport(supabase, { id: b.batch_id, name: b.name, received_on: b.received_on });
     await supabase.from("subscriber_groups").update({ welcome_report_sent_at: new Date().toISOString() }).eq("id", b.batch_id);
     sent.push(b.name);

@@ -89,7 +89,7 @@ const MAX_EMAIL_BREAKING = 3;
 
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
-  "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/email-banner-v3.jpg";
+  "https://www.dailymattr.com/assets/email/email-banner-v4.jpg";
 const FOOTER_LOGO_URL =
   Deno.env.get("SHORTLY_FOOTER_LOGO_URL") ??
   "https://raw.githubusercontent.com/DridhaTeamHQ/Shortly-email-agent/main/assets/dailymattr-primary-logo.png";
@@ -198,6 +198,9 @@ Deno.serve(async (request) => {
   // actually selected used to be to mail them. Targeting bugs fail loudly here
   // instead of in someone's inbox.
   let dryRun = false;
+  // {"recipients":[...],"preview":true} renders each email and returns its
+  // HTML instead of sending it -- for reviewing the newsletter before a change.
+  let previewOnly = false;
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     subscriberIds = Array.isArray(body?.subscriber_ids)
@@ -208,6 +211,7 @@ Deno.serve(async (request) => {
     testEmail = typeof body?.test_email === "string" && body.test_email.includes("@") ? body.test_email : null;
     provider = body?.provider === "brevo" ? "brevo" : body?.provider === "ses" ? "ses" : undefined;
     recipients = Array.isArray(body?.recipients) ? body.recipients : [];
+    previewOnly = body?.preview === true;
     planOnly = body?.plan === true;
     accountsOnly = body?.accounts_only === true;
     if (body?.images === true) showImages = true;
@@ -882,6 +886,10 @@ Deno.serve(async (request) => {
       const requestedSubject = String((r as Record<string, unknown>).subject ?? "").trim();
       const subject = requestedSubject || buildSubject(plan, caseCategory ?? shortsCategory, sd);
       const html = await renderEmail({ id: "", email, full_name: (r as Record<string, unknown>).full_name as string ?? null, plan, category: null }, plan, selection, { images: showImages, layout });
+      if (previewOnly) {
+        out.push({ email, plan, subject, html, wrap: selection.wrap.length, shorts: selection.shorts.length, caseStudy: Boolean(selection.caseStudy) });
+        continue;
+      }
       const result = await sendEmail({ to: email, subject, html, provider });
       if (result.ok) sent += 1; else failed += 1;
       out.push({

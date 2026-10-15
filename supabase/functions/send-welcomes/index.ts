@@ -38,6 +38,17 @@ function istDate(offsetDays = 0) {
     .format(new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000));
 }
 
+/** Welcome reports, best effort: a report failure never affects the sending. */
+// deno-lint-ignore no-explicit-any
+async function reportBatches(supabase: any): Promise<string[]> {
+  try {
+    return await reportFinishedBatches(supabase);
+  } catch (e) {
+    console.error(JSON.stringify({ tag: "send-welcomes", welcome_report_failed: String(e).slice(0, 200) }));
+    return [];
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const denied = await requireAgent(request);
@@ -84,7 +95,9 @@ Deno.serve(async (request) => {
   if (dryRun) {
     return json({ dry_run: true, queued: queued ?? 0, would_send: Math.min(limit, queued ?? 0), brake });
   }
-  if (!queued) return json({ claimed: 0, sent: 0, failed: 0, queued: 0, labelled });
+  // Nothing to send: still check for a batch whose last welcomes went out
+  // earlier and whose report has been waiting for SES results.
+  if (!queued) return json({ claimed: 0, sent: 0, failed: 0, queued: 0, labelled, reported: await reportBatches(supabase) });
 
   const { data: claimed, error: claimErr } = await supabase
     .rpc("claim_welcome_batch", { p_limit: limit, p_stale_minutes: 15 });
@@ -141,16 +154,9 @@ Deno.serve(async (request) => {
       .eq("id", f.id);
   }
 
-  // A batch whose welcomes are now all sent gets its stats emailed to the team
-  // straight away. Best effort: a report failure never affects the sending.
-  let reported: string[] = [];
-  if (sentIds.length > 0) {
-    try {
-      reported = await reportFinishedBatches(supabase);
-    } catch (e) {
-      console.error(JSON.stringify({ tag: "send-welcomes", welcome_report_failed: String(e).slice(0, 200) }));
-    }
-  }
+  // A batch whose welcomes are all sent gets its Welcome mail report emailed to
+  // the team (10 minutes after its last welcome, see stats-report.ts).
+  const reported = await reportBatches(supabase);
 
   console.log(JSON.stringify({
     tag: "send-welcomes", claimed: rows.length, sent: sentIds.length, failed: failures.length, reported,

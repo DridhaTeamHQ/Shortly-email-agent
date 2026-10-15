@@ -219,6 +219,20 @@ button:disabled{opacity:.5;cursor:default}
   return new Response(html, { status: success ? 200 : 400, headers });
 }
 
+/** "Delete my data" keeps ONLY the address, on the never-send list as
+ * unsubscribed, so a later upload can never mail them again on its own (the
+ * owner can still approve them by ticking them after an upload). */
+// deno-lint-ignore no-explicit-any
+async function rememberDeleted(supabase: any, email: string) {
+  const { error } = await supabase.from("email_suppressions").upsert({
+    email,
+    reason: "unsubscribed",
+    detail: "Deleted their data from the unsubscribe page",
+    source: "unsubscribe-delete",
+  }, { onConflict: "email,reason", ignoreDuplicates: true });
+  return !error;
+}
+
 /** Core unsubscribe logic shared by GET and POST handlers. */
 async function processUnsubscribe(
   email: string | null,
@@ -279,8 +293,11 @@ async function processUnsubscribe(
       // Never subscribed, so there is nothing a "Resubscribe" button could restore.
       return { ok: true, notSubscriber: true };
     }
-    // delete: nothing is stored for this address, so there is nothing to remove.
-    if (action === "delete") return { ok: true };
+    // delete: nothing else is stored for this address; keep it off future mailings.
+    if (action === "delete") {
+      if (!(await rememberDeleted(supabase, normalizedEmail))) return { ok: false, error: "Failed to delete your data. Please try again later." };
+      return { ok: true, notSubscriber: true };
+    }
     // resubscribe: never subscribed, so there is nothing to restore.
     return { ok: false, error: "This address isn't on our list. Sign up at www.dailymattr.com to get the newsletter." };
   }
@@ -336,6 +353,9 @@ async function processUnsubscribe(
       .delete()
       .eq("email", normalizedEmail);
     if (deleteError) {
+      return { ok: false, error: "Failed to delete your data. Please try again later." };
+    }
+    if (!(await rememberDeleted(supabase, normalizedEmail))) {
       return { ok: false, error: "Failed to delete your data. Please try again later." };
     }
     return { ok: true };

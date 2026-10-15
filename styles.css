@@ -722,6 +722,11 @@ a:hover { text-decoration-color: var(--ink); }
   flex: 1 1 320px;
 }
 .batch-import-row { margin-top: 10px; }
+.unsub-review { margin: 10px 0 0; padding: 12px 14px; border: 1px solid var(--line, #e3e3e3); border-left: 3px solid #b54708; border-radius: 10px; background: var(--card, #fff); }
+.unsub-review-title { margin: 0 0 4px; font-weight: 700; }
+.unsub-review .muted { margin: 0 0 8px; }
+.unsub-review td:first-child, .unsub-review th:first-child { width: 36px; }
+.unsub-review-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .batch-status { margin: 10px 0 16px; }
 .batch-sending { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--muted); }
 .batch-sending.is-paused { color: #b42318; }

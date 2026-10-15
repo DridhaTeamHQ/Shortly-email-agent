@@ -398,6 +398,20 @@
             <button id="uploadBatchBtn" class="btn-primary" type="button">Upload daily batch</button>
             <span class="muted">New addresses get the welcome email today and the newsletter from tomorrow. Addresses already on the list, including unsubscribed ones, are left alone. You can pick many files at once.</span>
           </div>
+          <div class="unsub-review" id="unsubReview" hidden>
+            <p class="unsub-review-title" id="unsubReviewTitle"></p>
+            <p class="muted">These addresses unsubscribed before. They were <strong>not</strong> added and get <strong>no</strong> mail. Tick only the ones that should get the newsletter again (from tomorrow morning, no new welcome email).</p>
+            <div class="batch-table-wrap">
+              <table class="history-table">
+                <thead><tr><th><input type="checkbox" id="unsubSelectAll" aria-label="Select all unsubscribed addresses" /></th><th>Email</th><th>Name</th><th>Unsubscribed on</th></tr></thead>
+                <tbody id="unsubReviewRows"></tbody>
+              </table>
+            </div>
+            <div class="unsub-review-actions">
+              <button id="unsubApproveBtn" class="btn-primary" type="button" disabled>Send newsletter to ticked (0)</button>
+              <button id="unsubDismissBtn" class="btn-ghost" type="button">Keep all unsubscribed</button>
+            </div>
+          </div>
           <div class="batch-status">
             <p class="batch-sending" id="batchSending">Loading batch status...</p>
             <div class="batch-table-wrap">

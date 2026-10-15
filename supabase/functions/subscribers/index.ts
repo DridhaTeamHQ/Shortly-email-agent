@@ -11,7 +11,7 @@ import { requireAgent } from "../_shared/agent-auth.ts";
 import { sendWelcomeEmail } from "../_shared/welcome-send.ts";
 import { staticVerify, verifyDomain, verifyEmailAddress } from "../_shared/email-verify.ts";
 import { checkBounceRate } from "../_shared/send-guard.ts";
-import { isSuppressed, suppressedAmong } from "../_shared/suppression.ts";
+import { isSuppressed, suppressedAmong, suppressionReasonsAmong } from "../_shared/suppression.ts";
 import { neverSendReason, neverSendStatus, neverSendWhy } from "../_shared/never-send-status.ts";
 
 function istToday() {
@@ -682,10 +682,20 @@ Deno.serve(async (request) => {
       // chunks: one .in() with thousands of addresses overflows the URL.
       const emails = [...byEmail.keys()];
       const known = new Set<string>();
+      // Addresses in this upload that unsubscribed earlier. Never welcomed or
+      // mailed again automatically: the dashboard lists them and the owner
+      // ticks the ones to approve (action "resubscribe-selected").
+      const unsubscribedFound: Array<{ email: string; name: string | null; unsubscribed_on: string | null; on_list: boolean }> = [];
       for (let i = 0; i < emails.length; i += 100) {
-        const { data, error } = await supabase.from("subscribers").select("email").in("email", emails.slice(i, i + 100));
+        const { data, error } = await supabase.from("subscribers").select("email,status,unsubscribed_at").in("email", emails.slice(i, i + 100));
         if (error) return json({ error: error.message }, 500);
-        for (const r of data ?? []) known.add(String(r.email).toLowerCase());
+        for (const r of data ?? []) {
+          const email = String(r.email).toLowerCase();
+          known.add(email);
+          if (r.status === "unsubscribed") {
+            unsubscribedFound.push({ email, name: byEmail.get(email) ?? null, unsubscribed_on: r.unsubscribed_at ?? null, on_list: true });
+          }
+        }
       }
 
       // The suppression list outlives deleted rows: an address that hard-
@@ -693,6 +703,20 @@ Deno.serve(async (request) => {
       let suppressedSet: Set<string>;
       try {
         suppressedSet = await suppressedAmong(supabase, emails.filter((email) => !known.has(email)));
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+      }
+
+      // Not on the list any more but on never-send ONLY as unsubscribed (e.g.
+      // they used "Delete my data"): also offered to the owner for approval.
+      // Any other reason (bounce, complaint, pre-check, SES) stays blocked.
+      try {
+        const reasons = await suppressionReasonsAmong(supabase, [...suppressedSet]);
+        for (const [email, r] of reasons) {
+          if (r.reasons.every((reason) => reason === "unsubscribed")) {
+            unsubscribedFound.push({ email, name: byEmail.get(email) ?? null, unsubscribed_on: r.since, on_list: false });
+          }
+        }
       } catch (error) {
         return json({ error: error instanceof Error ? error.message : String(error) }, 500);
       }
@@ -797,6 +821,80 @@ Deno.serve(async (request) => {
         duplicates_in_upload: duplicates,
         invalid,
         invalid_samples: invalidSamples,
+        unsubscribed_found: unsubscribedFound,
+      });
+    }
+
+    // ---- Owner-approved return of unsubscribed addresses ------------------
+    // The upload lists addresses that unsubscribed earlier; only the ones the
+    // owner ticks come here. They get the newsletter again from the next
+    // morning, with NO new welcome. Only addresses blocked purely because they
+    // unsubscribed qualify -- bounces, complaints, pre-check and SES blocks
+    // can never be approved this way.
+    if (action === "resubscribe-selected") {
+      const picked = [...new Set((Array.isArray(body.emails) ? body.emails : [])
+        .map((e: unknown) => String(e ?? "").trim().toLowerCase())
+        .filter((e: string) => e.includes("@")))] as string[];
+      if (picked.length === 0) return json({ error: "No addresses selected." }, 400);
+      if (picked.length > 2000) return json({ error: "Select at most 2,000 addresses at a time." }, 400);
+
+      const rowsByEmail = new Map<string, { id: string; status: string }>();
+      for (let i = 0; i < picked.length; i += 100) {
+        const { data, error } = await supabase.from("subscribers")
+          .select("id,email,status").in("email", picked.slice(i, i + 100));
+        if (error) return json({ error: error.message }, 500);
+        for (const r of data ?? []) rowsByEmail.set(String(r.email).toLowerCase(), { id: String(r.id), status: String(r.status) });
+      }
+      let reasons: Map<string, { reasons: string[]; since: string }>;
+      try {
+        reasons = await suppressionReasonsAmong(supabase, picked);
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+      }
+
+      const tomorrow = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" })
+        .format(new Date(Date.now() + 86400000));
+      const nowIso = new Date().toISOString();
+      const results: Array<{ email: string; ok: boolean; result: string }> = [];
+      for (const email of picked) {
+        const hard = (reasons.get(email)?.reasons ?? []).filter((r) => r !== "unsubscribed");
+        if (hard.length) {
+          results.push({ email, ok: false, result: `blocked: ${hard.map((r) => neverSendStatus(r)).join(", ")}` });
+          continue;
+        }
+        // Same pre-check as an upload (gmail-only unless the owner allowed the address).
+        const precheck = staticVerify(email);
+        if (precheck) { results.push({ email, ok: false, result: `blocked: ${precheck.reason}` }); continue; }
+        const row = rowsByEmail.get(email);
+        if (row && row.status === "subscribed") { results.push({ email, ok: true, result: "already subscribed" }); continue; }
+        if (row && row.status !== "unsubscribed") { results.push({ email, ok: false, result: `not unsubscribed (status ${row.status})` }); continue; }
+        if (!row && !reasons.has(email)) { results.push({ email, ok: false, result: "not an unsubscribed address" }); continue; }
+
+        if (row) {
+          // The status change also clears the 'unsubscribed' never-send entry (DB trigger).
+          const { error } = await supabase.from("subscribers")
+            .update({ status: "subscribed", unsubscribed_at: null, newsletter_from: tomorrow, updated_at: nowIso })
+            .eq("id", row.id);
+          if (error) { results.push({ email, ok: false, result: error.message }); continue; }
+        } else {
+          // Record deleted earlier ("Delete my data"): add it back. No welcome
+          // is queued (welcome_requested_at stays empty).
+          const { error } = await supabase.from("subscribers").insert({
+            email, plan: "daily-wrap", topics: topicsForPlan("daily-wrap", null), status: "subscribed",
+            verification_status: "valid", verified_at: nowIso,
+            verification_reason: `Approved again by the owner on ${istToday()} after unsubscribing`,
+            newsletter_from: tomorrow,
+          });
+          if (error) { results.push({ email, ok: false, result: error.message }); continue; }
+          await supabase.from("email_suppressions").delete().eq("email", email).eq("reason", "unsubscribed");
+        }
+        results.push({ email, ok: true, result: `back on the newsletter from ${tomorrow} (no new welcome)` });
+      }
+      return json({
+        ok: true,
+        approved: results.filter((r) => r.ok && r.result !== "already subscribed").length,
+        refused: results.filter((r) => !r.ok).length,
+        results,
       });
     }
 

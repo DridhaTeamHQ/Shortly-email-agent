@@ -151,6 +151,10 @@ async function api(req, res, pathname, url) {
       const known = new Set(store.subscribers.map((s) => s.email.toLowerCase()));
       const seen = new Set();
       const out = { added: 0, welcome_queued: 0, held_risky: 0, already_known: 0, suppressed: 0, duplicates_in_upload: 0, invalid: 0, over_daily_limit: 0 };
+      const unsubscribedFound = [];
+      // Mock never-send list: "unsub..." addresses unsubscribed earlier and
+      // their records were deleted; "bounce..." addresses hard-bounced.
+      const mockSuppressed = (email) => email.startsWith("unsub") ? "unsubscribed" : email.startsWith("bounce") ? "hard_bounce" : null;
       const dailyMax = Number(process.env.DAILY_BATCH_MAX) || 2500;
       let inBatch = store.subscriberMemberships.filter((m) => m.group_id === batch.id).length;
       for (const row of b.subscribers || []) {
@@ -158,7 +162,18 @@ async function api(req, res, pathname, url) {
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { out.invalid++; continue; }
           if (seen.has(email)) { out.duplicates_in_upload++; continue; }
           seen.add(email);
-          if (known.has(email)) { out.already_known++; continue; }
+          if (known.has(email)) {
+            out.already_known++;
+            const s = store.subscribers.find((x) => x.email.toLowerCase() === email);
+            if (s?.status === "unsubscribed") unsubscribedFound.push({ email, name: row.full_name || null, unsubscribed_on: s.unsubscribed_at || now(), on_list: true });
+            continue;
+          }
+          const reason = mockSuppressed(email);
+          if (reason) {
+            out.suppressed++;
+            if (reason === "unsubscribed") unsubscribedFound.push({ email, name: row.full_name || null, unsubscribed_on: "2026-10-12T10:00:00Z", on_list: false });
+            continue;
+          }
           if (inBatch >= dailyMax) { out.over_daily_limit++; continue; }
           inBatch++;
           const id = randomUUID();
@@ -167,7 +182,18 @@ async function api(req, res, pathname, url) {
           out.added++; out.welcome_queued++;
         }
       }
-      return sendJson(res, { ok: true, batch: { id: batch.id, name: batch.name, received_on: day }, rows: (b.subscribers || []).length, ...out });
+      return sendJson(res, { ok: true, batch: { id: batch.id, name: batch.name, received_on: day }, rows: (b.subscribers || []).length, ...out, unsubscribed_found: unsubscribedFound });
+    }
+    if (b.action === "resubscribe-selected") {
+      const tomorrow = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(Date.now() + 86400000));
+      const results = (b.emails || []).map((email) => {
+        if (email.startsWith("bounce")) return { email, ok: false, result: "blocked: hard-bounce" };
+        const s = store.subscribers.find((x) => x.email.toLowerCase() === email);
+        if (s) { s.status = "subscribed"; s.unsubscribed_at = null; }
+        else store.subscribers.push({ id: randomUUID(), email, full_name: null, topics: ["daily-wrap"], status: "subscribed", created_at: now(), verification_status: "valid" });
+        return { email, ok: true, result: `back on the newsletter from ${tomorrow} (no new welcome)` };
+      });
+      return sendJson(res, { ok: true, approved: results.filter((r) => r.ok).length, refused: results.filter((r) => !r.ok).length, results });
     }
     if (b.action === "never-send-export") {
       const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());

@@ -3,7 +3,7 @@ import { renderPrivacyFooter } from "./privacy.ts";
 // Same banner the daily newsletter uses, so the welcome mail matches the
 // editions that follow it. Served from the sending domain: images on a
 // third-party host (raw.githubusercontent.com) read as bulk mail to Gmail.
-const BANNER_URL = "https://www.dailymattr.com/assets/email/email-banner-v3.jpg";
+const BANNER_URL = "https://www.dailymattr.com/assets/email/email-banner-v4.jpg";
 const LOGO_URL = "https://www.dailymattr.com/assets/email/dailymattr-primary-logo.png";
 
 // Stays on the sending domain; the site redirects it to the News Studio page.
