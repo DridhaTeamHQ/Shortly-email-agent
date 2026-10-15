@@ -31,8 +31,8 @@ export async function renderWelcomeEmail(email: string, name: string | null): Pr
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#f4f4f1;padding:24px 12px">
       <tr><td align="center">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:680px;background:#fff;border:1px solid #d9d9d4">
-          <tr><td style="background:#ffffff;color:#3979ff;padding:12px 22px;font-size:12px;line-height:1.4;font-weight:700">From Team Dailymattr</td></tr>
-          <tr><td style="background:#0b1220"><img src="${BANNER_URL}" alt="Dailymattr" width="1280" style="display:block;width:100%;height:auto;border:0"></td></tr>
+          <tr><td style="background:#ffffff;color:#3979ff;padding:12px 22px;font-size:12px;line-height:1.4;font-weight:700">From Team dailymattr</td></tr>
+          <tr><td style="background:#0b1220"><img src="${BANNER_URL}" alt="dailymattr" width="1280" style="display:block;width:100%;height:auto;border:0"></td></tr>
           <tr><td style="padding:34px 32px 24px">
             <h1 style="margin:0 0 16px;color:#111111;font:700 25px/1.2 Roboto,Arial,sans-serif">${greeting}</h1>
             <p style="margin:0 0 16px;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">Welcome to the <strong>dailymattr club</strong> - a group of smart, busy people who either don't have the time to stay updated, or whose algorithms simply aren't showing them what matters. Either way, you're covered now.</p>
