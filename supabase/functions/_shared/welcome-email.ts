@@ -21,6 +21,8 @@ function escapeHtml(value = "") {
     .replaceAll("'", "&#039;");
 }
 
+// The "add us to your contacts" box: a saved contact is the strongest
+// per-reader signal Gmail has, and mail from it goes to the inbox.
 export async function renderWelcomeEmail(email: string, name: string | null): Promise<string> {
   const greeting = name ? `Hi ${escapeHtml(name)},` : "Hi there,";
   const privacyFooter = await renderPrivacyFooter(email, { includeDelete: false });
@@ -42,6 +44,7 @@ export async function renderWelcomeEmail(email: string, name: string | null): Pr
             <p style="margin:0 0 8px;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">Handpicked and fact-checked. Straight to the point.</p>
             <p style="margin:0 0 20px;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">A habit worth keeping - 30 seconds, done before your first coffee.</p>
             <p style="margin:0;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">The first one lands tomorrow morning. If it turns out not to be for you, the unsubscribe link below works instantly and nobody will think anything of it.</p>
+            <p style="margin:20px 0 0;padding:12px 14px;border-left:3px solid #3979ff;background:#f3f7ff;color:#383838;font:15px/1.6 Roboto,Arial,sans-serif">One quick favour: add <strong>team@dailymattr.com</strong> to your contacts, so tomorrow's edition lands straight in your inbox.</p>
             <p style="margin:20px 0 0;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">- Team dailymattr</p>
           </td></tr>
           <tr><td align="center" style="border-top:1px solid #e5e5e1;padding:22px 32px;color:#777;font:13px/1.6 Roboto,Arial,sans-serif"><img src="${LOGO_URL}" alt="dailymattr" width="145" style="display:block;width:145px;max-width:100%;height:auto;margin:0 auto 16px;border:0;outline:none;text-decoration:none">Can be forwarded to others.<br><a href="${NEWS_STUDIO_URL}" style="display:inline-block;margin-top:14px;background:#3979ff;color:#ffffff;border-radius:22px;padding:10px 18px;text-decoration:none;font:700 14px/1 Roboto,Arial,sans-serif">Open News Studio</a>${privacyFooter}</td></tr>
