@@ -10,7 +10,7 @@
 //
 // All numbers come from email_report_stats() in one call.
 import { fetchNeverSend, istDate, istTime, neverSendWorkbook, reportRecipients, sendReportEmail } from "./report-mail.ts";
-import { neverSendStatus } from "./never-send-status.ts";
+import { neverSendReason, neverSendStatus, neverSendWhy } from "./never-send-status.ts";
 
 // deno-lint-ignore no-explicit-any
 type Client = any;
@@ -30,12 +30,6 @@ function table(title: string, rows: Array<[string, string]>) {
   ).join("");
   return `<h3 style="margin:22px 0 8px;font:700 15px Arial,sans-serif;color:#111">${title}</h3>` +
     `<table style="border-collapse:collapse;font:14px Arial,sans-serif;color:#222;min-width:420px">${body}</table>`;
-}
-
-function reasonRows(byReason: Record<string, number>) {
-  return Object.entries(byReason ?? {})
-    .sort((a, b) => b[1] - a[1])
-    .map(([reason, count]) => [neverSendStatus(reason), n(count)] as [string, string]);
 }
 
 function welcomeTable(w: Stats) {
@@ -65,6 +59,29 @@ function batchTable(batches: Stats[]) {
     ["Already on the list (left alone)", n(b.already_known)],
     ["Repeated entries skipped", n(b.duplicates)],
   ]);
+}
+
+/** Never-send list by status: new today and all time, with the reason. */
+function neverSendTable(today: Array<{ reason: string; detail: string | null }>, all: Array<{ reason: string; detail: string | null }>) {
+  const count = (list: typeof all) => {
+    const m = new Map<string, number>();
+    for (const r of list) m.set(neverSendReason(r), (m.get(neverSendReason(r)) ?? 0) + 1);
+    return m;
+  };
+  const t = count(today), a = count(all);
+  const cell = "padding:6px 12px;border:1px solid #e3e3e3";
+  const head = ["Status", "New today", "All time", "Why"]
+    .map((h) => `<th style="${cell};background:#f5f5f5;text-align:left">${h}</th>`).join("");
+  const body = [...new Set([...t.keys(), ...a.keys()])]
+    .sort((x, y) => (a.get(y) ?? 0) - (a.get(x) ?? 0))
+    .map((reason) => `<tr><td style="${cell}">${neverSendStatus(reason)}</td>` +
+      `<td style="${cell};text-align:right;font-weight:600">${n(t.get(reason) ?? 0)}</td>` +
+      `<td style="${cell};text-align:right;font-weight:600">${n(a.get(reason) ?? 0)}</td>` +
+      `<td style="${cell};color:#555">${neverSendWhy(reason)}</td></tr>`).join("");
+  const total = `<tr><td style="${cell};font-weight:700">Total</td><td style="${cell};text-align:right;font-weight:700">${n(today.length)}</td>` +
+    `<td style="${cell};text-align:right;font-weight:700">${n(all.length)}</td><td style="${cell}"></td></tr>`;
+  return `<h3 style="margin:22px 0 8px;font:700 15px Arial,sans-serif;color:#111">Never-send list by status: ${n(all.length)} addresses in total, ${n(today.length)} added today</h3>` +
+    `<table style="border-collapse:collapse;font:14px Arial,sans-serif;color:#222;min-width:420px"><tr>${head}</tr>${body}${total}</table>`;
 }
 
 function healthAndList(s: Stats) {
@@ -105,7 +122,11 @@ export async function statsFor(supabase: Client, day: string, batchId: string | 
 
 export async function sendDailyReport(supabase: Client, day = istDate(0), dryRun = false, toOverride?: string[]) {
   const s = await statsFor(supabase, day);
-  const nl = s.newsletter, ns = s.never_send;
+  const nl = s.newsletter;
+  const start = new Date(`${day}T00:00:00+05:30`);
+  const end = new Date(start.getTime() + 86400000);
+  const rows = await fetchNeverSend(supabase, start.toISOString(), end.toISOString());
+  const all = await fetchNeverSend(supabase);
   const html = wrap("newsletter", `Newsletter report - ${day}`,
     "Today's daily newsletter only, sent after the 9 AM send has finished. Welcome mails have their own Welcome mail report.",
     s.generated_at,
@@ -122,16 +143,12 @@ export async function sendDailyReport(supabase: Client, day = istDate(0), dryRun
       ["Website account emails", n(nl.website_accounts_sent)],
     ]) +
     healthAndList(s) +
-    table(`Never-send list: ${n(ns.added_today)} added today, ${n(ns.total)} in total`, reasonRows(ns.added_today_by_reason)) +
+    neverSendTable(rows, all) +
     `<p style="margin:14px 0 0">The day's never-send addresses, each with its status and reason, are in the attached Excel file.</p>`);
   const subject = `[Newsletter report] dailymattr ${day}: ${n(nl.sent)} sent, ${n(nl.delivered)} delivered, ${n(nl.hard_bounces)} hard bounces`;
   const to = toOverride?.length ? toOverride : reportRecipients();
   if (dryRun) return { dry_run: true, subject, to, stats: s, html };
   if (!to.length) throw new Error("REPORT_EMAIL_TO is not set");
-  const start = new Date(`${day}T00:00:00+05:30`);
-  const end = new Date(start.getTime() + 86400000);
-  const rows = await fetchNeverSend(supabase, start.toISOString(), end.toISOString());
-  const all = await fetchNeverSend(supabase);
   const messageId = await sendReportEmail({
     to, subject, html, attachment: { name: `never-send-${day}.xlsx`, data: neverSendWorkbook(day, rows, all) },
   });
