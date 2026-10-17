@@ -4,6 +4,9 @@ import { renderPrivacyFooter } from "./privacy.ts";
 // editions that follow it. Served from the sending domain: images on a
 // third-party host (raw.githubusercontent.com) read as bulk mail to Gmail.
 const BANNER_URL = "https://www.dailymattr.com/assets/email/email-banner-v4.jpg";
+// Previous banner (no app badges / QR code). Only used by welcome-test, to
+// compare inbox placement of the two banners.
+export const BANNER_URL_V3 = "https://www.dailymattr.com/assets/email/email-banner-v3.jpg";
 const LOGO_URL = "https://www.dailymattr.com/assets/email/dailymattr-primary-logo.png";
 
 // Stays on the sending domain; the site redirects it to the News Studio page.
@@ -23,7 +26,11 @@ function escapeHtml(value = "") {
 
 // The "add us to your contacts" box: a saved contact is the strongest
 // per-reader signal Gmail has, and mail from it goes to the inbox.
-export async function renderWelcomeEmail(email: string, name: string | null): Promise<string> {
+export async function renderWelcomeEmail(
+  email: string,
+  name: string | null,
+  opts: { bannerUrl?: string } = {},
+): Promise<string> {
   const greeting = name ? `Hi ${escapeHtml(name)},` : "Hi there,";
   const privacyFooter = await renderPrivacyFooter(email, { includeDelete: false });
 
@@ -34,7 +41,7 @@ export async function renderWelcomeEmail(email: string, name: string | null): Pr
       <tr><td align="center">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:680px;background:#fff;border:1px solid #d9d9d4">
           <tr><td style="background:#ffffff;color:#3979ff;padding:12px 22px;font-size:12px;line-height:1.4;font-weight:700">From Team dailymattr</td></tr>
-          <tr><td style="background:#0b1220"><img src="${BANNER_URL}" alt="dailymattr" width="1280" style="display:block;width:100%;height:auto;border:0"></td></tr>
+          <tr><td style="background:#0b1220"><img src="${opts.bannerUrl ?? BANNER_URL}" alt="dailymattr" width="1280" style="display:block;width:100%;height:auto;border:0"></td></tr>
           <tr><td style="padding:34px 32px 24px">
             <h1 style="margin:0 0 16px;color:#111111;font:700 25px/1.2 Roboto,Arial,sans-serif">${greeting}</h1>
             <p style="margin:0 0 16px;color:#383838;font:16px/1.6 Roboto,Arial,sans-serif">Welcome to the <strong>dailymattr club</strong> - a group of smart, busy people who either don't have the time to stay updated, or whose algorithms simply aren't showing them what matters. Either way, you're covered now.</p>
