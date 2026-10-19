@@ -19,7 +19,7 @@ import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { screenRecipients, checkBounceRate } from "../_shared/send-guard.ts";
 import { allSuppressed } from "../_shared/suppression.ts";
-import { renderPrivacyFooter } from "../_shared/privacy.ts";
+import { renderPrivacyFooter, unsubscribeUrl } from "../_shared/privacy.ts";
 import { logoSvg } from "../_shared/brand.ts";
 import { buildWrapOrder } from "../_shared/editorial-picks.ts";
 import { renderIntroEmail, INTRO_SUBJECT } from "../_shared/intro-email.ts";
@@ -1584,6 +1584,7 @@ async function renderMediumShell(fullName: string | null, email: string, intro: 
       <div style="padding:0 24px 26px">
         <p style="margin:0 0 6px;font:700 17px/1.35 'Roboto Serif',Georgia,serif;color:#191919">${greeting}</p>
         <p style="margin:0;font:400 15px/1.6 Roboto,Arial,sans-serif;color:#5b5b5b">${intro}</p>
+        ${await renderTopUnsubscribe(email)}
       </div>
 
       ${sections}
@@ -1654,6 +1655,14 @@ function renderSourceMeta(a: Article): string {
     .join(`<span aria-hidden="true" style="color:#777777">&nbsp;|&nbsp;</span>`);
 }
 
+// Right under the greeting: a reader who doesn't want the newsletter should find
+// the way out before reaching for "Report spam" (Gmail spam reports were 1-2% in
+// Oct 2026; the limit is 0.3%).
+async function renderTopUnsubscribe(email: string): Promise<string> {
+  const url = await unsubscribeUrl(email);
+  return `<p style="margin:12px 0 0;color:#6b6b6b;font-size:13px;line-height:1.5;font-family:Roboto,Arial,sans-serif">Not for you? <a href="${escapeHtml(url)}" style="color:#3979ff;text-decoration:underline">Unsubscribe in one click</a>.</p>`;
+}
+
 async function renderShell(fullName: string | null, email: string, intro: string, sections: string): Promise<string> {
   const greeting = fullName ? `Hi ${escapeHtml(fullName)},` : "Hi there,";
   const shareUrl = SITE_URL ? `${SITE_URL}/subscribe.html?utm_source=email&utm_medium=share&utm_campaign=subscribe` : "";
@@ -1673,6 +1682,7 @@ async function renderShell(fullName: string | null, email: string, intro: string
       <div style="background:#ffffff;padding:24px;margin:0 0 22px;border-bottom:1px solid #d1d1d1">
         <p style="margin:0 0 12px;color:#191919;font-size:18px;line-height:1.3;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${greeting}</p>
         <p style="margin:0;color:#111111;font-size:16px;line-height:1.55;font-family:Roboto,Arial,sans-serif">${intro}</p>
+        ${await renderTopUnsubscribe(email)}
       </div>
 
       ${sections}
