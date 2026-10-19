@@ -11,6 +11,7 @@
 // All numbers come from email_report_stats() in one call.
 import { fetchNeverSend, istDate, istTime, neverSendWorkbook, reportRecipients, sendReportEmail } from "./report-mail.ts";
 import { neverSendReason, neverSendStatus, neverSendWhy } from "./never-send-status.ts";
+import { fetchAllRows } from "./page.ts";
 
 // deno-lint-ignore no-explicit-any
 type Client = any;
@@ -32,10 +33,88 @@ function table(title: string, rows: Array<[string, string]>) {
     `<table style="border-collapse:collapse;font:14px Arial,sans-serif;color:#222;min-width:420px">${body}</table>`;
 }
 
-function welcomeTable(w: Stats) {
+// ---- Opens (SES open tracking, live since 2026-10-19) ----------------------
+// An open is counted once per mail (a reader opening twice counts once).
+// Approximate: mails in the spam folder or read with images off never report.
+const WELCOME_SUBJECT_LIKE = "%part of the club%";
+/** Newsletter subjects start with the send date, e.g. "Oct 19 - Your dailymattr Wrap is here!". */
+const newsletterSubjectLike = (day: string) =>
+  `${new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })} - %dailymattr%`;
+const SUBJECT = "raw->mail->commonHeaders->>subject";
+
+async function deliveredCount(supabase: Client, subjectLike: string, since: string) {
+  const { count, error } = await supabase.from("email_events").select("id", { count: "exact", head: true })
+    .eq("event_type", "delivery").gte("received_at", since).ilike(SUBJECT, subjectLike);
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+async function openRows(supabase: Client, subjectLike: string, since: string) {
+  const { data, error } = await fetchAllRows<{ message_id: string; email: string }>((from, to) =>
+    supabase.from("email_events").select("message_id,email")
+      .eq("event_type", "open").gte("received_at", since).ilike(SUBJECT, subjectLike)
+      .order("id").range(from, to));
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+const istStart = (day: string) => new Date(`${day}T00:00:00+05:30`).toISOString();
+const addDays = (day: string, d: number) =>
+  new Date(new Date(`${day}T00:00:00Z`).getTime() + d * 86400000).toISOString().slice(0, 10);
+
+type OpensRow = { day: string; delivered: number; opened: number };
+
+/** Newsletter opens for `day` and the 6 days before it, newest first. */
+async function newsletterOpens(supabase: Client, day: string) {
+  const out: OpensRow[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(day, -i);
+    const like = newsletterSubjectLike(d);
+    const delivered = await deliveredCount(supabase, like, istStart(d));
+    const opened = new Set((await openRows(supabase, like, istStart(d))).map((r) => r.message_id)).size;
+    out.push({ day: d, delivered, opened });
+  }
+  return out;
+}
+
+function opensTable(title: string, rows: OpensRow[]) {
+  const cell = "padding:6px 12px;border:1px solid #e3e3e3";
+  const head = ["Newsletter of", "Delivered", "Opened", "Open rate"]
+    .map((h) => `<th style="${cell};background:#f5f5f5;text-align:left">${h}</th>`).join("");
+  const body = rows.map((r) => `<tr><td style="${cell}">${r.day}</td>` +
+    `<td style="${cell};text-align:right">${n(r.delivered)}</td>` +
+    `<td style="${cell};text-align:right;font-weight:600">${n(r.opened)}</td>` +
+    `<td style="${cell};text-align:right;font-weight:600">${r.delivered ? (100 * r.opened / r.delivered).toFixed(1) + "%" : "-"}</td></tr>`).join("");
+  return `<h3 style="margin:22px 0 8px;font:700 15px Arial,sans-serif;color:#111">${title}</h3>` +
+    `<table style="border-collapse:collapse;font:14px Arial,sans-serif;color:#222;min-width:420px"><tr>${head}</tr>${body}</table>` +
+    `<p style="margin:6px 0 0;color:#666">Readers keep opening for days, so older rows are more complete than today's. Open tracking started 19 Oct ~1 PM IST; earlier opens were not recorded.</p>`;
+}
+
+/** Welcome opens: this batch (by member address) and all welcomes of the last 7 days. */
+async function welcomeOpens(supabase: Client, batchId: string, receivedOn: string) {
+  const { data: members, error } = await fetchAllRows<{ subscribers: { email: string } }>((from, to) =>
+    supabase.from("subscriber_group_members").select("subscriber_id, subscribers!inner(email)")
+      .eq("group_id", batchId).order("subscriber_id").range(from, to));
+  if (error) throw new Error(error.message);
+  const emails = new Set(members.map((m) => m.subscribers.email.toLowerCase()));
+  const batchOpened = new Set((await openRows(supabase, WELCOME_SUBJECT_LIKE, istStart(receivedOn)))
+    .map((r) => r.email?.toLowerCase()).filter((e) => e && emails.has(e))).size;
+  const since = istStart(addDays(istDate(0), -6));
+  const weekDelivered = await deliveredCount(supabase, WELCOME_SUBJECT_LIKE, since);
+  const weekOpened = new Set((await openRows(supabase, WELCOME_SUBJECT_LIKE, since)).map((r) => r.message_id)).size;
+  return { batchOpened, weekDelivered, weekOpened };
+}
+
+/** Open stats stay out of the reports until the owner asks for them:
+ *  REPORT_SHOW_OPENS=1 turns them on for every report (cron included); a
+ *  manual stats-report call can also pass "opens": true. */
+const showOpens = (override?: boolean) => override ?? Deno.env.get("REPORT_SHOW_OPENS") === "1";
+
+function welcomeTable(w: Stats, o: { batchOpened: number } | null) {
   return table("Welcome mails", [
     ["Welcome mails sent", n(w.welcome_sent)],
     ["Delivered", n(w.delivered) + pct(w.delivered, w.welcome_sent)],
+    ...(o ? [["Opened so far", n(o.batchOpened) + pct(o.batchOpened, w.delivered)] as [string, string]] : []),
     ["Blocked by SES (below HIGH) - never delivered", n(w.blocked_by_ses)],
     ["Hard bounces", n(w.hard_bounces)],
     ["Soft bounces", n(w.soft_bounces)],
@@ -120,13 +199,16 @@ export async function statsFor(supabase: Client, day: string, batchId: string | 
   return data as Stats;
 }
 
-export async function sendDailyReport(supabase: Client, day = istDate(0), dryRun = false, toOverride?: string[]) {
+export async function sendDailyReport(
+  supabase: Client, day = istDate(0), dryRun = false, toOverride?: string[], opensOverride?: boolean,
+) {
   const s = await statsFor(supabase, day);
   const nl = s.newsletter;
   const start = new Date(`${day}T00:00:00+05:30`);
   const end = new Date(start.getTime() + 86400000);
   const rows = await fetchNeverSend(supabase, start.toISOString(), end.toISOString());
   const all = await fetchNeverSend(supabase);
+  const opens = showOpens(opensOverride) ? await newsletterOpens(supabase, day) : null;
   const html = wrap("newsletter", `Newsletter report - ${day}`,
     "Today's daily newsletter only, sent after the 9 AM send has finished. Welcome mails have their own Welcome mail report.",
     s.generated_at,
@@ -134,6 +216,7 @@ export async function sendDailyReport(supabase: Client, day = istDate(0), dryRun
       ["Queued", n(nl.queued_total)],
       ["Sent", n(nl.sent)],
       ["Delivered", n(nl.delivered) + pct(nl.delivered, nl.sent)],
+      ...(opens ? [["Opened so far", n(opens[0].opened) + pct(opens[0].opened, opens[0].delivered)] as [string, string]] : []),
       ["Blocked by SES (below HIGH) - never delivered", n(nl.blocked_by_ses)],
       ["Hard bounces", n(nl.hard_bounces)],
       ["Soft bounces", n(nl.soft_bounces)],
@@ -142,10 +225,11 @@ export async function sendDailyReport(supabase: Client, day = istDate(0), dryRun
       ["Not sent (still queued / failed)", n(nl.not_sent)],
       ["Website account emails", n(nl.website_accounts_sent)],
     ]) +
+    (opens ? opensTable("Newsletter opens, last 7 days", opens) : "") +
     healthAndList(s) +
     neverSendTable(rows, all) +
     `<p style="margin:14px 0 0">The day's never-send addresses, each with its status and reason, are in the attached Excel file.</p>`);
-  const subject = `[Newsletter report] dailymattr ${day}: ${n(nl.sent)} sent, ${n(nl.delivered)} delivered, ${n(nl.hard_bounces)} hard bounces`;
+  const subject = `[Newsletter report] dailymattr ${day}: ${n(nl.sent)} sent, ${n(nl.delivered)} delivered, ${opens ? `${n(opens[0].opened)} opened, ` : ""}${n(nl.hard_bounces)} hard bounces`;
   const to = toOverride?.length ? toOverride : reportRecipients();
   if (dryRun) return { dry_run: true, subject, to, stats: s, html };
   if (!to.length) throw new Error("REPORT_EMAIL_TO is not set");
@@ -157,15 +241,25 @@ export async function sendDailyReport(supabase: Client, day = istDate(0), dryRun
 
 export async function sendWelcomeReport(
   supabase: Client, batch: { id: string; name: string; received_on: string }, dryRun = false, toOverride?: string[],
+  opensOverride?: boolean,
 ) {
   const s = await statsFor(supabase, batch.received_on, batch.id);
   const w = s.welcome;
+  const o = showOpens(opensOverride) ? await welcomeOpens(supabase, batch.id, batch.received_on) : null;
   const html = wrap("welcome", `Welcome mail report - ${batch.name}`,
     "Welcome mails for this upload only, sent once all of them have gone out. The daily newsletter has its own Newsletter report.",
     s.generated_at,
-    batchTable(w.batches) + welcomeTable(w) + healthAndList(s) +
+    batchTable(w.batches) + welcomeTable(w, o) +
+    (o
+      ? table("Welcome mails, last 7 days (all uploads)", [
+        ["Delivered", n(o.weekDelivered)],
+        ["Opened", n(o.weekOpened) + pct(o.weekOpened, o.weekDelivered)],
+      ]) +
+        `<p style="margin:6px 0 0;color:#666">This report goes out ~10 minutes after the last welcome, so "Opened so far" is early; the 7-day row shows how welcomes do once readers have had time.</p>`
+      : "") +
+    healthAndList(s) +
     `<p style="margin:14px 0 0">Everyone who received the welcome joins the newsletter from the next morning.</p>`);
-  const subject = `[Welcome mail report] dailymattr ${batch.name}: ${n(w.welcome_sent)} sent, ${n(w.delivered)} delivered, ${n(w.blocked_by_ses)} blocked, ${n(w.hard_bounces)} hard bounces`;
+  const subject = `[Welcome mail report] dailymattr ${batch.name}: ${n(w.welcome_sent)} sent, ${n(w.delivered)} delivered, ${o ? `${n(o.batchOpened)} opened, ` : ""}${n(w.blocked_by_ses)} blocked, ${n(w.hard_bounces)} hard bounces`;
   const to = toOverride?.length ? toOverride : reportRecipients();
   if (dryRun) return { dry_run: true, subject, to, stats: s, html };
   if (!to.length) throw new Error("REPORT_EMAIL_TO is not set");
