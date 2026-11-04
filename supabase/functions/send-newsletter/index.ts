@@ -87,6 +87,42 @@ const CATEGORY_SPLIT = 5;
 const CATEGORY_CASE_SHORTS = 5;
 const MAX_EMAIL_BREAKING = 3;
 
+// Every article image and headline opens that story's own News Studio page
+// (owner, 2026-11-04), not the source site. SES rewrites it into a
+// click-tracking link on send. URL shape and slug rules copied from the site
+// (main-dailymattr-ui news-studio/src/lib/routes.js + api/_lib/slug.js); a
+// slightly different slug still works -- the site 301s it to the canonical one.
+const NEWS_STUDIO_URL = "https://www.dailymattr.com/news-studio";
+const STORY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function studioSlug(headline: string): string {
+  let s = headline
+    .replace(/[\[\](){}]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/₹/g, " rs ")
+    .replace(/&/g, " and ")
+    .replace(/%/g, " percent ")
+    .replace(/[‘’“”'"`]/g, "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (s.length > 80) {
+    s = s.slice(0, 80);
+    const cut = s.lastIndexOf("-");
+    if (cut > 40) s = s.slice(0, cut);
+  }
+  return s || "story";
+}
+
+function storyUrl(article: Article): string {
+  const id = String(article.id ?? "").toLowerCase();
+  if (!STORY_ID.test(id)) return NEWS_STUDIO_URL;
+  return `${NEWS_STUDIO_URL}/${studioSlug(article.edited_title || article.title || "")}-${id}`;
+}
+
 const BANNER_URL =
   Deno.env.get("SHORTLY_BANNER_URL") ??
   "https://www.dailymattr.com/assets/email/email-banner-v4.jpg";
@@ -1413,7 +1449,7 @@ function renderItemsReal(articles: Article[], opts: CardOpts = DEFAULT_CARD_OPTS
     const text = (article.edited_summary || article.summary || "").trim();
     const category = (article.category || article.topic || "General").replaceAll("-", " ");
     const body = `${renderBreakingBadge(article)}
-      <h2 style="font-size:16px;line-height:1.32;margin:0 0 8px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(headline)}</h2>
+      <h2 style="font-size:16px;line-height:1.32;margin:0 0 8px;color:#222222;font-weight:700;font-family:'Roboto Serif',Georgia,'Times New Roman',serif"><a href="${escapeHtml(storyUrl(article))}" style="color:#222222;text-decoration:none">${escapeHtml(headline)}</a></h2>
       <p style="font-size:12px;line-height:1.2;margin:0 0 10px;color:#666666;font-family:Roboto,Arial,sans-serif">${escapeHtml(category)}</p>
       <p style="font-size:13px;line-height:1.55;color:#686868;margin:0 0 12px;font-family:'Roboto Serif',Georgia,'Times New Roman',serif">${escapeHtml(text)}</p>
       ${renderSourceMeta(article)}`;
@@ -1446,7 +1482,7 @@ function renderItemsReal(articles: Article[], opts: CardOpts = DEFAULT_CARD_OPTS
     const alt = (article.edited_title || article.title || "").trim().slice(0, 120);
     return `<tr><td style="padding:0 0 16px"><div style="background:#f5f5f5;border:1px solid #e1e1e1;border-radius:10px;padding:16px 12px 14px">
       <div style="max-width:${CARD_IMAGE_WIDTH}px;margin:0 auto">
-        <a href="${escapeHtml(article.url)}" style="text-decoration:none"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:100%;max-width:${CARD_IMAGE_WIDTH}px;height:auto;border:0;border-radius:8px;background:#e9e9e9;margin:0 0 14px" /></a>
+        <a href="${escapeHtml(storyUrl(article))}" style="text-decoration:none"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${CARD_IMAGE_WIDTH}" style="display:block;width:100%;max-width:${CARD_IMAGE_WIDTH}px;height:auto;border:0;border-radius:8px;background:#e9e9e9;margin:0 0 14px" /></a>
         ${body}
       </div>
     </div></td></tr>`;
@@ -1527,7 +1563,7 @@ function renderMediumItems(articles: Article[]): string {
 
     const text = `${byline}${renderBreakingBadge(article)}
       <h2 style="margin:0 0 6px;font:700 20px/1.28 'Roboto Serif',Georgia,'Times New Roman',serif;color:#191919;letter-spacing:-0.01em">
-        <a href="${escapeHtml(article.url)}" style="color:#191919;text-decoration:none">${escapeHtml(headline)}</a>
+        <a href="${escapeHtml(storyUrl(article))}" style="color:#191919;text-decoration:none">${escapeHtml(headline)}</a>
       </h2>
       <p style="margin:0;font:400 15px/1.5 Roboto,Arial,sans-serif;color:#6b6b6b">${escapeHtml(dek)}</p>
       ${renderMediumMeta(article)}`;
@@ -1542,7 +1578,7 @@ function renderMediumItems(articles: Article[]): string {
           <div style="display:inline-block;vertical-align:top;width:100%;max-width:370px;min-width:230px;padding-right:18px;font-size:14px;box-sizing:border-box">${text}</div>
           <!--[if mso]></td><td width="${MEDIUM_THUMB}" valign="top"><![endif]-->
           <div style="display:inline-block;vertical-align:top;width:${MEDIUM_THUMB}px;max-width:${MEDIUM_THUMB}px;font-size:14px">
-            <a href="${escapeHtml(article.url)}"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${MEDIUM_THUMB}" style="display:block;width:100%;max-width:${MEDIUM_THUMB}px;height:auto;border:0;border-radius:4px;background:#efefef" /></a>
+            <a href="${escapeHtml(storyUrl(article))}"><img src="${escapeHtml(img)}" alt="${escapeHtml(alt)}" width="${MEDIUM_THUMB}" style="display:block;width:100%;max-width:${MEDIUM_THUMB}px;height:auto;border:0;border-radius:4px;background:#efefef" /></a>
           </div>
           <!--[if mso]></td></tr></table><![endif]-->
         </div>`
