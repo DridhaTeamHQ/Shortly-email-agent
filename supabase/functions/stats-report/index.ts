@@ -6,6 +6,8 @@
 //   add "dry_run":true                         -> the numbers only; nothing is sent
 //   add "to":["a@b.com"]                        -> send to these instead of REPORT_EMAIL_TO
 //   add "opens":true                           -> include open stats (off unless REPORT_SHOW_OPENS=1)
+//   POST {"kind":"clicks"}                     -> opens + clicks per article for the day's newsletter,
+//                                                 to CLICK_REPORT_EMAIL_TO only (default garikinabalaji@)
 //
 // Recipients: REPORT_EMAIL_TO secret (comma-separated). The daily report runs
 // from cron after the morning newsletter has finished.
@@ -14,7 +16,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { istDate } from "../_shared/report-mail.ts";
-import { sendDailyReport, sendWelcomeReport } from "../_shared/stats-report.ts";
+import { sendClicksReport, sendDailyReport, sendWelcomeReport } from "../_shared/stats-report.ts";
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -39,6 +41,7 @@ Deno.serve(async (request) => {
       return json(result);
     }
     const day = /^\d{4}-\d{2}-\d{2}$/.test(String(body?.date ?? "")) ? String(body.date) : istDate(0);
+    if (body?.kind === "clicks") return json(await sendClicksReport(supabase, day, dryRun, toOverride));
     return json(await sendDailyReport(supabase, day, dryRun, toOverride, opens));
   } catch (e) {
     console.error(JSON.stringify({ tag: "stats-report", error: String(e).slice(0, 300) }));

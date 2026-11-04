@@ -90,6 +90,81 @@ function opensTable(title: string, rows: OpensRow[]) {
     `<p style="margin:6px 0 0;color:#666">Readers keep opening for days, so older rows are more complete than today's. Open tracking started 19 Oct ~1 PM IST; earlier opens were not recorded.</p>`;
 }
 
+// ---- Clicks (SES click tracking, live since 2026-11-04 ~11:30 IST) --------
+// Its own report, sent only to CLICK_REPORT_EMAIL_TO (owner: garikinabalaji@
+// only) and only when the owner asks -- readers keep opening and clicking for
+// hours, so it is not on a cron. Test sends after the 9 AM window are left out
+// by the mail's send time.
+const STORY_UUID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/;
+const clickRecipients = () =>
+  (Deno.env.get("CLICK_REPORT_EMAIL_TO") ?? "garikinabalaji@gmail.com")
+    .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+const escHtml = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+type EngageRow = { event_type: string; message_id: string; link: string | null; sent_at: string | null };
+
+export async function sendClicksReport(supabase: Client, day = istDate(0), dryRun = false, toOverride?: string[]) {
+  const windowEnd = `${day}T06:00:00.000Z`; // 11:30 IST, end of the newsletter window
+  const { data, error } = await fetchAllRows<EngageRow>((from, to) =>
+    supabase.from("email_events").select("event_type,message_id,link:raw->click->>link,sent_at:raw->mail->>timestamp")
+      .in("event_type", ["delivery", "open", "click"]).gte("received_at", istStart(day))
+      .ilike(SUBJECT, newsletterSubjectLike(day)).order("id").range(from, to));
+  if (error) throw new Error(error.message);
+  const rows = data.filter((r) => (r.sent_at ?? "") < windowEnd);
+  const mails = (t: string) => new Set(rows.filter((r) => r.event_type === t).map((r) => r.message_id));
+  const delivered = mails("delivery").size;
+  const opened = mails("open");
+  const clickRows = rows.filter((r) => r.event_type === "click" && r.link);
+  const clickers = new Set(clickRows.map((r) => r.message_id));
+  // a click proves the mail was opened even when images were off
+  const openedOrClicked = new Set([...opened, ...clickers]).size;
+
+  const byLink = new Map<string, { people: Set<string>; clicks: number; id: string | null }>();
+  for (const r of clickRows) {
+    const link = r.link!.split("?")[0];
+    const e = byLink.get(link) ?? { people: new Set(), clicks: 0, id: STORY_UUID.exec(link)?.[1] ?? null };
+    e.people.add(r.message_id);
+    e.clicks++;
+    byLink.set(link, e);
+  }
+  const ids = [...byLink.values()].map((e) => e.id).filter(Boolean) as string[];
+  const titles = new Map<string, string>();
+  if (ids.length) {
+    const { data: arts, error: aErr } = await supabase.from("articles").select("id,title,edited_title").in("id", ids);
+    if (aErr) throw new Error(aErr.message);
+    for (const a of arts ?? []) titles.set(a.id, a.edited_title || a.title);
+  }
+  const ranked = [...byLink.entries()].sort((a, b) => b[1].people.size - a[1].people.size || b[1].clicks - a[1].clicks);
+  const cell = "padding:6px 12px;border:1px solid #e3e3e3";
+  const head = ["Link clicked", "People", "Total clicks"]
+    .map((h) => `<th style="${cell};background:#f5f5f5;text-align:left">${h}</th>`).join("");
+  const body = ranked.map(([link, e]) => {
+    const label = e.id && titles.get(e.id) ? titles.get(e.id)! : link.replace(/^https?:\/\//, "");
+    return `<tr><td style="${cell}"><a href="${escHtml(link)}" style="color:#1a56db">${escHtml(label)}</a></td>` +
+      `<td style="${cell};text-align:right;font-weight:600">${n(e.people.size)}</td>` +
+      `<td style="${cell};text-align:right">${n(e.clicks)}</td></tr>`;
+  }).join("") || `<tr><td style="${cell}" colspan="3">No clicks yet.</td></tr>`;
+
+  const html = wrap("newsletter", `Clicks report - ${day}`,
+    "Who opened today's 9 AM newsletter and which articles they clicked. People = different readers; one reader clicking twice is 1 person, 2 clicks.",
+    new Date().toISOString(),
+    table("Newsletter (9 AM)", [
+      ["Delivered", n(delivered)],
+      ["Opened (at least)", n(openedOrClicked) + pct(openedOrClicked, delivered)],
+      ["Clicked an article or link", n(clickers.size) + pct(clickers.size, delivered)],
+      ["Clicked, of those who opened", clickers.size && openedOrClicked ? `${(100 * clickers.size / openedOrClicked).toFixed(1)}%` : "-"],
+      ["Total clicks", n(clickRows.length)],
+    ]) +
+    `<h3 style="margin:22px 0 8px;font:700 15px Arial,sans-serif;color:#111">Clicks by article</h3>` +
+    `<table style="border-collapse:collapse;font:14px Arial,sans-serif;color:#222;min-width:420px"><tr>${head}</tr>${body}</table>` +
+    `<p style="margin:6px 0 0;color:#666">Opens are a minimum: mails read with images off never report an open, so a reader who clicked is counted as opened too. Readers keep opening and clicking for hours, so later reports show more. Article click tracking started 4 Nov ~11:30 AM IST; that day's 9 AM mail had the old links.</p>`);
+  const subject = `[Clicks report] dailymattr ${day}: ${n(openedOrClicked)} opened, ${n(clickers.size)} clicked`;
+  const to = toOverride?.length ? toOverride : clickRecipients();
+  if (dryRun) return { dry_run: true, subject, to, delivered, opened: openedOrClicked, clicked: clickers.size, clicks: clickRows.length, html };
+  const messageId = await sendReportEmail({ to, subject, html });
+  return { ok: true, kind: "clicks", day, to, subject, messageId };
+}
+
 /** Welcome opens: this batch (by member address) and all welcomes of the last 7 days. */
 async function welcomeOpens(supabase: Client, batchId: string, receivedOn: string) {
   const { data: members, error } = await fetchAllRows<{ subscribers: { email: string } }>((from, to) =>
