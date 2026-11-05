@@ -11,6 +11,7 @@ import { requireAgent } from "../_shared/agent-auth.ts";
 import { sendWelcomeEmail } from "../_shared/welcome-send.ts";
 import { staticVerify, verifyDomain, verifyEmailAddress } from "../_shared/email-verify.ts";
 import { checkBounceRate } from "../_shared/send-guard.ts";
+import { recordSesReject, sesGate } from "../_shared/ses-insights.ts";
 import { isSuppressed, suppressedAmong, suppressionReasonsAmong } from "../_shared/suppression.ts";
 import { neverSendReason, neverSendStatus, neverSendWhy } from "../_shared/never-send-status.ts";
 
@@ -489,6 +490,10 @@ Deno.serve(async (request) => {
         });
       }
 
+      // No pre-check here (owner, 2026-11-05): people who sign up themselves on
+      // dailymattr.com are added as they are. Pre-checks (Gmail-only, SES) apply
+      // only to addresses given explicitly -- batch, import, dashboard add.
+      // SES Auto Validation still checks every send.
       const { data: createdSubscriber, error } = await supabase
         .from("subscribers")
         .insert({ email: normalizedEmail, ...record })
@@ -586,6 +591,17 @@ Deno.serve(async (request) => {
           welcome_message_id: welcome.messageId ?? null,
           ...(welcome.error ? { welcome_error: welcome.error } : {}),
         });
+      }
+
+      // New address: SES Email Validation first (overall HIGH + mailbox
+      // HIGH/MEDIUM). Fails closed -- nobody is added unchecked.
+      const gate = await sesGate(normalizedEmail);
+      if (gate.ok === null) {
+        return json({ error: `SES could not verify ${normalizedEmail} right now. Try again in a minute.` }, 503);
+      }
+      if (!gate.ok) {
+        await recordSesReject(supabase, normalizedEmail, gate.code, gate.detail, "dashboard add");
+        return json({ error: `Not added: ${gate.detail}. Only overall HIGH with mailbox HIGH or MEDIUM is accepted; the address is on the never-send list.` }, 400);
       }
 
       const { data: created, error } = await supabase
@@ -758,6 +774,27 @@ Deno.serve(async (request) => {
       const overLimit = Math.max(0, insertRows.length - room);
       if (overLimit > 0) insertRows.splice(room);
 
+      // SES Email Validation on every address that will be added (owner rule,
+      // 2026-11-05): eligible only when SES overall validity is HIGH AND the
+      // mailbox check is HIGH or MEDIUM -- Gmail never confirms a mailbox, so
+      // MEDIUM is the best a real Gmail address gets. Anything else goes on the
+      // never-send list with SES's verdict. Fails closed: an address SES could
+      // not rate is not added and is reported, so a later upload retries it.
+      // One at a time (sesGate retries with backoff) -- the API throttles bursts.
+      const sesUnchecked: string[] = [];
+      let sesRejected = 0;
+      for (let i = insertRows.length - 1; i >= 0; i--) {
+        const email = String(insertRows[i].email);
+        const gate = await sesGate(email);
+        if (gate.ok) continue;
+        if (gate.ok === null) sesUnchecked.push(email);
+        else {
+          reject(email, gate.code, gate.detail);
+          sesRejected++;
+        }
+        insertRows.splice(i, 1);
+      }
+
       const addedIds: string[] = [];
       let raceSkipped = 0;
       for (let i = 0; i < insertRows.length; i += 500) {
@@ -816,6 +853,8 @@ Deno.serve(async (request) => {
         suppressed: suppressedSet.size,
         rejected_to_never_send: rejectedToNeverSend,
         rejected_not_gmail: [...rejects.values()].filter((r) => r.code === "precheck_domain").length,
+        ses_rejected: sesRejected,
+        ses_unchecked: sesUnchecked,
         over_daily_limit: overLimit,
         daily_limit: dailyMax,
         duplicates_in_upload: duplicates,
@@ -1043,11 +1082,30 @@ Deno.serve(async (request) => {
           skippedOptedOut++;
         }
       }
+      // New addresses: SES Email Validation (overall HIGH + mailbox HIGH/
+      // MEDIUM), one at a time. Rejected ones go to never-send; ones SES could
+      // not rate are left out and reported so a later import retries them.
+      let sesRejected = 0;
+      const sesUnchecked: string[] = [];
+      for (const email of [...normalizedByEmail.keys()]) {
+        if (existingStatus.has(email)) continue;
+        const gate = await sesGate(email);
+        if (gate.ok) continue;
+        normalizedByEmail.delete(email);
+        if (gate.ok === null) sesUnchecked.push(email);
+        else {
+          await recordSesReject(supabase, email, gate.code, gate.detail, "import");
+          sesRejected++;
+          if (invalidSamples.length < 20) invalidSamples.push({ email, reason: gate.detail });
+        }
+      }
       const normalizedRows = Array.from(normalizedByEmail.values());
 
       if (normalizedRows.length === 0) {
         return json({
-          error: skippedOptedOut
+          error: sesRejected || sesUnchecked.length
+            ? `Nothing to import: ${sesRejected} address(es) failed SES validation, ${sesUnchecked.length} could not be checked.`
+            : skippedOptedOut
             ? `Nothing to import: ${skippedOptedOut} address(es) are unsubscribed, bounced or on the suppression list.`
             : "No valid subscribers found in CSV",
         }, 400);
@@ -1083,8 +1141,10 @@ Deno.serve(async (request) => {
         imported: normalizedRows.length,
         created: normalizedRows.length - existingCount,
         updated: existingCount,
-        duplicates_in_file: validRows - normalizedRows.length - skippedOptedOut,
+        duplicates_in_file: validRows - normalizedRows.length - skippedOptedOut - sesRejected - sesUnchecked.length,
         skipped_opted_out: skippedOptedOut,
+        ses_rejected: sesRejected,
+        ses_unchecked: sesUnchecked,
         invalid_email_rows: invalidEmailRows,
         invalid_samples: invalidSamples,
       });

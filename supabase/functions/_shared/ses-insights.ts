@@ -68,3 +68,43 @@ export async function labelBlockedAddresses(supabase: Client, limit = 25) {
   }
   return labelled;
 }
+
+// ---- Eligibility gate for NEW addresses (owner rule, 2026-11-05) ----------
+// Eligible only when SES overall validity is HIGH and the mailbox check is
+// HIGH or MEDIUM (Gmail never confirms a mailbox, so MEDIUM is the best a real
+// Gmail address gets). Used by the routes where addresses are given explicitly:
+// import-batch, import and add -- NOT the website subscribe (owner, 2026-11-05). Retries throttling with backoff;
+// ok:null means SES could not rate it -- callers fail closed (do not add).
+export type SesGate =
+  | { ok: true; insight: Insight }
+  | { ok: false; code: "ses_low_confidence" | "ses_medium_confidence" | "ses_mailbox_low"; detail: string }
+  | { ok: null; error: string };
+
+export async function sesGate(email: string): Promise<SesGate> {
+  let lastError = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const insight = await emailInsight(email);
+      const mailboxOk = insight.mailboxExists === "HIGH" || insight.mailboxExists === "MEDIUM";
+      if (insight.isValid === "HIGH" && mailboxOk) return { ok: true, insight };
+      const code = insight.isValid === "MEDIUM" ? "ses_medium_confidence"
+        : insight.isValid === "HIGH" ? "ses_mailbox_low"
+        : "ses_low_confidence";
+      return { ok: false, code, detail: `SES overall validity ${insight.isValid ?? "?"}, mailbox exists ${insight.mailboxExists ?? "?"}` };
+    } catch (error) {
+      lastError = String(error).slice(0, 200);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+    }
+  }
+  console.error(JSON.stringify({ tag: "ses-gate", email, error: lastError }));
+  return { ok: null, error: lastError };
+}
+
+/** Put an address SES rejected on the never-send list (kept if already there). */
+export async function recordSesReject(supabase: Client, email: string, code: string, detail: string, source: string) {
+  const { error } = await supabase.from("email_suppressions").upsert(
+    { email: email.toLowerCase(), reason: code, detail, source },
+    { onConflict: "email,reason", ignoreDuplicates: true },
+  );
+  if (error) console.error("could not record SES reject", email, error);
+}
