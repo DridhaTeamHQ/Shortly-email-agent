@@ -34,6 +34,7 @@ window.SHORTLY = {
   editorialTopics: "${functionsBase}/editorial-topic-agent",
   trending:    "${functionsBase}/trending-topics",
   analytics:   "${functionsBase}/analytics",
+  sesStats:    "${functionsBase}/ses-stats",
   generateFromUrl: "${functionsBase}/generate-from-url",
   verifyToken: "${functionsBase}/verify-agent-token",
   unsubscribe: "${functionsBase}/unsubscribe",

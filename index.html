@@ -83,6 +83,9 @@
           <button class="nav-item" data-section="analytics" data-workspace="both" data-label="Analytics" aria-label="Analytics" title="Analytics">
             <i class="ph ph-chart-line-up" aria-hidden="true"></i><span class="nav-label">Analytics</span>
           </button>
+          <button class="nav-item" data-section="ses-stats" data-workspace="both" data-label="SES stats" aria-label="SES stats (admin)" title="SES stats (admin)">
+            <i class="ph ph-shield-check" aria-hidden="true"></i><span class="nav-label">SES stats</span>
+          </button>
           <div class="nav-divider"></div>
           <button class="nav-item" data-section="subscribers" data-workspace="both" data-label="Subscribers" aria-label="Subscribers" title="Subscribers">
             <i class="ph ph-users" aria-hidden="true"></i><span class="nav-label">Subscribers</span><span class="badge" id="badgeSubs">0</span>
@@ -363,6 +366,58 @@
               </thead>
               <tbody id="analyticsRows"><tr><td colspan="4" class="muted" style="padding:20px;text-align:center">Loading...</td></tr></tbody>
             </table>
+          </div>
+        </section>
+
+        <!-- SES STATS (admin only: the function also checks ADMIN_STATS_TOKEN) -->
+        <section class="section" data-section="ses-stats" data-workspace="both">
+          <form id="sesAdminGate" class="ses-gate" autocomplete="off">
+            <p class="muted">Admin only. Enter the admin password to see the Amazon SES numbers.</p>
+            <input type="password" id="sesAdminPassword" placeholder="Admin password" aria-label="Admin password" />
+            <button type="submit" class="btn-primary">Unlock</button>
+            <span id="sesGateError" class="ses-error" role="alert"></span>
+          </form>
+          <div id="sesStatsBody" hidden>
+            <div class="toolbar">
+              <select id="sesDays" aria-label="Date range">
+                <option value="1">Last 24 hours</option>
+                <option value="7" selected>Last 7 days</option>
+                <option value="14">Last 14 days</option>
+              </select>
+              <button type="button" class="btn-ghost" id="sesRefresh">Refresh</button>
+              <button type="button" class="btn-ghost" id="sesLock">Lock</button>
+              <span class="muted" id="sesUpdated"></span>
+            </div>
+            <h3 class="ses-h">Daily email usage</h3>
+            <div class="stats-grid" id="sesQuota"></div>
+            <h3 class="ses-h">Sending statistics (IST)</h3>
+            <div class="ses-panel">
+              <div class="ses-panel-head">
+                <div class="ses-panel-title">Sends per hour (IST)</div>
+                <div class="ses-seg" role="group" aria-label="Which mails">
+                  <button type="button" class="active" data-series="overall">Overall</button>
+                  <button type="button" data-series="newsletter">Newsletter</button>
+                  <button type="button" data-series="welcome">Welcome mails</button>
+                </div>
+              </div>
+              <div id="sesSendsChart" class="ses-line-wrap"></div>
+            </div>
+            <div class="ses-panel ses-gap"><div class="ses-panel-title">Bounces &middot; complaints &middot; rejects (per day)</div><div id="sesProblems"></div></div>
+            <h3 class="ses-h">Reputation (SES account rates)</h3>
+            <div class="stats-grid" id="sesReputation"></div>
+            <h3 class="ses-h">Email validation results</h3>
+            <div class="stats-grid" id="sesValidation"></div>
+            <div class="ses-panel"><div id="sesValidationChart"></div></div>
+            <h3 class="ses-h">Suppression list <span class="muted" id="sesSuppCount"></span></h3>
+            <div class="toolbar">
+              <input type="search" id="sesSuppSearch" placeholder="Search email&hellip;" aria-label="Search suppression list" />
+            </div>
+            <div class="table-wrap">
+              <table class="history-table">
+                <thead><tr><th>#</th><th>Email address</th><th>Reason</th><th>Date added (IST)</th><th>Bounced on</th></tr></thead>
+                <tbody id="sesSuppRows"></tbody>
+              </table>
+            </div>
           </div>
         </section>
 

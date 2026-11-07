@@ -985,6 +985,7 @@ function refreshChrome() {
     rejected: ["Rejected", `${rejected} articles removed from queue`],
     history: ["Digest History", "All past digests and delivery stats"],
     analytics: ["Analytics", "Overview of your newsletter performance"],
+    "ses-stats": ["SES stats", "Amazon SES numbers, admin only"],
     subscribers: ["Subscribers", `${subs} active subscriber${subs === 1 ? "" : "s"}`],
     scraper: ["Scraper", "Submit articles for summarization"]
   };
@@ -1923,6 +1924,216 @@ function renderHistory() {
   renderListPager($("#historyRows").closest(".table-wrap"), "history", page);
 }
 
+// ---------- SES stats (admin only) ----------
+// The AWS SES console numbers (daily usage, sending statistics, reputation,
+// validation verdicts, suppression list) so nobody has to open AWS. A second
+// lock on top of the agent token: the ses-stats function checks the admin
+// password (ADMIN_STATS_TOKEN). It is kept for this browser tab only.
+const SES_ADMIN_KEY = "ses-admin-token";
+const sesStatsUrl = () => cfg.sesStats || (cfg.subscribers || "").replace(/\/subscribers$/, "/ses-stats");
+const sesState = { data: null, loading: false, series: "overall" };
+
+function sesAdminToken() {
+  try { return sessionStorage.getItem(SES_ADMIN_KEY) || ""; } catch { return ""; }
+}
+
+async function loadSesStats() {
+  const token = sesAdminToken();
+  const gate = $("#sesAdminGate");
+  const body = $("#sesStatsBody");
+  gate.hidden = !!token;
+  body.hidden = !token;
+  if (!token || sesState.loading) return;
+  sesState.loading = true;
+  $("#sesUpdated").textContent = "Loading…";
+  try {
+    const headers = { "Content-Type": "application/json", "x-admin-token": token };
+    if (cfg.anonKey) { headers.apikey = cfg.anonKey; headers.Authorization = `Bearer ${cfg.anonKey}`; }
+    const agentToken = localStorage.getItem(AGENT_TOKEN_KEY);
+    if (agentToken) headers["x-client-info"] = `shortly-agent-token ${agentToken}`;
+    const r = await fetch(sesStatsUrl(), { method: "POST", headers, body: JSON.stringify({ days: Number($("#sesDays").value) }) });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 401) {
+      try { sessionStorage.removeItem(SES_ADMIN_KEY); } catch { /* ignore */ }
+      gate.hidden = false;
+      body.hidden = true;
+      $("#sesGateError").textContent = data.error || "Wrong admin password.";
+      return;
+    }
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    sesState.data = data;
+    renderSesStats();
+  } catch (e) {
+    $("#sesUpdated").textContent = `Could not load: ${e.message}`;
+  } finally {
+    sesState.loading = false;
+  }
+}
+
+const sesNum = (v) => Number(v || 0).toLocaleString("en-IN");
+const sesIst = (iso) => new Date(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const sesDayLabel = (day) => new Date(`${day}T12:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
+const sesCard = (value, label) => `<div class="stat-card"><div class="stat-value">${value}</div><div class="stat-label">${esc(label)}</div></div>`;
+const sesFailed = (part) => (part && part.error ? `<p class="ses-note">Not available: ${esc(part.error)}</p>` : "");
+
+// Plain SVG bars, one group per day; several keys sit side by side.
+function sesBars(rows, keys) {
+  const W = 560, H = 180, pad = 26, n = rows.length || 1;
+  const max = Math.max(1, ...rows.flatMap((r) => keys.map((k) => r[k.key] || 0)));
+  const slot = (W - pad) / n, bw = Math.max(4, (slot - 10) / keys.length);
+  const bars = rows.map((r, i) => keys.map((k, j) => {
+    const v = r[k.key] || 0, h = Math.round((v / max) * (H - 40));
+    const x = pad + i * slot + 5 + j * bw;
+    return `<rect class="${k.cls}" x="${x.toFixed(1)}" y="${H - 20 - h}" width="${(bw - 2).toFixed(1)}" height="${h}" rx="2"><title>${esc(sesDayLabel(r.day))}: ${sesNum(v)} ${esc(k.label)}</title></rect>`
+      + (v ? `<text x="${(x + bw / 2 - 1).toFixed(1)}" y="${H - 24 - h}" text-anchor="middle">${sesNum(v)}</text>` : "");
+  }).join("") + `<text x="${(pad + i * slot + slot / 2).toFixed(1)}" y="${H - 5}" text-anchor="middle">${esc(sesDayLabel(r.day))}</text>`).join("");
+  return `<svg class="ses-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(keys.map((k) => k.label).join(", "))} per day"><line class="ses-axis" x1="${pad}" y1="${H - 20}" x2="${W}" y2="${H - 20}"/>${bars}</svg>`;
+}
+
+function renderSesStats() {
+  const d = sesState.data;
+  if (!d) return;
+  $("#sesUpdated").textContent = `Updated ${sesIst(d.generated_at)} IST`;
+
+  const q = d.quota || {};
+  $("#sesQuota").innerHTML = q.error ? sesFailed(q) : [
+    sesCard(sesNum(q.sentLast24h), "Emails sent (last 24 h)"),
+    sesCard(sesNum(q.remaining), "Remaining sends"),
+    sesCard(`${Number(q.usedPct || 0).toFixed(2)}%`, `Sending quota used (of ${sesNum(q.max24h)})`),
+    sesCard(`${sesNum(q.maxSendRate)}/s`, "Max send rate"),
+  ].join("");
+
+  if (Array.isArray(d.daily)) {
+    const rows = d.daily.map((r) => `<tr><td>${esc(sesDayLabel(r.day))}</td><td>${sesNum(r.sends)}</td><td>${sesNum(r.bounces)}</td><td>${sesNum(r.complaints)}</td><td>${sesNum(r.rejects)}</td></tr>`).join("");
+    $("#sesProblems").innerHTML = `<div class="table-wrap"><table class="history-table"><thead><tr><th>Day</th><th>Sends</th><th>Bounces</th><th>Complaints</th><th>Rejects</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  } else {
+    $("#sesProblems").innerHTML = sesFailed(d.daily);
+  }
+  renderSesSends();
+
+  const rep = d.reputation || {};
+  const pct = (v) => (v === null || v === undefined ? "–" : `${Number(v).toFixed(3)}%`);
+  $("#sesReputation").innerHTML = rep.error ? sesFailed(rep) : [
+    sesCard(pct(rep.bounce?.current), "Bounce rate now (SES pauses at 10%)"),
+    sesCard(pct(rep.bounce?.peak), "Highest bounce rate in range"),
+    sesCard(pct(rep.complaint?.current), "Complaint rate now (SES pauses at 0.5%)"),
+    sesCard(pct(rep.complaint?.peak), "Highest complaint rate in range"),
+  ].join("");
+
+  const val = d.validation || {};
+  if (val.error) {
+    $("#sesValidation").innerHTML = sesFailed(val);
+    $("#sesValidationChart").innerHTML = "";
+  } else {
+    const t = val.totals || {};
+    $("#sesValidation").innerHTML = [sesCard(sesNum(t.high), "High"), sesCard(sesNum(t.medium), "Medium"), sesCard(sesNum(t.low), "Low")].join("");
+    $("#sesValidationChart").innerHTML = sesBars(val.daily || [], [
+      { key: "high", label: "high", cls: "ses-bar" },
+      { key: "medium", label: "medium", cls: "ses-bar-medium" },
+    ]) + `<p class="ses-note">Addresses checked with SES Email Validation per day. Only overall HIGH (mailbox HIGH or MEDIUM) is ever mailed.</p>`;
+  }
+  renderSesSuppression();
+}
+
+const SES_SERIES = { overall: "sends (all mail)", newsletter: "newsletter mails", welcome: "welcome mails" };
+const sesHourLabel = (iso) => {
+  const a = new Date(iso), b = new Date(a.getTime() + 3600000);
+  const day = a.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" });
+  const t = (x) => x.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" });
+  return `${day}, ${t(a)} – ${t(b)} IST`;
+};
+
+// Line chart of sends per hour, like the SES console but in IST, with a
+// hover readout of the hour and the count.
+function renderSesSends() {
+  const wrap = $("#sesSendsChart");
+  const rows = sesState.data?.hourly;
+  $$(".ses-seg button").forEach((b) => b.classList.toggle("active", b.dataset.series === sesState.series));
+  if (!Array.isArray(rows)) { wrap.innerHTML = sesFailed(rows) || ""; return; }
+  const key = sesState.series;
+  const W = 760, H = 250, L = 46, R = 10, T = 12, B = 34;
+  const max = Math.max(1, ...rows.map((r) => r[key] || 0));
+  const step = Math.pow(10, Math.floor(Math.log10(max)));
+  const top = Math.ceil(max / step) * step;
+  const x = (i) => L + (rows.length > 1 ? (i / (rows.length - 1)) * (W - L - R) : 0);
+  const y = (v) => T + (1 - v / top) * (H - T - B);
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => {
+    const v = Math.round(top * f);
+    return `<line class="ses-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${sesNum(v)}</text>`;
+  }).join("");
+  // a tick at every IST midnight
+  const ticks = rows.map((r, i) => ({ r, i })).filter(({ r }) => {
+    const hh = new Date(r.t).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
+    return hh === "00:00";
+  }).map(({ r, i }) => {
+    const label = new Date(r.t).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" });
+    return `<line class="ses-grid" x1="${x(i)}" x2="${x(i)}" y1="${H - B}" y2="${H - B + 4}"/><text x="${x(i)}" y="${H - B + 16}" text-anchor="middle">${esc(label)}</text><text x="${x(i)}" y="${H - B + 28}" text-anchor="middle">00:00</text>`;
+  }).join("");
+  const path = rows.map((r, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(r[key] || 0).toFixed(1)}`).join("");
+  const total = rows.reduce((n, r) => n + (r[key] || 0), 0);
+  wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(SES_SERIES[key])} per hour, ${sesNum(total)} in total">${grid}${ticks}<path class="ses-line" d="${path}"/><line class="ses-hover-line" id="sesHoverLine" y1="${T}" y2="${H - B}" visibility="hidden"/><circle class="ses-dot" id="sesHoverDot" r="4" visibility="hidden"/><rect id="sesHoverArea" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg><div class="ses-tip" id="sesTip" hidden></div><p class="ses-note">${sesNum(total)} ${esc(SES_SERIES[key])} in this range. Hover the chart for the hour and count.${key === "overall" ? " Overall is SES's own count of every mail, including reports and tests." : ""}</p>`;
+  const svg = wrap.querySelector("svg"), tip = $("#sesTip"), vline = $("#sesHoverLine"), dot = $("#sesHoverDot");
+  const show = (clientX) => {
+    const box = svg.getBoundingClientRect();
+    const sx = ((clientX - box.left) / box.width) * W;
+    const i = Math.max(0, Math.min(rows.length - 1, Math.round(((sx - L) / (W - L - R)) * (rows.length - 1))));
+    const r = rows[i];
+    vline.setAttribute("x1", x(i)); vline.setAttribute("x2", x(i)); vline.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(r[key] || 0)); dot.setAttribute("visibility", "visible");
+    tip.innerHTML = `${esc(sesHourLabel(r.t))}<br><b>${sesNum(r[key])}</b> ${esc(SES_SERIES[key])}`;
+    tip.hidden = false;
+    const px = (x(i) / W) * box.width, w = tip.offsetWidth;
+    tip.style.left = `${Math.min(Math.max(0, px - w / 2), box.width - w)}px`;
+    tip.style.top = `${(y(r[key] || 0) / H) * box.height - tip.offsetHeight - 10}px`;
+  };
+  const hide = () => { tip.hidden = true; vline.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); };
+  const area = $("#sesHoverArea");
+  area.addEventListener("mousemove", (e) => show(e.clientX));
+  area.addEventListener("mouseleave", hide);
+  area.addEventListener("touchstart", (e) => show(e.touches[0].clientX), { passive: true });
+  area.addEventListener("touchmove", (e) => show(e.touches[0].clientX), { passive: true });
+}
+
+function renderSesSuppression() {
+  const s = sesState.data?.suppression || {};
+  if (s.error) {
+    $("#sesSuppCount").textContent = "";
+    $("#sesSuppRows").innerHTML = `<tr><td colspan="5" class="muted">Not available: ${esc(s.error)}</td></tr>`;
+    return;
+  }
+  const q = ($("#sesSuppSearch").value || "").trim().toLowerCase();
+  const rows = (s.rows || []).filter((r) => !q || r.email.includes(q));
+  $("#sesSuppCount").textContent = `(${sesNum(s.count)}, newest first)`;
+  $("#sesSuppRows").innerHTML = rows.length
+    ? rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.email)}</td><td>${esc(r.reason)}</td><td>${esc(sesIst(r.added))}</td><td>${esc(r.mail || "")}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="muted" style="padding:16px;text-align:center">No matches.</td></tr>`;
+}
+
+function initSesStats() {
+  $("#sesAdminGate").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const pw = $("#sesAdminPassword").value.trim();
+    if (!pw) { $("#sesGateError").textContent = "Enter the admin password first."; return; }
+    $("#sesGateError").textContent = "";
+    try { sessionStorage.setItem(SES_ADMIN_KEY, pw); } catch { /* ignore */ }
+    $("#sesAdminPassword").value = "";
+    loadSesStats();
+  });
+  $("#sesAdminPassword").addEventListener("input", () => { $("#sesGateError").textContent = ""; });
+  $("#sesRefresh").addEventListener("click", loadSesStats);
+  $("#sesDays").addEventListener("change", loadSesStats);
+  $("#sesSuppSearch").addEventListener("input", renderSesSuppression);
+  $$(".ses-seg button").forEach((b) => b.addEventListener("click", () => {
+    sesState.series = b.dataset.series;
+    renderSesSends();
+  }));
+  $("#sesLock").addEventListener("click", () => {
+    try { sessionStorage.removeItem(SES_ADMIN_KEY); } catch { /* ignore */ }
+    sesState.data = null;
+    loadSesStats();
+  });
+}
+
 function renderAnalytics() {
   const analytics = state.analytics;
   const stats = analytics?.stats;
@@ -2070,12 +2281,15 @@ async function loadDigests() {
 }
 
 async function loadAnalytics() {
-  if (!cfg.analytics) {
+  // Older config.js files (and the local preview) have no `analytics` entry;
+  // the function sits next to `subscribers`, so derive it rather than show "-".
+  const url = cfg.analytics || (cfg.subscribers || "").replace(/\/subscribers$/, "/analytics");
+  if (!url) {
     state.analytics = null;
     return;
   }
   try {
-    state.analytics = await api("GET", cfg.analytics);
+    state.analytics = await api("GET", url);
   } catch (error) {
     console.warn("Could not load live analytics:", error);
     state.analytics = null;
@@ -2777,6 +2991,7 @@ function showSection(name) {
   $$(".section").forEach((s) => s.classList.toggle("active", s.dataset.section === name));
   $$(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.section === name));
   refreshChrome();
+  if (name === "ses-stats") loadSesStats();
   if (name === "trending") {
     renderTrending();
     loadTrending().then(renderTrending).catch(() => {});
@@ -3701,6 +3916,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 // Initial load
+initSesStats();
 renderSubscriberTopicPicker();
 bootAuth();
 

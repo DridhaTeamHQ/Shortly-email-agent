@@ -31,7 +31,8 @@ export async function fetchNeverSend(supabase: any, from?: string, to?: string):
   const rows: NeverSendRow[] = [];
   for (let offset = 0; ; offset += 1000) {
     let q = supabase.from("email_suppressions").select("email,reason,detail,source,created_at")
-      .order("created_at", { ascending: false }).range(offset, offset + 999);
+      .order("created_at", { ascending: false }).order("email").order("reason") // unique tiebreaker: pages must not overlap
+      .range(offset, offset + 999);
     if (from) q = q.gte("created_at", from);
     if (to) q = q.lt("created_at", to);
     const { data, error } = await q;

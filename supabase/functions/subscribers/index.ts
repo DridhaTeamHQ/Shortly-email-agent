@@ -320,6 +320,10 @@ Deno.serve(async (request) => {
           .from("subscribers")
           .select("id,email,full_name,phone_number,topics,plan,category,rhythm,send_days,news_categories,source_preference,status,created_at,unsubscribed_at,verification_status,verified_at,verification_reason")
           .order("created_at", { ascending: false })
+          // A batch shares one created_at; without a unique tiebreaker the
+          // pages overlap and skip rows (281 duplicated + 281 missing on
+          // 2026-11-06, so the dashboard showed 5,537 instead of 5,545).
+          .order("id", { ascending: true })
           .range(from, from + pageSize - 1);
         if (result.error) return { data: null, error: result.error };
         const page = result.data ?? [];
@@ -335,6 +339,7 @@ Deno.serve(async (request) => {
         const result = await supabase
           .from("subscriber_group_members")
           .select("subscriber_id,group_id")
+          .order("subscriber_id").order("group_id")
           .range(from, from + pageSize - 1);
         if (result.error) return { data: null, error: result.error };
         const page = result.data ?? [];
@@ -948,6 +953,7 @@ Deno.serve(async (request) => {
           .from("email_suppressions")
           .select("email,reason,detail,source,created_at")
           .order("created_at", { ascending: false })
+          .order("email").order("reason")  // unique tiebreaker so pages never overlap
           .range(from, from + 999);
         if (isDate(body.from)) query = query.gte("created_at", istStart(String(body.from)));
         if (isDate(body.to)) {

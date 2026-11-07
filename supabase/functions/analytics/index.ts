@@ -75,8 +75,11 @@ Deno.serve(async (request) => {
     pending: sum.pending + digest.pending,
   }), { accepted: 0, failed: 0, delivered: 0, bounced: 0, complained: 0, pending: 0 });
 
-  // A delivery percentage is only shown after SES has reported an outcome for every accepted message.
-  const deliveryRate = totals.accepted > 0 && totals.pending === 0 ? percent(totals.delivered, totals.accepted) : null;
+  // Delivered share of the mails SES has reported an outcome for. Waiting for
+  // every accepted message kept this at "Pending" for good: digests sent
+  // before delivery events were wired up (Aug 2026) will never get one.
+  const reported = totals.delivered + totals.bounced + totals.complained;
+  const deliveryRate = reported > 0 ? percent(totals.delivered, reported) : null;
 
   return json({
     stats: {
