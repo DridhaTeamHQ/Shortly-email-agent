@@ -5,6 +5,7 @@
 import { requiredEnv } from "./http.ts";
 import { generateUnsubToken } from "./unsub.ts";
 import { htmlToText } from "./plain-text.ts";
+import { namedAddresses } from "./named.ts";
 import { SESv2Client, SendEmailCommand } from "npm:@aws-sdk/client-sesv2";
 
 type SendOpts = {
@@ -77,7 +78,18 @@ export async function sendEmail(opts: SendOpts) {
   // Set SES_CONFIGURATION_SET once the configuration set exists in AWS and
   // every send starts emitting delivery/bounce/complaint events. Until then
   // the field is simply omitted.
-  const configurationSet = Deno.env.get("SES_CONFIGURATION_SET");
+  //
+  // Addresses the owner names personally (named.ts: the dashboard "Domain mails"
+  // list + ALLOWED_EMAIL_ADDRESSES) go through SES_NAMED_CONFIGURATION_SET instead: a set with Auto
+  // Validation OFF, because SES under-rates some real company mailboxes and the
+  // account-wide HIGH threshold would block them for good (balaji.g@ 2026-11-07).
+  // Owner rule: such an address is mailed only when SES says mailbox exists
+  // MEDIUM or HIGH; overall LOW needs the owner's approval first -- checked
+  // when the owner names it, before it is added to the named list.
+  const namedSet = Deno.env.get("SES_NAMED_CONFIGURATION_SET");
+  const configurationSet = namedSet && (await namedAddresses()).has(opts.to.trim().toLowerCase())
+    ? namedSet
+    : Deno.env.get("SES_CONFIGURATION_SET");
 
   const headers = opts.bulk === false ? [] : await unsubscribeHeaders(opts.to);
   const text = htmlToText(opts.html);

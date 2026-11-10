@@ -35,6 +35,7 @@ window.SHORTLY = {
   trending:    "${functionsBase}/trending-topics",
   analytics:   "${functionsBase}/analytics",
   sesStats:    "${functionsBase}/ses-stats",
+  namedMails:  "${functionsBase}/named-mails",
   generateFromUrl: "${functionsBase}/generate-from-url",
   verifyToken: "${functionsBase}/verify-agent-token",
   unsubscribe: "${functionsBase}/unsubscribe",

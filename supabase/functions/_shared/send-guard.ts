@@ -98,10 +98,11 @@ function alwaysInclude(): { emails: Set<string>; domains: Set<string> } {
 
 /**
  * Apply the verified-only gate, the domain hold, and the per-run cap.
- * Addresses in SEND_ALWAYS_INCLUDE skip the domain hold and the cap.
+ * Addresses in SEND_ALWAYS_INCLUDE (and `alsoInclude`, the owner's named domain
+ * mails) skip the domain hold and the cap.
  * Pure and synchronous: callers can log the counts before committing to a send.
  */
-export function screenRecipients<T extends Recipient>(rows: T[]): { send: T[]; counts: ScreenCounts } {
+export function screenRecipients<T extends Recipient>(rows: T[], alsoInclude: Set<string> = new Set()): { send: T[]; counts: ScreenCounts } {
   const requireVerified = flag("SEND_REQUIRE_VERIFIED", "1") !== "0";
   const held = holdDomains();
   const cap = num("SEND_MAX_PER_RUN", 0);
@@ -133,7 +134,7 @@ export function screenRecipients<T extends Recipient>(rows: T[]): { send: T[]; c
     }
     const email = String(row.email ?? "").trim().toLowerCase();
     const domain = email.split("@")[1] ?? "";
-    if (always.emails.has(email) || always.domains.has(domain)) {
+    if (always.emails.has(email) || always.domains.has(domain) || alsoInclude.has(email)) {
       included.push(row);
       continue;
     }

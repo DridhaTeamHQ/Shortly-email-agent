@@ -18,6 +18,7 @@ import { corsHeaders, json, requiredEnv } from "../_shared/http.ts";
 import { sendEmail } from "../_shared/mailer.ts";
 import { requireAgent } from "../_shared/agent-auth.ts";
 import { screenRecipients, checkBounceRate } from "../_shared/send-guard.ts";
+import { namedAddresses } from "../_shared/named.ts";
 import { allSuppressed } from "../_shared/suppression.ts";
 import { renderPrivacyFooter, unsubscribeUrl } from "../_shared/privacy.ts";
 import { logoSvg } from "../_shared/brand.ts";
@@ -846,7 +847,7 @@ Deno.serve(async (request) => {
       return json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
     const unsuppressed = allSubs.filter((s) => !suppressed.has(normalizeEmail(s.email)));
-    const { send: screenedSubs, counts: screenCounts } = screenRecipients(unsuppressed);
+    const { send: screenedSubs, counts: screenCounts } = screenRecipients(unsuppressed, await namedAddresses());
     if (screenedSubs.length === 0) {
       return json({
         error: "No eligible recipients after verification screening; nothing queued.",

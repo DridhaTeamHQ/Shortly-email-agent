@@ -1963,6 +1963,7 @@ async function loadSesStats() {
     if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
     sesState.data = data;
     renderSesStats();
+    loadNamed();
   } catch (e) {
     $("#sesUpdated").textContent = `Could not load: ${e.message}`;
   } finally {
@@ -2107,6 +2108,112 @@ function renderSesSuppression() {
   $("#sesSuppRows").innerHTML = rows.length
     ? rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.email)}</td><td>${esc(r.reason)}</td><td>${esc(sesIst(r.added))}</td><td>${esc(r.mail || "")}</td></tr>`).join("")
     : `<tr><td colspan="5" class="muted" style="padding:16px;text-align:center">No matches.</td></tr>`;
+}
+
+// ---------- Domain mails (named by the owner; admin only) ----------
+// Non-Gmail addresses the owner knows are real. The named-mails function runs
+// the SES check, applies the owner's rule, adds the address and sends the
+// welcome through the Domain-mails configuration set.
+const namedUrl = () => cfg.namedMails || (cfg.subscribers || "").replace(/\/subscribers$/, "/named-mails");
+
+async function namedCall(body) {
+  const headers = { "Content-Type": "application/json", "x-admin-token": sesAdminToken() };
+  if (cfg.anonKey) { headers.apikey = cfg.anonKey; headers.Authorization = `Bearer ${cfg.anonKey}`; }
+  const agentToken = localStorage.getItem(AGENT_TOKEN_KEY);
+  if (agentToken) headers["x-client-info"] = `shortly-agent-token ${agentToken}`;
+  const r = await fetch(namedUrl(), { method: "POST", headers, body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  return { status: r.status, data };
+}
+
+const namedLevel = (v) => esc(v || "?");
+
+async function loadNamed() {
+  const { status, data } = await namedCall({ action: "list" });
+  if (status !== 200) {
+    $("#namedRows").innerHTML = `<tr><td colspan="6" class="muted">Could not load: ${esc(data.error || `HTTP ${status}`)}</td></tr>`;
+    return;
+  }
+  if (data.named_set) $("#namedSetName").textContent = data.named_set;
+  const rows = data.rows || [];
+  $("#namedRows").innerHTML = rows.length ? rows.map((r) => {
+    const sub = r.subscriber;
+    const st = !sub ? "not added" : sub.status !== "subscribed" ? sub.status : sub.welcome_sent_at ? "welcomed, gets newsletter" : "subscribed";
+    const ses = r.ses_overall || r.ses_mailbox ? `${namedLevel(r.ses_overall)} / ${namedLevel(r.ses_mailbox)}` : "–";
+    const added = r.added_at ? new Date(r.added_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" }) : "–";
+    const remove = r.from_secret
+      ? `<span class="muted" title="Set with the ALLOWED_EMAIL_ADDRESSES secret">secret</span>`
+      : `<button type="button" class="named-remove" data-named-remove="${esc(r.email)}">Remove</button>`;
+    return `<tr><td>${esc(r.email)}</td><td>${ses}</td><td>${r.approved_override ? "yes (override)" : "–"}</td><td>${esc(st)}</td><td>${esc(added)}</td><td>${remove}</td></tr>`;
+  }).join("") : `<tr><td colspan="6" class="muted">No named domain mails yet.</td></tr>`;
+}
+
+function namedDecisionText(c) {
+  if (c.blocked) return { tag: "", text: esc(c.blocked) };
+  if (c.decision === "ok") return { tag: "ok", text: "Passes your rule (mailbox HIGH/MEDIUM, overall not LOW)." };
+  if (c.decision === "approve_low_overall") return { tag: "", text: "Overall is <b>LOW</b>. Your rule: send only if you approve." };
+  return { tag: "", text: "Mailbox exists is <b>LOW</b>: SES thinks this mailbox may not exist. Send only if you are sure it is real." };
+}
+
+function renderNamedCheck(c) {
+  const d = namedDecisionText(c);
+  const already = c.already_named ? `<p class="muted">Already on your list${c.welcome_sent ? " and welcomed" : ""}.</p>` : "";
+  const button = c.blocked ? "" : c.welcome_sent
+    ? `<button type="button" class="btn-ghost" data-named-add="${esc(c.email)}" data-named-approve="${c.decision !== "ok"}">Add to list (no new welcome)</button>`
+    : `<button type="button" class="btn-primary" data-named-add="${esc(c.email)}" data-named-approve="${c.decision !== "ok"}">${c.decision === "ok" ? "Add &amp; send welcome" : "Approve &amp; send welcome"}</button>`;
+  $("#namedResult").innerHTML = `<div class="named-result">
+    <p><b>${esc(c.email)}</b></p>
+    <p>SES overall <span class="named-tag ${c.overall === "HIGH" ? "ok" : ""}">${namedLevel(c.overall)}</span>
+       &nbsp; Mailbox exists <span class="named-tag ${c.mailbox === "HIGH" || c.mailbox === "MEDIUM" ? "ok" : ""}">${namedLevel(c.mailbox)}</span></p>
+    <p>${d.text}</p>${already}${button}</div>`;
+}
+
+async function namedAdd(email, needsApproval) {
+  if (needsApproval) {
+    const ok = confirm(`SES rates ${email} below your rule.\n\nSend the welcome only if you are sure this mailbox is real.\n\nApprove and send?`);
+    if (!ok) return;
+  }
+  $("#namedResult").innerHTML = `<div class="named-result"><p>Adding and sending…</p></div>`;
+  const { status, data } = await namedCall({ action: "add", email, approve: !!needsApproval });
+  if (status !== 200) {
+    $("#namedResult").innerHTML = `<div class="named-result"><p>${esc(data.error || `HTTP ${status}`)}</p></div>`;
+    return;
+  }
+  const w = data.welcome || {};
+  const msg = w.sent ? `Added. Welcome mail sent through ${esc($("#namedSetName").textContent)}.`
+    : w.skipped ? "Added. Welcome was already sent before, so none was sent now."
+    : `Added, but the welcome could not be sent: ${esc(w.error || "unknown error")}`;
+  $("#namedResult").innerHTML = `<div class="named-result"><p><b>${esc(email)}</b></p><p>${msg}</p><p class="muted">It gets the daily newsletter from tomorrow.</p></div>`;
+  $("#namedEmail").value = "";
+  loadNamed();
+}
+
+function initNamedMails() {
+  $("#namedCheckForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = $("#namedEmail").value.trim().toLowerCase();
+    $("#namedError").textContent = "";
+    if (!/^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i.test(email)) { $("#namedError").textContent = "Enter one valid email address."; return; }
+    if (email.endsWith("@gmail.com")) { $("#namedError").textContent = "Gmail addresses go through the normal upload, not this list."; return; }
+    $("#namedResult").innerHTML = `<div class="named-result"><p>Checking with SES…</p></div>`;
+    const { status, data } = await namedCall({ action: "check", email });
+    if (status !== 200) { $("#namedResult").innerHTML = ""; $("#namedError").textContent = data.error || `HTTP ${status}`; return; }
+    renderNamedCheck(data);
+  });
+  $("#namedEmail").addEventListener("input", () => { $("#namedError").textContent = ""; });
+  $("#namedResult").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-named-add]");
+    if (b) namedAdd(b.dataset.namedAdd, b.dataset.namedApprove === "true");
+  });
+  $("#namedRows").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-named-remove]");
+    if (!b) return;
+    const email = b.dataset.namedRemove;
+    if (!confirm(`Remove ${email} from your domain-mails list?\n\nFuture mails to it will go through the strict SES check again (and may be blocked).`)) return;
+    const { status, data } = await namedCall({ action: "remove", email });
+    if (status !== 200) { alert(data.error || `HTTP ${status}`); return; }
+    loadNamed();
+  });
 }
 
 function initSesStats() {
@@ -3917,6 +4024,7 @@ document.addEventListener("keydown", (e) => {
 
 // Initial load
 initSesStats();
+initNamedMails();
 renderSubscriberTopicPicker();
 bootAuth();
 

@@ -408,6 +408,22 @@
             <h3 class="ses-h">Email validation results</h3>
             <div class="stats-grid" id="sesValidation"></div>
             <div class="ses-panel"><div id="sesValidationChart"></div></div>
+            <h3 class="ses-h">Domain mails (named by you)</h3>
+            <div class="ses-panel">
+              <p class="ses-note" style="margin-top:0">Non-Gmail addresses you know are real. They are sent through the <b id="namedSetName">Domain-mails</b> configuration set (SES Auto Validation off). Rule: mailbox exists HIGH or MEDIUM is sent; overall LOW or mailbox LOW needs your approval.</p>
+              <form id="namedCheckForm" class="ses-gate" autocomplete="off">
+                <input type="email" id="namedEmail" placeholder="name@company.com" aria-label="Domain email address" />
+                <button type="submit" class="btn-primary" id="namedCheckBtn">Check</button>
+                <span id="namedError" class="ses-error" role="alert"></span>
+              </form>
+              <div id="namedResult"></div>
+              <div class="table-wrap ses-gap">
+                <table class="history-table">
+                  <thead><tr><th>Email</th><th>SES (overall / mailbox)</th><th>Approved</th><th>Status</th><th>Added</th><th></th></tr></thead>
+                  <tbody id="namedRows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
             <h3 class="ses-h">Suppression list <span class="muted" id="sesSuppCount"></span></h3>
             <div class="toolbar">
               <input type="search" id="sesSuppSearch" placeholder="Search email&hellip;" aria-label="Search suppression list" />
