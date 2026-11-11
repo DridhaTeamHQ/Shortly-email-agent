@@ -2221,3 +2221,21 @@ select:focus {
 .named-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line-strong); color: var(--ink-2); }
 .named-tag.ok { background: var(--brand-soft); border-color: var(--brand-line); color: var(--brand-deep); }
 .named-remove { border: 0; background: transparent; color: var(--brand-deep); cursor: pointer; font: inherit; font-size: 13px; padding: 0; }
+
+/* Welcome queue (Subscribers page) */
+.pool-panel { display: block; }
+.pool-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.pool-status { margin: 0 0 10px; color: var(--ink-2); }
+.pool-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.pool-label { font-weight: 600; color: var(--ink-2); margin-right: 2px; }
+.pool-choices { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.pool-choices button { border: 1px solid var(--line-strong); border-radius: 999px; background: transparent; color: var(--ink-2); padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer; width: auto; }
+.pool-choices button.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+.pool-row > .btn-ghost, .pool-row > input[type=number] { width: auto; }
+#poolLimitCustom { width: 120px; }
+.pool-error { color: var(--brand-deep); font-size: 13px; flex-basis: 100%; }
+.pool-error:empty { display: none; }
+.pool-preview { border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px 14px; margin-top: 10px; background: var(--softer); }
+.pool-preview table { border-collapse: collapse; margin: 6px 0 10px; }
+.pool-preview td { padding: 3px 14px 3px 0; }
+.pool-preview td:last-child { text-align: right; font-weight: 600; }

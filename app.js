@@ -3610,6 +3610,146 @@ async function loadBatchStatus() {
   }
 }
 
+// ---------- Welcome queue (Subscribers page) ----------
+// A bulk list is queued once; the server sends the next `daily_limit` of it
+// every day at 12:00 IST (release-welcome-pool), computers on or off.
+const poolUrl = () => cfg.welcomePool || (cfg.subscribers || "").replace(/\/subscribers$/, "/welcome-pool");
+const POOL_CHOICES = [150, 200, 250, 300, 350, 400];
+const poolState = { status: null, limit: null, other: false, rows: null, files: "" };
+
+function renderPoolChoices() {
+  const cap = poolState.status?.system_cap || 400;
+  const current = poolState.limit;
+  $("#poolLimitChoices").innerHTML = POOL_CHOICES.filter((n) => n <= cap).map((n) =>
+    `<button type="button" data-pool-limit="${n}" class="${!poolState.other && current === n ? "active" : ""}">${n}</button>`
+  ).join("") + `<button type="button" data-pool-limit="other" class="${poolState.other ? "active" : ""}">Other</button>`;
+  $("#poolLimitCustom").hidden = !poolState.other;
+  $("#poolLimitCustom").max = String(cap);
+}
+
+function poolChosenLimit() {
+  const cap = poolState.status?.system_cap || 400;
+  const n = poolState.other ? Math.floor(Number($("#poolLimitCustom").value)) : poolState.limit;
+  if (!Number.isFinite(n) || n < 1) return { error: "Enter a number of 1 or more." };
+  if (n > cap) return { error: `The system allows at most ${cap} new addresses a day. Choose ${cap} or less.` };
+  return { n };
+}
+
+function renderPoolStatus() {
+  const st = poolState.status;
+  if (!st) return;
+  const last = (st.releases || [])[0];
+  const fmt = (n) => Number(n || 0).toLocaleString("en-IN");
+  $("#poolStatus").innerHTML = `<b>${fmt(st.waiting)}</b> waiting · <b>${fmt(st.daily_limit)}</b> per day at 12:00 PM IST` +
+    (st.waiting ? ` · about <b>${st.days_left}</b> day${st.days_left === 1 ? "" : "s"} to finish` : " · queue is empty") +
+    ` · ${fmt(st.released_total)} released so far` +
+    (last ? ` (last: ${fmt(last.count)} on ${esc(new Date(`${last.day}T12:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" }))})` : "");
+}
+
+async function loadPool() {
+  try {
+    const st = await api("POST", poolUrl(), { action: "status" });
+    poolState.status = st;
+    if (poolState.limit === null) {
+      poolState.limit = st.daily_limit;
+      poolState.other = !POOL_CHOICES.includes(st.daily_limit);
+      if (poolState.other) $("#poolLimitCustom").value = st.daily_limit;
+    }
+    renderPoolStatus();
+    renderPoolChoices();
+  } catch (e) {
+    $("#poolStatus").textContent = `Could not load the welcome queue: ${e.message}`;
+  }
+}
+
+function renderPoolPreview(c) {
+  const row = (label, n) => (n ? `<tr><td>${esc(label)}</td><td>${Number(n).toLocaleString("en-IN")}</td></tr>` : "");
+  const lim = poolChosenLimit();
+  const days = lim.n && c.new ? Math.ceil(((poolState.status?.waiting || 0) + c.new) / lim.n) : null;
+  $("#poolPreview").innerHTML = `<div class="pool-preview">
+    <b>${esc(poolState.files)}</b>
+    <table>
+      ${row("Unique addresses", c.unique)}${row("Repeats removed", c.duplicates)}
+      ${row("Already on the subscriber list (skipped)", c.already_subscriber)}
+      ${row("On the never-send list (skipped)", c.on_never_send)}
+      ${row("Already in the queue (skipped)", c.already_queued)}
+      ${row("Not Gmail (skipped)", c.not_gmail)}${row("Failed the pre-check (skipped)", c.invalid)}
+      <tr><td><b>New, will be queued</b></td><td>${Number(c.new).toLocaleString("en-IN")}</td></tr>
+    </table>
+    ${c.new ? `<p class="muted">${lim.n ? `Each day the server also runs the SES check before sending. With ${lim.n} per day the queue takes about <b>${days}</b> day${days === 1 ? "" : "s"}.` : `Choose how many per day above first: ${esc(lim.error)}`}</p>
+    <button type="button" class="btn-primary" id="poolAdd">Add ${Number(c.new).toLocaleString("en-IN")} to queue</button>` : `<p class="muted">Nothing new to add.</p>`}
+  </div>`;
+}
+
+function initWelcomePool() {
+  $("#poolLimitChoices").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pool-limit]");
+    if (!b) return;
+    $("#poolLimitError").textContent = "";
+    if (b.dataset.poolLimit === "other") {
+      poolState.other = true;
+      renderPoolChoices();
+      $("#poolLimitCustom").focus();
+    } else {
+      poolState.other = false;
+      poolState.limit = Number(b.dataset.poolLimit);
+      renderPoolChoices();
+    }
+  });
+  $("#poolLimitCustom").addEventListener("input", () => { $("#poolLimitError").textContent = ""; });
+  $("#poolSaveLimit").addEventListener("click", async () => {
+    const lim = poolChosenLimit();
+    if (lim.error) { $("#poolLimitError").textContent = lim.error; return; }
+    try {
+      const res = await api("POST", poolUrl(), { action: "set-limit", daily_limit: lim.n });
+      poolState.status = res;
+      poolState.limit = res.daily_limit;
+      renderPoolStatus();
+      toast(`Welcome queue: ${res.daily_limit} per day from the next 12:00 PM run.`);
+    } catch (e) {
+      $("#poolLimitError").textContent = e.message;
+    }
+  });
+  $("#poolCheck").addEventListener("click", async () => {
+    const files = [...($("#poolFiles").files || [])];
+    if (!files.length) { toast("Choose one or more CSV, XLSX, or XLS files first."); return; }
+    $("#poolPreview").innerHTML = `<div class="pool-preview">Checking…</div>`;
+    try {
+      const rows = [];
+      for (const file of files) rows.push(...await parseSubscriberFile(file));
+      if (!rows.length) { $("#poolPreview").innerHTML = `<div class="pool-preview">No email addresses found. The file needs an Email (or Email ID) column.</div>`; return; }
+      poolState.rows = rows.map((r) => ({ email: r.email, full_name: r.full_name }));
+      poolState.files = files.length === 1 ? files[0].name : `${files.length} files`;
+      const res = await api("POST", poolUrl(), { action: "preview", subscribers: poolState.rows });
+      renderPoolPreview(res.counts);
+    } catch (e) {
+      $("#poolPreview").innerHTML = `<div class="pool-preview">Could not check the files: ${esc(e.message)}</div>`;
+    }
+  });
+  $("#poolPreview").addEventListener("click", async (e) => {
+    if (!e.target.closest("#poolAdd")) return;
+    const lim = poolChosenLimit();
+    if (lim.error) { $("#poolLimitError").textContent = lim.error; return; }
+    if (!confirm(`Add these addresses to the welcome queue?\n\n${lim.n} welcome mails will go out every day at 12:00 PM IST until the queue is empty.`)) return;
+    const button = $("#poolAdd");
+    button.disabled = true;
+    try {
+      const res = await api("POST", poolUrl(), { action: "add", subscribers: poolState.rows, daily_limit: lim.n, source: poolState.files });
+      poolState.status = res;
+      poolState.limit = res.daily_limit;
+      poolState.rows = null;
+      $("#poolFiles").value = "";
+      $("#poolPreview").innerHTML = `<div class="pool-preview">Added <b>${Number(res.queued).toLocaleString("en-IN")}</b> to the queue. ${res.daily_limit} per day from the next 12:00 PM IST run.</div>`;
+      renderPoolStatus();
+      renderPoolChoices();
+    } catch (err) {
+      button.disabled = false;
+      toast(`Could not add to the queue: ${err.message}`);
+    }
+  });
+  loadPool();
+}
+
 $("#uploadBatchBtn").addEventListener("click", async () => {
   const files = [...($("#batchFiles").files || [])];
   if (!files.length) {
@@ -4025,6 +4165,7 @@ document.addEventListener("keydown", (e) => {
 // Initial load
 initSesStats();
 initNamedMails();
+initWelcomePool();
 renderSubscriberTopicPicker();
 bootAuth();
 

@@ -35,7 +35,10 @@ Deno.serve(async (request) => {
       .eq("is_daily_batch", true).eq("received_on", today).maybeSingle();
     const alreadyToday = Number(batch?.added_count ?? 0);
     const { count: waiting } = await supabase.from("welcome_pool").select("email", { count: "exact", head: true }).is("released_on", null);
-    const room = Math.max(0, dailyLimit - alreadyToday);
+    // Never past DAILY_BATCH_MAX: import-batch would refuse the rest, and those
+    // would be marked released without being added.
+    const cap = Number(Deno.env.get("DAILY_BATCH_MAX")) || 2500;
+    const room = Math.max(0, Math.min(dailyLimit, cap) - alreadyToday);
 
     const summary = { today, daily_limit: dailyLimit, already_added_today: alreadyToday, waiting: waiting ?? 0, releasing: 0 };
     if (room === 0 || !waiting) return json({ ...summary, note: room === 0 ? "Today's limit is already reached." : "The pool is empty." });

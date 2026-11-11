@@ -469,6 +469,25 @@
             <button id="uploadBatchBtn" class="btn-primary" type="button">Upload daily batch</button>
             <span class="muted">New addresses get the welcome email today and the newsletter from tomorrow. Addresses already on the list, including unsubscribed ones, are left alone. You can pick many files at once.</span>
           </div>
+          <div class="sub-form pool-panel" id="poolPanel">
+            <div class="pool-head">
+              <strong>Welcome queue</strong>
+              <span class="muted">Big lists go out a set number per day, every day at 12:00 PM IST, even when every computer is off.</span>
+            </div>
+            <p class="pool-status" id="poolStatus">Loading…</p>
+            <div class="pool-row">
+              <span class="pool-label">Per day</span>
+              <div class="pool-choices" id="poolLimitChoices" role="group" aria-label="Welcome mails per day"></div>
+              <input type="number" id="poolLimitCustom" min="1" step="1" placeholder="Your number" aria-label="Custom number per day" hidden />
+              <button type="button" class="btn-ghost" id="poolSaveLimit">Save limit</button>
+              <span class="pool-error" id="poolLimitError" role="alert"></span>
+            </div>
+            <div class="pool-row">
+              <input id="poolFiles" type="file" multiple aria-label="Files for the welcome queue" accept=".csv,text/csv,.xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              <button type="button" class="btn-ghost" id="poolCheck">Check files</button>
+            </div>
+            <div id="poolPreview"></div>
+          </div>
           <div class="unsub-review" id="unsubReview" hidden>
             <p class="unsub-review-title" id="unsubReviewTitle"></p>
             <p class="muted">These addresses unsubscribed before. They were <strong>not</strong> added and get <strong>no</strong> mail. Tick only the ones that should get the newsletter again (from tomorrow morning, no new welcome email).</p>
