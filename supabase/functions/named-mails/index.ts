@@ -53,7 +53,7 @@ function decide(overall: string | null, mailbox: string | null): Decision {
 
 async function state(supabase: Client, email: string) {
   const [{ data: sub }, { data: supp }, { data: named }] = await Promise.all([
-    supabase.from("subscribers").select("id,status,welcome_sent_at").eq("email", email).maybeSingle(),
+    supabase.from("subscribers").select("id,status,verification_status,welcome_sent_at").eq("email", email).maybeSingle(),
     supabase.from("email_suppressions").select("reason").eq("email", email),
     supabase.from("named_addresses").select("email").eq("email", email).maybeSingle(),
   ]);
@@ -170,13 +170,16 @@ Deno.serve(async (request) => {
         const { data, error } = await supabase.from("subscribers").insert({
           email, plan: "daily-wrap", category: null, topics: ["daily-wrap"], rhythm: "daily", status: "subscribed",
           verification_status: "valid", verified_at: new Date().toISOString(), verification_reason: reason,
-        }).select("id,status,welcome_sent_at").single();
+        }).select("id,status,verification_status,welcome_sent_at").single();
         if (error) throw new Error(error.message);
         subscriber = data;
-      } else if (subscriber.status !== "subscribed") {
+      } else if (subscriber.status !== "subscribed" || subscriber.verification_status !== "valid") {
+        // An earlier SES block also marks verification "invalid", and the
+        // newsletter skips invalid addresses -- clear both (balaji.g@ missed
+        // the 11 Nov newsletter this way).
         const { data, error } = await supabase.from("subscribers").update({
           status: "subscribed", unsubscribed_at: null, verification_status: "valid", verification_reason: reason, updated_at: new Date().toISOString(),
-        }).eq("id", subscriber.id).select("id,status,welcome_sent_at").single();
+        }).eq("id", subscriber.id).select("id,status,verification_status,welcome_sent_at").single();
         if (error) throw new Error(error.message);
         subscriber = data;
       }
