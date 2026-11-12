@@ -7,7 +7,7 @@
 //   add "to":["a@b.com"]                        -> send to these instead of REPORT_EMAIL_TO
 //   add "opens":true                           -> include open stats (off unless REPORT_SHOW_OPENS=1)
 //   POST {"kind":"clicks"}                     -> opens + clicks per article for the day's newsletter,
-//                                                 to CLICK_REPORT_EMAIL_TO only (default garikinabalaji@)
+//                                                 to the CLICK_REPORT_EMAIL_TO secret only
 //
 // Recipients: REPORT_EMAIL_TO secret (comma-separated). The daily report runs
 // from cron after the morning newsletter has finished.

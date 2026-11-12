@@ -91,13 +91,13 @@ function opensTable(title: string, rows: OpensRow[]) {
 }
 
 // ---- Clicks (SES click tracking, live since 2026-11-04 ~11:30 IST) --------
-// Its own report, sent only to CLICK_REPORT_EMAIL_TO (owner: garikinabalaji@
+// Its own report, sent only to the CLICK_REPORT_EMAIL_TO secret (the owner
 // only) and only when the owner asks -- readers keep opening and clicking for
 // hours, so it is not on a cron. Test sends after the 9 AM window are left out
 // by the mail's send time.
 const STORY_UUID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/;
 const clickRecipients = () =>
-  (Deno.env.get("CLICK_REPORT_EMAIL_TO") ?? "garikinabalaji@gmail.com")
+  (Deno.env.get("CLICK_REPORT_EMAIL_TO") ?? "")
     .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
 const escHtml = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -160,6 +160,7 @@ export async function sendClicksReport(supabase: Client, day = istDate(0), dryRu
     `<p style="margin:6px 0 0;color:#666">Opens are a minimum: mails read with images off never report an open, so a reader who clicked is counted as opened too. Readers keep opening and clicking for hours, so later reports show more. Article click tracking started 4 Nov ~11:30 AM IST; that day's 9 AM mail had the old links.</p>`);
   const subject = `[Clicks report] dailymattr ${day}: ${n(openedOrClicked)} opened, ${n(clickers.size)} clicked`;
   const to = toOverride?.length ? toOverride : clickRecipients();
+  if (!to.length && !dryRun) throw new Error("CLICK_REPORT_EMAIL_TO secret is not set - clicks report not sent");
   if (dryRun) return { dry_run: true, subject, to, delivered, opened: openedOrClicked, clicked: clickers.size, clicks: clickRows.length, html };
   const messageId = await sendReportEmail({ to, subject, html });
   return { ok: true, kind: "clicks", day, to, subject, messageId };

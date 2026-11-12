@@ -5,7 +5,7 @@
 // Reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION from .env and
 // calls Amazon SES v2 directly (signed request, no extra packages). Sent WITHOUT
 // the configuration set, like the other internal reports, so it never mixes into
-// subscriber statistics. Recipient: WORK_REPORT_TO (default garikinabalaji@gmail.com).
+// subscriber statistics. Recipient: WORK_REPORT_TO in .env only (never committed).
 import { readFileSync } from "node:fs";
 import { createHash, createHmac } from "node:crypto";
 
@@ -21,7 +21,11 @@ if (!file || !subject) {
   process.exit(1);
 }
 const html = readFileSync(file, "utf8");
-const to = (process.env.WORK_REPORT_TO || "garikinabalaji@gmail.com").split(",").map((s) => s.trim()).filter(Boolean);
+const to = (process.env.WORK_REPORT_TO || "").split(",").map((s) => s.trim()).filter(Boolean);
+if (!to.length) {
+  console.error("WORK_REPORT_TO is not set in .env - report not sent");
+  process.exit(1);
+}
 const from = "dailymattr work report <team@dailymattr.com>";
 const region = process.env.AWS_REGION, keyId = process.env.AWS_ACCESS_KEY_ID, secret = process.env.AWS_SECRET_ACCESS_KEY;
 if (!region || !keyId || !secret) {
