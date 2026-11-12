@@ -61,12 +61,13 @@ const html = `<!doctype html><html><body style="margin:0;padding:24px;font-famil
 <p style="font-size:22px;margin:0"><b style="color:#3979FF">dailymattr</b> work report</p>
 <p style="margin:2px 0 16px;color:#5F5E5A">${esc(r.date)}${r.title ? ` &middot; ${esc(r.title)}` : ""}</p>
 
-${h2("Summary")}${list(r.summary)}
-${r.numbers?.length ? table(["Item", "Number"], r.numbers) : ""}
-
-${h2("Time sheet")}
+${(() => { const l = (r.short?.length ? r.short : (r.summary ?? [])).slice(0, 3); return l.length ? `<div style="border-left:4px solid #3979FF;background:#F1F6FF;padding:10px 14px;margin:8px 0 4px"><b>In short</b>${l.map((x) => `<p style="margin:6px 0 0">${txt(x)}</p>`).join("")}</div>` : ""; })()}
+${h2("Time sheet")}<p style="margin:0 0 6px;color:#5F5E5A">Copy these rows into the time sheet.</p>
 ${table(["Task", "What was done", ...(r.timesheet?.some((t) => t.hours) ? ["Hours"] : [])],
   (r.timesheet ?? []).map((t) => [t.task, t.detail, ...(t.hours ? [String(t.hours)] : [])]))}
+
+${h2("Summary")}${list(r.summary)}
+${r.numbers?.length ? table(["Item", "Number"], r.numbers) : ""}
 
 ${h2("Changes, by place")}
 <h3 style="font-size:16px;margin:12px 0 4px">Database (tables, columns, SQL functions, triggers, cron jobs, migrations)</h3>${list(c.database)}

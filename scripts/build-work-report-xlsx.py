@@ -54,9 +54,28 @@ def title(ws, text):
 
 wb = Workbook()
 
-# Summary
+# Time sheet
 ws = wb.active
-ws.title = "Summary"
+ws.title = "Time sheet"
+title(ws, "Time sheet")
+has_hours = any(t.get("hours") for t in r.get("timesheet", []))
+shorts = (r.get("short") or r.get("summary") or [])[:3]
+ws["A4"] = "In short"
+ws["A4"].font = Font(bold=True, color=BLUE)
+for i, line in enumerate(shorts, 5):
+    ws.cell(row=i, column=2, value=plain(line)).alignment = WRAP
+    ws.row_dimensions[i].height = 30
+ts = 6 + len(shorts)
+header(ws, ts, ["Task", "What was done"] + (["Hours"] if has_hours else []), [34, 90, 10])
+for i, t in enumerate(r.get("timesheet", []), ts + 1):
+    ws.cell(row=i, column=1, value=plain(t["task"])).alignment = WRAP
+    ws.cell(row=i, column=2, value=plain(t["detail"])).alignment = WRAP
+    if has_hours:
+        ws.cell(row=i, column=3, value=t.get("hours"))
+    ws.row_dimensions[i].height = 35
+
+# Summary
+ws = wb.create_sheet("Summary")
 title(ws, f"dailymattr work report - {r.get('title', '')}")
 row = 4
 for s in r.get("summary", []):
@@ -76,18 +95,6 @@ if r.get("numbers"):
 ws.column_dimensions["A"].width = 4
 ws.column_dimensions["B"].width = 90
 ws.column_dimensions["C"].width = 40
-
-# Time sheet
-ws = wb.create_sheet("Time sheet")
-title(ws, "Time sheet")
-has_hours = any(t.get("hours") for t in r.get("timesheet", []))
-header(ws, 4, ["Task", "What was done"] + (["Hours"] if has_hours else []), [34, 90, 10])
-for i, t in enumerate(r.get("timesheet", []), 5):
-    ws.cell(row=i, column=1, value=plain(t["task"])).alignment = WRAP
-    ws.cell(row=i, column=2, value=plain(t["detail"])).alignment = WRAP
-    if has_hours:
-        ws.cell(row=i, column=3, value=t.get("hours"))
-    ws.row_dimensions[i].height = 35
 
 # Changes
 ws = wb.create_sheet("Changes")

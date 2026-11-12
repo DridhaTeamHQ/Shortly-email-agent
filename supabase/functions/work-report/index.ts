@@ -75,14 +75,25 @@ const list = (items?: string[]) => items?.length
 const h2 = (s: string) => `<h2 style="font-size:18px;border-bottom:2px solid #3979FF;padding-bottom:4px;margin:32px 0 10px">${esc(s)}</h2>`;
 const table = (head: string[], rows: string[][]) => `<table cellpadding="6" style="border-collapse:collapse;font-size:14px;margin:6px 0 12px"><tr>${head.map((h) => `<th style="text-align:left;border-bottom:1px solid #B4B2A9;padding:6px 10px">${esc(h)}</th>`).join("")}</tr>${rows.map((row) => `<tr>${row.map((c) => `<td style="border-bottom:1px solid #EEE;padding:6px 10px;vertical-align:top">${txt(c)}</td>`).join("")}</tr>`).join("")}</table>`;
 
+// 3 crisp lines at the very top (owner, 2026-11-12). From report.short; if a
+// day has none, the first 3 summary points are used.
+const shortLines = (r: Any): string[] => (r.short?.length ? r.short : (r.summary ?? [])).slice(0, 3);
+const shortBox = (r: Any) => {
+  const lines = shortLines(r);
+  return lines.length
+    ? `<div style="border-left:4px solid #3979FF;background:#F1F6FF;padding:10px 14px;margin:8px 0 4px"><b>In short</b>${lines.map((l) => `<p style="margin:6px 0 0">${txt(l)}</p>`).join("")}</div>`
+    : "";
+};
+
 function buildHtml(r: Any) {
   const c = r.changes ?? {};
   return `<!doctype html><html><body style="margin:0;padding:24px;font-family:Arial,Helvetica,sans-serif;color:#2C2C2A;line-height:1.55;max-width:760px">
 <p style="font-size:22px;margin:0"><b style="color:#3979FF">dailymattr</b> work report</p>
 <p style="margin:2px 0 16px;color:#5F5E5A">${esc(r.date)}${r.title ? ` &middot; ${esc(r.title)}` : ""}</p>
+${shortBox(r)}
+${h2("Time sheet")}<p style="margin:0 0 6px;color:#5F5E5A">Copy these rows into the time sheet.</p>${r.timesheet?.length ? table(["Task", "What was done"], r.timesheet.map((t: Any) => [t.task, t.detail])) : `<p style="color:#888780">No work logged today.</p>`}
 ${h2("Summary")}${list(r.summary)}
 ${r.numbers?.length ? table(["Item", "Number"], r.numbers) : ""}
-${h2("Time sheet")}${r.timesheet?.length ? table(["Task", "What was done"], r.timesheet.map((t: Any) => [t.task, t.detail])) : `<p style="color:#888780">No work logged today.</p>`}
 ${h2("Changes, by place")}
 <h3 style="font-size:16px;margin:12px 0 4px">Database (tables, columns, SQL functions, triggers, cron jobs, migrations)</h3>${list(c.database)}
 <h3 style="font-size:16px;margin:12px 0 4px">Backend (edge functions: new and changed)</h3>${list(c.backend)}
@@ -117,7 +128,24 @@ async function buildXlsx(r: Any): Promise<Uint8Array> {
     ws.getCell("A2").value = r.date ?? "";
   };
 
-  let ws = wb.addWorksheet("Summary");
+  // Time sheet first: the owner copies it into the time sheet every day.
+  let ws = wb.addWorksheet("Time sheet");
+  title(ws, "Time sheet");
+  ws.getColumn(1).width = 34; ws.getColumn(2).width = 90;
+  // In short: 3 lines above the time sheet rows
+  ws.getCell(4, 1).value = "In short"; ws.getCell(4, 1).font = { bold: true, color: { argb: BLUE } };
+  const shorts = shortLines(r);
+  shorts.forEach((l, i) => { ws.getCell(5 + i, 2).value = plain(l); ws.getCell(5 + i, 2).alignment = wrap; ws.getRow(5 + i).height = 30; });
+  const tsHead = 6 + shorts.length;
+  head(ws, tsHead, ["Task", "What was done"]);
+  (r.timesheet ?? []).forEach((t: Any, i: number) => {
+    const rr = tsHead + 1 + i;
+    ws.getCell(rr, 1).value = plain(t.task); ws.getCell(rr, 1).alignment = wrap;
+    ws.getCell(rr, 2).value = plain(t.detail); ws.getCell(rr, 2).alignment = wrap;
+    ws.getRow(rr).height = 35;
+  });
+
+  ws = wb.addWorksheet("Summary");
   title(ws, `dailymattr work report - ${r.title ?? ""}`);
   ws.getColumn(1).width = 4; ws.getColumn(2).width = 90; ws.getColumn(3).width = 40;
   let row = 4;
@@ -127,16 +155,6 @@ async function buildXlsx(r: Any): Promise<Uint8Array> {
     head(ws, row, ["", "Item", "Number"]); row++;
     for (const [k, v] of r.numbers) { ws.getCell(row, 2).value = plain(k); ws.getCell(row, 3).value = plain(v); row++; }
   }
-
-  ws = wb.addWorksheet("Time sheet");
-  title(ws, "Time sheet");
-  ws.getColumn(1).width = 34; ws.getColumn(2).width = 90;
-  head(ws, 4, ["Task", "What was done"]);
-  (r.timesheet ?? []).forEach((t: Any, i: number) => {
-    ws.getCell(5 + i, 1).value = plain(t.task); ws.getCell(5 + i, 1).alignment = wrap;
-    ws.getCell(5 + i, 2).value = plain(t.detail); ws.getCell(5 + i, 2).alignment = wrap;
-    ws.getRow(5 + i).height = 35;
-  });
 
   ws = wb.addWorksheet("Changes");
   title(ws, "Changes, by place");
